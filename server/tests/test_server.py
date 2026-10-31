@@ -66,6 +66,19 @@ def test_websocket_rejects_anonymous_and_wrong_origin(client):
             pass
 
 
+def test_lan_same_origin_auth_and_websocket(client):
+    lan_origin = "http://192.168.50.10:8000"
+    headers = {"host": "192.168.50.10:8000", "origin": lan_origin}
+    response = client.post("/api/auth/register", headers=headers,
+                           json={"username": "lan_player", "password": "longpassword"})
+    assert response.status_code == 201
+    token = response.cookies["mars_session"]
+    with client.websocket_connect("/ws", headers={**headers, "cookie": f"mars_session={token}"}) as ws:
+        assert ws.receive_json()["type"] == "session.ready"
+    assert client.post("/api/auth/login", headers={**headers, "origin": "http://evil.example"},
+                       json={"username": "lan_player", "password": "longpassword"}).status_code == 403
+
+
 def test_team_chat_idempotency_and_isolation(client):
     alice, alice_token = register(client, "alice")
     bob, bob_token = register(client, "bob")

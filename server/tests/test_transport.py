@@ -55,3 +55,12 @@ def test_resource_overlay_restores_legacy_save(tmp_path):
     assert dto['team_storage']['ore'] == 3
     assert dto['config']['oxygen_enabled'] is False
     assert {cell['resource'] for chunk in restored.chunks.values() for cell in chunk['cells']} == {None, 'water', 'iron', 'sulfur'}
+
+
+def test_small_coordinates_match_browser_byte_reservations():
+    values = [{'position': [0.000001, -0.000012, 0.0001], 'text': 'Марс 🚀'},
+              [1.0, -0.0, 1e-7, 1e20, 1e21]]
+    measured = subprocess.run(['node', '--input-type=module', '-e',
+        "let s='';for await(const c of process.stdin)s+=c;console.log(JSON.stringify(JSON.parse(s).map(x=>Buffer.byteLength(JSON.stringify(x)))));"],
+        input=json.dumps(values), text=True, capture_output=True, check=True)
+    assert json.loads(measured.stdout) == [byte_size(value) for value in values]

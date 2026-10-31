@@ -86,7 +86,6 @@ test('unconfirmed commands replay with original IDs only after snapshot',()=>{
  assert.equal(c.pending.size,0);c.close();
 });
 
-
 test('drill requests require deposits and changing building type refreshes preview', async () => {
  const { Runtime } = await import('../src/net/runtime.js');
  const { Events } = await import('../src/net/events.js');
@@ -103,4 +102,15 @@ test('drill requests require deposits and changing building type refreshes previ
  events.emit('build.type','warehouse');
  assert.equal(scene.buildType,'warehouse'); assert.equal(scene.refreshed,scene.selected);
  events.emit('build.request'); assert.equal(sent.at(-1).payload.building_type,'warehouse');
+});
+
+test('server errors emit readable text once, preserving the raw message separately',()=>{
+ const c=new GameClient({url:'ws://test/ws',WebSocketClass:Socket});c.connect();
+ c.receive({type:'session.ready',payload:{user_id:'u',world_id:'w',team_id:'t'}});
+ const errors=[], messages=[];
+ c.on('error',error=>errors.push(error));c.on('message',message=>messages.push(message));
+ const message={type:'error',payload:{code:'WORLD_UNAVAILABLE',message:'World is full or already started'}};
+ c.receive(message);
+ assert.deepEqual(errors,['World is full or already started']);
+ assert.deepEqual(messages,[message]);assert.equal(c.ready,false);c.close();
 });

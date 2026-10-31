@@ -1,5 +1,6 @@
 """Browser DTOs and per-connection flow control for the authoritative game."""
 import json
+from decimal import Decimal
 from dataclasses import asdict
 
 from .game import Context, UnitOfWork, WorldState, apply_command, snapshot
@@ -21,6 +22,24 @@ def wire(value):
 
 
 def byte_size(value):
+    # The browser reserves JSON.stringify(payload) bytes, not Python JSON bytes.
+    # In particular 0.000001 is rendered as 1e-06 by Python, but not JavaScript.
+    if isinstance(value, dict):
+        return 2 + max(0, len(value) - 1) + sum(byte_size(key) + 1 + byte_size(item) for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return 2 + max(0, len(value) - 1) + sum(byte_size(item) for item in value)
+    if isinstance(value, float):
+        encoded = json.dumps(value, allow_nan=False)
+        if value == 0:
+            return 1
+        if 1e-6 <= abs(value) < 1e21:
+            encoded = format(Decimal(encoded), 'f')
+            if '.' in encoded:
+                encoded = encoded.rstrip('0').rstrip('.')
+        elif 'e' in encoded:
+            mantissa, exponent = encoded.split('e')
+            encoded = mantissa.removesuffix('.0') + 'e' + ('+' if int(exponent) >= 0 else '-') + str(abs(int(exponent)))
+        return len(encoded)
     return len(json.dumps(value, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode('utf-8'))
 
 

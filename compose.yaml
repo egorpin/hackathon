@@ -2,27 +2,41 @@ name: mars-colony
 
 services:
   server:
-    image: mars-colony-server:local
+    image: mars-colony-server:dev
     build:
       context: .
       dockerfile: Dockerfile
+      target: dev
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app", "--ws-max-size", "4096"]
     environment:
       DATA_DIR: /data
-      MARS_ALLOWED_ORIGINS: ${MARS_ALLOWED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      MARS_ALLOWED_ORIGINS: ${MARS_ALLOWED_ORIGINS:-http://localhost:${MARS_PORT:-8000},http://127.0.0.1:${MARS_PORT:-8000}}
       MARS_SECURE_COOKIE: ${MARS_SECURE_COOKIE:-false}
     volumes:
       - mars-data:/data
+      - ./server/app:/app/app:ro
+      - ./content:/app/content:ro
+      - ./world:/app/world:ro
     restart: unless-stopped
     init: true
     stop_grace_period: 20s
 
   client:
-    image: mars-colony-client:local
+    image: mars-colony-client:dev
     build:
-      context: ./client
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: client/Dockerfile
+      target: dev
+    environment:
+      MARS_BACKEND_URL: http://server:8000
+    volumes:
+      - ./client/src:/app/client/src:ro
+      - ./client/dev:/app/client/dev:ro
+      - ./client/index.html:/app/client/index.html:ro
+      - ./client/vite.config.js:/app/client/vite.config.js:ro
+      - ./world:/app/world:ro
     ports:
-      - "${MARS_PORT:-8000}:80"
+      - "${MARS_PORT:-8000}:5173"
     depends_on:
       server:
         condition: service_healthy

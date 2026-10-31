@@ -12,3 +12,5 @@ mars-data-backup/
 
 .venv-world/
 world/generated/
+deliverables
+.presentation-build

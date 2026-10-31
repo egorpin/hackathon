@@ -75,8 +75,11 @@ export class GameClient extends Events {
       this.revision = revision;
     } else if (!this.ready) return;
     if (type === 'action.result' || type === 'error') this.pending.delete(request_id);
-    if (type === 'error') this.emit('error', payload.message || payload.code);
-    this.emit(type, payload);
+    if (type === 'error') this.emit('error', payload.message || payload.code || 'Неизвестная ошибка сервера');
+    else this.emit(type, payload);
+    if (type === 'error' && payload.code === 'WORLD_UNAVAILABLE') {
+      this.ready = false; this.emit('status', 'world_unavailable');
+    }
     this.emit('message', message);
   }
   send(message) {
