@@ -17,7 +17,7 @@ root.innerHTML = `
     <div class="actions"><button id="camera">Сменить камеру · Tab</button>
     <label class="setting">Качество графики<select id="quality" aria-label="Качество графики"><option value="low">Низкое</option><option value="medium">Среднее</option><option value="high">Высокое</option></select></label>
     <label class="setting setting-check"><input id="camera-bob" type="checkbox"> Покачивание камеры</label>
-    <select id="building" aria-label="Тип постройки"><option value="drill">Бур</option><option value="oxygen_generator">Генератор O₂ (кислород)</option><option value="warehouse">Склад</option></select>
+    <select id="building" aria-label="Тип постройки"><option value="drill">Бур</option><option value="oxygen_generator">Генератор O₂ (кислород)</option><option value="warehouse">Склад</option><option value="dome_base">База</option></select>
     <fieldset class="color-picker" aria-label="Цвет игрока и построек"><legend>Цвет игрока и построек</legend><div id="colors" role="radiogroup" aria-label="Цвет игрока и построек"></div></fieldset>
     <button id="build">Построить · B</button></div>
   </section>
@@ -42,7 +42,7 @@ const show = (id,text) => { document.getElementById(id).textContent=text; };
 let totalChunks=0;
 let gameState=null, selection=null, cameraMode='first';
 const buildingSelect=document.getElementById('building');
-const buildingNames={drill:'Бур',warehouse:'Склад',oxygen_generator:'Генератор O₂'};
+const buildingNames={drill:'Бур',warehouse:'Склад',oxygen_generator:'Генератор O₂',dome_base:'База'};
 const resourceNames={water:'лёд',ice:'лёд',iron:'железо',sulfur:'сера',stone:'камень',ore:'руда',oxygen:'кислород'};
 const costFor=type=>gameState?.config?.recipes?.[type];
 function updateInventory(){

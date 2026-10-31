@@ -1,0 +1,115 @@
+"""Pack the supplied static base with compact textures and grounded transforms."""
+import io
+import json
+import struct
+import sys
+from pathlib import Path
+from PIL import Image, ImageFilter
+from collections import Counter
+
+source, target = map(Path, sys.argv[1:3])
+raw = source.read_bytes()
+size = struct.unpack_from('<I', raw, 12)[0]
+g = json.loads(raw[20:20+size])
+binary = raw[28+size:]
+old_views = g['bufferViews']
+packed = bytearray()
+views = []
+
+def data(index):
+    view = old_views[index]
+    offset = view.get('byteOffset', 0)
+    return binary[offset:offset+view['byteLength']]
+
+def append(payload, template=None):
+    while len(packed) % 4:
+        packed.append(0)
+    view = dict(template or {})
+    view.update(buffer=0, byteOffset=len(packed), byteLength=len(payload))
+    views.append(view)
+    packed.extend(payload)
+    return len(views)-1
+
+# Retain only accessors used by the mesh; generated vertex colors darken the bake.
+used = set()
+for mesh in g['meshes']:
+    for primitive in mesh['primitives']:
+        for key in list(primitive['attributes']):
+            if key.startswith('COLOR_'):
+                del primitive['attributes'][key]
+        used.update(primitive['attributes'].values())
+        used.add(primitive['indices'])
+accessors = []
+mapping = {}
+for index in sorted(used):
+    accessor = dict(g['accessors'][index])
+    original = accessor['bufferView']
+    accessor['bufferView'] = append(data(original), old_views[original])
+    mapping[index] = len(accessors)
+    accessors.append(accessor)
+for mesh in g['meshes']:
+    for primitive in mesh['primitives']:
+        primitive['attributes'] = {k:mapping[v] for k,v in primitive['attributes'].items()}
+        primitive['indices'] = mapping[primitive['indices']]
+g['accessors'] = accessors
+
+material = g['materials'][0]
+texture_index = material['pbrMetallicRoughness']['baseColorTexture']['index']
+image_index = g['textures'][texture_index]['source']
+original = Image.open(io.BytesIO(data(g['images'][image_index]['bufferView'])))
+original = original.convert('RGB')
+original.thumbnail((1024,1024), Image.Resampling.LANCZOS)
+# Classify the painted panels, then replace small chips with their surrounding
+# dominant color. Keep solid palette colors instead of baked dirt and shading.
+labels = Image.new('L', original.size)
+labels.putdata([2 if r > g*1.35 and r > b*1.5 and r > 90
+                else 1 if (r+g+b)/3 > 110 else 0
+                for r,g,b in original.getdata()])
+labels = labels.filter(ImageFilter.ModeFilter(9))
+width, height = labels.size
+pixels = list(labels.getdata())
+seen = bytearray(len(pixels))
+for start in range(len(pixels)):
+    if seen[start]:
+        continue
+    color = pixels[start]
+    seen[start] = 1
+    component, boundary = [start], Counter()
+    for index in component:
+        x,y = index % width,index // width
+        for neighbor in ([index-1] if x else []) + ([index+1] if x+1<width else []) + ([index-width] if y else []) + ([index+width] if y+1<height else []):
+            if pixels[neighbor] != color:
+                boundary[pixels[neighbor]] += 1
+            elif not seen[neighbor]:
+                seen[neighbor] = 1
+                component.append(neighbor)
+    if len(component) < 180 and boundary:
+        replacement = boundary.most_common(1)[0][0]
+        for index in component:
+            pixels[index] = replacement
+original = Image.new('P', labels.size)
+original.putpalette([28,30,32, 245,245,245, 245,78,24] + [0]*759)
+original.putdata(pixels)
+output = io.BytesIO()
+original.save(output, 'PNG', optimize=True)
+g['images'] = [{'bufferView':append(output.getvalue()),'mimeType':'image/png','name':'BaseColor_1024_clean'}]
+g['textures'] = [{'source':0}]
+g['materials'] = [{'name':'BaseSuit','doubleSided':True,'pbrMetallicRoughness':{
+    'baseColorTexture':{'index':0},'metallicFactor':0,'roughnessFactor':0.9}}]
+# Match the existing 0.8 m building collision radius; keep the bottom on ground.
+position = g['accessors'][g['meshes'][0]['primitives'][0]['attributes']['POSITION']]
+low, high = position['min'], position['max']
+scale = 1.6 / max(high[0]-low[0], high[2]-low[2])
+g['nodes'][0]['scale'] = [scale]*3
+g['nodes'][0]['translation'] = [-(high[0]+low[0])*scale/2, -low[1]*scale, -(high[2]+low[2])*scale/2]
+g['bufferViews'] = views
+g['buffers'] = [{'byteLength':len(packed)}]
+encoded = json.dumps(g,separators=(',',':')).encode()
+encoded += b' ' * (-len(encoded)%4)
+packed += b'\0' * (-len(packed)%4)
+result = struct.pack('<4sII',b'glTF',2,28+len(encoded)+len(packed))
+result += struct.pack('<II',len(encoded),0x4E4F534A)+encoded
+result += struct.pack('<II',len(packed),0x004E4942)+packed
+target.parent.mkdir(parents=True,exist_ok=True)
+target.write_bytes(result)
+print(json.dumps({'before':len(raw),'after':len(result),'texture':original.size,'width':1.6}))
