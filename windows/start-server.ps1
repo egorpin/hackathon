@@ -51,6 +51,16 @@ if ($Prepare) {
 if (-not (Test-Path $python) -or -not (Test-Path (Join-Path $runtime 'mars-mdns.py'))) {
     throw 'Prepare on the SERVER first: start-server.cmd -Prepare'
 }
+$launcherLock = New-Object System.Threading.Mutex($false, 'Global\MarsColony.ServerLauncher')
+$acquired = $false
+try {
+    try { $acquired = $launcherLock.WaitOne(0) }
+    catch [System.Threading.AbandonedMutexException] { $acquired = $true }
+    if (-not $acquired) { throw 'The Mars server launcher is already running. Use its existing window.' }
+    $checkArgs = @((Join-Path $runtime 'mars-mdns.py'), '--check', '--port', "$Port")
+    if ($Interface) { $checkArgs += @('--interface', $Interface) }
+    & $python @checkArgs
+    if ($LASTEXITCODE -ne 0) { throw 'mDNS preflight failed; Docker containers were not restarted.' }
 Invoke-ProjectWsl -Arguments @('test', '-f', 'certs/server.crt')
 Invoke-ProjectWsl -Arguments @('openssl', 'verify', '-CAfile', 'certs/ca.crt', '-verify_hostname', 'mars.local', 'certs/server.crt')
 Invoke-ProjectWsl -Arguments @('env', "MARS_HTTPS_PORT=$Port", 'docker', 'compose', '-f', 'compose.https.yaml',
@@ -62,3 +72,8 @@ Write-Host "Game URL for EVERY computer: https://mars.local:$Port"
 Write-Host 'Keep this window open. Ctrl+C stops mDNS; Docker containers keep running.'
 & $python @mdnsArgs
 if ($LASTEXITCODE -ne 0) { throw 'mDNS failed. Check adapter selection, UDP 5353 and duplicate servers.' }
+
+} finally {
+    if ($acquired) { $launcherLock.ReleaseMutex() }
+    $launcherLock.Dispose()
+}

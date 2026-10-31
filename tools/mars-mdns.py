@@ -10,9 +10,56 @@ import platform
 import signal
 import subprocess
 import threading
+import time
+from contextlib import contextmanager
 
 HOST = "mars.local."
 SERVICE = "Mars Colony._https._tcp.local."
+
+
+class NameConflict(RuntimeError):
+    pass
+
+
+@contextmanager
+def single_instance():
+    """Kernel mutex, released even after a crash; no persistent system settings."""
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel.CreateMutexW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.CreateMutexW(None, False, "Global\\MarsColony.mDNS")
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    existed = ctypes.get_last_error() == 183
+    try:
+        if existed:
+            raise NameConflict("Mars mDNS is already running on this Windows computer")
+        yield
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def check_name(zc, addresses):
+    """Ask the LAN, not ordinary DNS: another mDNS daemon itself is fine."""
+    from zeroconf import DNSOutgoing, DNSQuestion
+    if zc.get_service_info("_https._tcp.local.", SERVICE, timeout=1000):
+        raise NameConflict("Another Mars Colony service is already present in this LAN")
+    for _ in range(3):
+        query = DNSOutgoing(0)
+        for type_ in (1, 28):  # A and AAAA, including responders with different service names.
+            query.add_question(DNSQuestion(HOST, type_, 1))
+        zc.send(query)
+        time.sleep(0.35)
+    found = set()
+    for type_ in (1, 28):
+        for record in zc.cache.get_all_by_details(HOST, type_, 1):
+            found.add(str(ipaddress.ip_address(record.address)))
+    foreign = found - set(addresses)
+    if foreign:
+        raise NameConflict(f"mars.local is already claimed by: {', '.join(sorted(foreign))}")
 
 
 def windows_interfaces():
@@ -53,6 +100,7 @@ class Announcement:
                                 port=port, server=HOST, properties={"path": "/"},
                                 host_ttl=30, other_ttl=30)
         try:
+            check_name(self.zc, addresses)
             # Fail on a duplicate instance; never silently rename the public URL.
             self.zc.register_service(self.info, allow_name_change=False)
         except BaseException:
@@ -102,6 +150,7 @@ def main():
     parser.add_argument("--port", type=int, default=8443)
     parser.add_argument("--list-interfaces", action="store_true")
     parser.add_argument("--open-browser", action="store_true")
+    parser.add_argument("--check", action="store_true", help="check local singleton and LAN name, then exit")
     args = parser.parse_args()
     if platform.system() != "Windows":
         parser.error("Run this utility with Windows Python, outside WSL and Docker")
@@ -126,7 +175,15 @@ def main():
         return result
 
     try:
-        serve(stop, windows_interfaces, publish, args.port, args.interface)
+        with single_instance():
+            if args.check:
+                from zeroconf import IPVersion, Zeroconf
+                _, addresses = select_interface(windows_interfaces(), args.interface)
+                with Zeroconf(interfaces=list(addresses), ip_version=IPVersion.V4Only) as zc:
+                    check_name(zc, addresses)
+                logging.info("mars.local is available on this LAN")
+            else:
+                serve(stop, windows_interfaces, publish, args.port, args.interface)
     except Exception as error:
         logging.error("mDNS stopped: %s. Check UDP 5353 and that only one server announces mars.local.", error)
         raise SystemExit(1) from error
