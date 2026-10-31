@@ -24,6 +24,19 @@ test('curved selection outline is closed and stays above the ground',()=>{
  for(let i=0;i<p.count;i++)assert.ok(Math.abs(new THREE.Vector3().fromBufferAttribute(p,i).length()-100.05)<.00001);
  geometry.dispose();
 });
+test('terrain is a faceted icosphere with visible relief at a practical mesh size',()=>{
+ const surface=smoothSurface(100,true),geometry=surface.geometry;
+ assert.equal(geometry.attributes.position.count/3,46080);
+ assert.equal(surface.material.flatShading,true);
+ const p=geometry.attributes.position;
+ let min=Infinity,max=-Infinity;
+ for(let i=0;i<p.count;i++){
+  const length=new THREE.Vector3().fromBufferAttribute(p,i).length();
+  min=Math.min(min,length);max=Math.max(max,length);
+ }
+ assert.ok(max-min>.03,'terrain displacement should read as visible relief');
+ geometry.dispose();surface.material.dispose();
+});
 test('unload disposes both cached geometry representations and the smooth surface',()=>{
  const near=new THREE.SphereGeometry(1,8,4),far=new THREE.IcosahedronGeometry(1);
  const tile=new THREE.Mesh(near,new THREE.MeshStandardMaterial());

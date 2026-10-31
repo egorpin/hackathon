@@ -71,6 +71,7 @@ export class Runtime {
     if (!this.cache.put('state',snapshot,{pinned:true})) return this.fail('Snapshot превышает бюджет данных.');
     this.state = snapshot;
     this.events.emit('world.stage', snapshot.stage);
+    this.events.emit('world.snapshot', snapshot);
     this.scene.configure(snapshot);
     this.events.emit('world.ready',{selfId:snapshot.self_id,teamId:snapshot.team_id,totalChunks:w.total_chunks});
   }
@@ -106,7 +107,7 @@ export class Runtime {
     this.scene.applyState({buildings:(this.state?.buildings || []).filter(building=>ids.has(building.cell_id))});
   }
   command(type,payload) {
-    const allowed = new Set(['landing.select','world.start','building.place','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release']);
+    const allowed = new Set(['landing.select','world.start','player.color','building.place','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release']);
     if (!allowed.has(type)) { this.events.emit('notice','Неизвестная клиентская команда'); return; }
     try { return this.transport.command(type,payload); }
     catch (error) { this.events.emit('notice',error.message); }

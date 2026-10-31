@@ -194,13 +194,13 @@ def test_real_uvicorn_websocket(tmp_path):
                                 "--host", "127.0.0.1", "--port", str(port), "--ws-max-size", "4096"],
                                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        with httpx.Client(base_url=origin, timeout=1) as client:
+        with httpx.Client(base_url=origin, timeout=1, trust_env=False) as client:
             deadline = time.monotonic() + 10
             while True:
                 try:
                     response = client.get("/api/health")
                     break
-                except httpx.ConnectError:
+                except (httpx.ConnectError, httpx.ConnectTimeout):
                     if process.poll() is not None or time.monotonic() > deadline:
                         raise
                     time.sleep(0.05)

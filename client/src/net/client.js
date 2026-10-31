@@ -88,7 +88,9 @@ export class GameClient extends Events {
   }
   input(input) {
     if (!this.ready || this.revision === null) return;
-    this.send({ type: 'player.input', payload: { seq: ++this.seq, move: input.move } });
+    const payload = { seq: ++this.seq, move: input.move };
+    for (const key of ['heading','jump','running']) if (input[key] !== undefined) payload[key] = input[key];
+    this.send({ type: 'player.input', payload });
   }
   command(type, payload) {
     if (!this.ready) throw new Error('Дождитесь синхронизации с сервером.');

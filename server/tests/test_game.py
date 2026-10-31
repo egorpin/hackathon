@@ -9,10 +9,11 @@ import unittest
 import uuid
 
 from app.game import Context, UnitOfWork, WorldState, apply_command, snapshot, step
-from app.game.state import BUILDING_CAPACITY, INVENTORY_CAPACITY, TICK_SECONDS
+from app.game.state import BUILDING_CAPACITY, INVENTORY_CAPACITY, TICK_SECONDS, Building, PLAYER_COLORS
 from app.world import generate_planet, move_on_surface, surface_distance
 from app.world.export import export_planet
 from app.world.geometry import angle, cross, dot, unit
+from app.world.terrain import ground_position, seed_from_world_id
 
 
 def command(kind, **payload):
@@ -245,6 +246,33 @@ class GameTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             UnitOfWork(generate_planet(subdivisions=1), restored.state)
 
+    def test_player_color_is_palette_checked_owned_and_persisted(self):
+        bob = Context("world-a", "bob", "team-a")
+        self.world.enroll(bob)
+        self.ok(self.act("landing.select", cell_id=self.planet.landing_sites[0]))
+        self.ok(self.act("landing.select", context=bob, cell_id=self.planet.landing_sites[1]))
+        self.ok(self.act("world.start"))
+        own_id = self.build()
+        with self.world.transaction() as state:
+            state.players["bob"].position = state.players["alice"].position
+            other_cell = self.planet.cells[self.planet.landing_sites[0]].neighbors[1]
+            state.buildings["bob-building"] = Building("bob-building", other_cell, "warehouse", "team-a", "bob")
+        saved = []
+        self.world._persist = lambda state: saved.append(state.to_dict())
+
+        response = self.act("player.color", color="#42b8ff")
+        self.ok(response)
+        self.assertEqual(self.world.state.players["alice"].color, "#42b8ff")
+        self.assertEqual(self.world.state.players["bob"].color, PLAYER_COLORS[0])
+        self.assertEqual(saved[-1]["players"]["alice"]["color"], "#42b8ff")
+        restored = UnitOfWork(self.planet, WorldState.from_dict(saved[-1]))
+        view = snapshot(self.context, restored)["payload"]
+        self.assertEqual(next(p for p in view["players"] if p["user_id"] == "alice")["color"], "#42b8ff")
+        self.assertEqual(next(b for b in view["buildings"] if b["building_id"] == own_id)["color"], "#42b8ff")
+        self.assertEqual(next(b for b in view["buildings"] if b["building_id"] == "bob-building")["color"], PLAYER_COLORS[0])
+        self.assertEqual(self.act("player.color", color="#ffffff")["payload"]["code"], "INVALID_ARGUMENT")
+        self.assertEqual(self.world.state.players["alice"].color, "#42b8ff")
+
     def test_authorization_and_untrusted_payload(self):
         self.start()
         cell = self.planet.cells[self.planet.landing_sites[0]].neighbors[0]
@@ -320,7 +348,8 @@ class GameTests(unittest.TestCase):
         self.advance(4)
         stopped = self.world.state.players["alice"].position
         self.advance(20)
-        self.assertEqual(self.world.state.players["alice"].position, stopped)
+        for actual, expected in zip(self.world.state.players["alice"].position, stopped):
+            self.assertAlmostEqual(actual, expected, places=12)
         for dt in (-1, 0, .1, float("nan")):
             with self.assertRaises(ValueError):
                 step(self.world.state, dt, self.planet)
@@ -347,7 +376,10 @@ class GameTests(unittest.TestCase):
         direction = unit(tuple(b - a for a, b in zip(near, mountain)))
         self.ok(apply_command(self.context, {"type": "player.input", "payload": {"seq": 31, "move": direction}}, self.world))
         self.advance(1)
-        self.assertEqual(self.world.state.players["alice"].position, near)
+        position = self.world.state.players["alice"].position
+        self.assertEqual(position, ground_position(near, 30, seed=seed_from_world_id(self.world.state.world_id)))
+        self.assertAlmostEqual(surface_distance(position, near, 30), 0, places=6)
+        self.assertAlmostEqual(surface_distance(position, mountain, 30), 1.9, delta=.01)
 
     def test_mutating_committed_draft_does_not_mutate_world(self):
         with self.world.transaction() as draft:

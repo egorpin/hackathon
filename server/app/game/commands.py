@@ -7,6 +7,7 @@ import uuid
 from app.world.geometry import surface_distance
 from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INVENTORY_CAPACITY,
                     PLAYER_RADIUS, REACH, RECIPES, MINABLE_RESOURCES, STORAGE_CAPACITY, Building, Context, UnitOfWork)
+from .state import PLAYER_COLORS
 
 
 class Rejected(Exception):
@@ -60,14 +61,30 @@ def dispatch(context, kind, payload, state, planet):
         state.mountains = [cell for cell in planet.landing_sites if cell not in state.landing_claims]
         state.stage = "running"
         return {}
+    if kind == "player.color":
+        fields(payload, "color")
+        color = payload["color"]
+        require(isinstance(color, str) and color in PLAYER_COLORS)
+        player.color = color
+        return {"color": color}
     require(state.stage == "running", "NOT_STARTED")
     if kind == "player.input":
-        fields(payload, "seq", "move")
+        require(isinstance(payload, dict) and {"seq", "move"} <= set(payload)
+                and set(payload) <= {"seq", "move", "heading", "jump", "running"})
         seq, move = payload["seq"], payload["move"]
         require(type(seq) is int and 0 <= seq <= 2**53 - 1)
         require(isinstance(move, (list, tuple)) and len(move) == 3)
         require(all(type(v) in (int, float) and -1 <= v <= 1 and math.isfinite(v) for v in move))
         require(seq > player.seq, "STALE_INPUT")
+        jump, running = payload.get("jump", False), payload.get("running", False)
+        require(type(jump) is bool and type(running) is bool)
+        heading = payload.get("heading", player.heading)
+        require(isinstance(heading, (list, tuple)) and len(heading) == 3)
+        require(all(type(v) in (int, float) and math.isfinite(v) and -1 <= v <= 1 for v in heading))
+        require(sum(v*v for v in heading) > .01)
+        player.heading = tuple(heading)
+        player.jump_pending = player.jump_pending or (jump and not player.jump_held and player.altitude <= 0)
+        player.jump_held, player.running = jump, running
         player.seq, player.move, player.input_tick = seq, tuple(move), state.tick
         return {}
     if kind == "building.place":

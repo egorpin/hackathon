@@ -1,0 +1,108 @@
+{
+  "state": "Concept board v5 approved by user. Preparing front 0 and exact side 90 references for review; do not submit 3D until those references are approved.",
+  "style": "Pronounced low-poly geometry made from large clearly visible planar faces; angular silhouettes, hard transitions and flat shading. Actual facets form the shape. Simple matte broad color blocks and restrained shade changes. Warm white, graphite, Mars red-brown, and broad orange recolorable Accent panels. Avoid tiny details everywhere.",
+  "negative_common": "smooth sculpted surfaces, subdivision smoothing, rounded high-poly silhouette, dense tiny polygons, painted triangle pattern, wireframe overlay, photorealism, microtexture, intricate patterns, tiny details, text, logos, labels, watermark, clutter, multiple objects, floor, ground beyond an explicitly requested hex resource cell, extra platform, pedestal, base plane, backdrop geometry, environment, dramatic cast shadow",
+  "assets": {
+    "astronaut": {
+      "positive": "Full-body adult astronaut in a symmetrical T-pose, feet slightly apart, arms straight horizontally at shoulder height, palms down. Bulky practical EVA suit with broad clean white planar panels and graphite joints and boots. Large opaque blank graphite visor; no face visible. Both hands simple solid mitten gloves with no individual fingers. Few broad orange Accent panels on chest, arms and backpack. Compact backpack, no hoses or thin protrusions. Whole silhouette centered and fully visible, orthographic front view, plain white image background not part of the object.",
+      "negative": "visible face, eyes, transparent visor, fingers, separated digits, seams between fingers, tiny tabs, tiny buttons, tiny seams, thin wires, extra limbs, asymmetric pose, cropped body"
+    },
+    "drill": {
+      "positive": "Compact squat Mars mining drill with angular graphite and white chassis, one broad orange Accent panel, exactly FOUR sturdy obvious support legs around the body, each with a wide foot. Arrange the four legs diagonally so all four feet are separately visible around the central bit. One short SIMPLE smooth solid cone drill bit points down from center. Broad chunky shapes only. Front elevated three-quarter view, centered, plain white background not part of object.",
+      "negative": "helical bit, screw, spiral, threads, flutes, toothed drill, extra legs, fewer than four legs, hidden feet, thin supports, tiny bolts"
+    },
+    "oxygen_generator": {
+      "positive": "Compact oxygen-generator habitat building with sturdy graphite chassis, broad white angular casing, one broad orange Accent service panel, two or three large simple vent openings and one chunky cylindrical oxygen tank attached close to the building. Large forms only, no thin hoses. Front three-quarter view, isolated on plain white background.",
+      "negative": "rows of tiny grille slats, tiny fittings, thin hoses, tiny knobs"
+    },
+    "storage_building": {
+      "positive": "Walk-in Mars outpost warehouse building, not a chest or crate. Broad rectangular white and graphite modular walls at human-building scale, a large wide cargo doorway and door a person can walk through, one broad orange Accent door panel, simple roof outline. Building scale comparable to the oxygen-generator building and dome habitat. Large wall sections and broad shapes only. Front three-quarter view, isolated on plain white background.",
+      "negative": "chest, crate, storage box, small container, tiny building, small door"
+    },
+    "dome_base": {
+      "positive": "Small freestanding Mars habitat building with low faceted white hemispherical pressure shell, compact graphite collar and one broad orange Accent entry hatch integrated into the collar. Dome and collar are one building. Large simple panels only, no tiny details. Front three-quarter view, isolated on plain white background.",
+      "negative": "tiny windows, tiny buttons, extra structures, surrounding platform"
+    },
+    "rover": {
+      "positive": "Compact six-wheel scientific robot rover, not a passenger car. Exposed white and graphite instrument-box chassis, exactly six large simple wheels on visible sturdy articulated suspension arms, a short mast with binocular camera head, and one compact folded robotic arm. One broad orange Accent panel. Broad simple robotic forms. Front three-quarter view, isolated on plain white background.",
+      "negative": "car, passenger vehicle, cabin, windshield, cockpit, seats, enclosed car body, roof, thin antenna, tiny details"
+    }
+  },
+  "astronaut_contract": {
+    "up_axis": "Y",
+    "forward_axis": "-Z",
+    "feet_origin": "Y=0",
+    "pose": "symmetric T-pose",
+    "rig_bones": [
+      "Root",
+      "Spine",
+      "Head",
+      "LeftUpperArm",
+      "LeftForearm",
+      "LeftHand",
+      "RightUpperArm",
+      "RightForearm",
+      "RightHand",
+      "LeftThigh",
+      "LeftShin",
+      "LeftFoot",
+      "RightThigh",
+      "RightShin",
+      "RightFoot"
+    ],
+    "animation_clips": [
+      "Idle",
+      "Walk",
+      "Run",
+      "Jump"
+    ]
+  },
+  "sampling": {
+    "resolution": 1024,
+    "steps": 28,
+    "cfg": 1.0,
+    "sampler": "euler",
+    "scheduler": "simple"
+  },
+  "mesh_estimates": {
+    "astronaut": {
+      "target_faces": 12000,
+      "texture_px": 512
+    },
+    "drill": {
+      "target_faces": 6000,
+      "texture_px": 512
+    },
+    "oxygen_generator": {
+      "target_faces": 6000,
+      "texture_px": 512
+    },
+    "storage_building": {
+      "target_faces": 7000,
+      "texture_px": 512
+    },
+    "dome_base": {
+      "target_faces": 7000,
+      "texture_px": 512
+    },
+    "rover": {
+      "target_faces": 10000,
+      "texture_px": 512
+    }
+  },
+  "procedural_only": [
+    "iron",
+    "sulfur",
+    "stone",
+    "ice",
+    "water"
+  ],
+  "generation_allowlist": [
+    "astronaut",
+    "drill",
+    "oxygen_generator",
+    "storage_building",
+    "dome_base",
+    "rover"
+  ]
+}

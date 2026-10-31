@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import { projectTerrain } from './terrain.js';
 
 // Visual-only regolith. Object-space 3D noise is continuous across the sphere,
 // including poles: no UV seam, external texture, height map or hidden world data.
-export function marsMaterial() {
-  const material = new THREE.MeshStandardMaterial({ color: 0x9e5034, roughness: .98, metalness: 0 });
+export function marsMaterial(flatShading = false) {
+  const material = new THREE.MeshStandardMaterial({ color: 0xad593d, roughness: .98, metalness: 0, flatShading });
   material.onBeforeCompile = shader => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vMarsPosition;')
@@ -40,25 +41,38 @@ export function marsMaterial() {
   return material;
 }
 
-export function smoothSurface(radius) {
-  // A generic sphere derived only from the already-accounted world radius.
-  // This visual representation contains no cells or additional world state.
-  return new THREE.Mesh(new THREE.SphereGeometry(radius - .025, 256, 128), marsMaterial());
+export function smoothSurface(radius, terrain = false) {
+  // Keep the terrain as an inexpensive, evenly triangulated icosphere. Flat
+  // shading makes each triangle legible without a texture or extra draw calls.
+  // The smooth option remains available for worlds that disable terrain.
+  const geometry = terrain
+    ? new THREE.IcosahedronGeometry(radius - .025, 47)
+    : new THREE.SphereGeometry(radius - .025, 256, 128);
+  if (terrain) {
+    const positions = geometry.attributes.position, point = new THREE.Vector3();
+    for(let i=0;i<positions.count;i++) {
+      point.fromBufferAttribute(positions,i); projectTerrain(point,radius,-.025);
+      positions.setXYZ(i,point.x,point.y,point.z);
+    }
+    geometry.computeVertexNormals();
+  }
+  const material = marsMaterial(terrain);
+  return new THREE.Mesh(geometry, material);
 }
 
 // Shared edge interpolation keeps cell picking and landing markings on the sphere.
-export function sphericalOutline(vertices, radius, segments = 8) {
+export function sphericalOutline(vertices, radius, segments = 8, terrain = false) {
   const points = [];
   for(let i=0; i<vertices.length; i++) {
     const a = new THREE.Vector3().fromArray(vertices[i]);
     const b = new THREE.Vector3().fromArray(vertices[(i+1)%vertices.length]);
-    for(let k=0;k<segments;k++) points.push(a.clone().lerp(b,k/segments).normalize().multiplyScalar(radius));
+    for(let k=0;k<segments;k++) points.push(projectTerrain(a.clone().lerp(b,k/segments),radius,0,terrain));
   }
   points.push(points[0].clone());
   return new THREE.BufferGeometry().setFromPoints(points);
 }
 
-export function sphericalCellGeometry(vertices, center, radius, subdivisions = 2) {
+export function sphericalCellGeometry(vertices, center, radius, subdivisions = 2, terrain = false) {
   const normal = new THREE.Vector3().fromArray(center).normalize();
   const corners = vertices.map(v=>new THREE.Vector3().fromArray(v).normalize());
   if(corners[1].clone().sub(corners[0]).cross(corners[2].clone().sub(corners[0])).dot(normal)<0)corners.reverse();
@@ -68,7 +82,7 @@ export function sphericalCellGeometry(vertices, center, radius, subdivisions = 2
       const ab=a.clone().add(b).normalize(), bc=b.clone().add(c).normalize(), ca=c.clone().add(a).normalize();
       triangle(a,ab,ca,depth-1);triangle(ab,b,bc,depth-1);triangle(ca,bc,c,depth-1);triangle(ab,bc,ca,depth-1);
     } else for(const point of [a,b,c]) {
-      positions.push(...point.clone().multiplyScalar(radius).toArray());normals.push(...point.toArray());
+      positions.push(...projectTerrain(point.clone(),radius,0,terrain).toArray());normals.push(...point.toArray());
     }
   };
   for(let i=0;i<corners.length;i++)triangle(normal,corners[i],corners[(i+1)%corners.length],subdivisions);

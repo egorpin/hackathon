@@ -10,6 +10,8 @@ services:
       DATA_DIR: /data
       MARS_ALLOWED_ORIGINS: ${MARS_ALLOWED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
       MARS_SECURE_COOKIE: ${MARS_SECURE_COOKIE:-false}
+      MARS_PLANET_RADIUS: ${MARS_PLANET_RADIUS:-30}
+      MARS_PLANET_SUBDIVISIONS: ${MARS_PLANET_SUBDIVISIONS:-3}
     volumes:
       - mars-data:/data
     restart: unless-stopped

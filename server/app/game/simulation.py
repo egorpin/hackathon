@@ -2,6 +2,7 @@
 import math
 
 from app.world.geometry import move_on_surface, surface_distance
+from app.world.terrain import ground_position, seed_from_world_id
 from .commands import authorize
 from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INPUT_TIMEOUT_TICKS,
                     MOUNTAIN_RADIUS, OXYGEN_GOAL, PLAYER_RADIUS,
@@ -23,9 +24,23 @@ def step(world, dt_seconds, planet):
     obstacles = [(planet.cells[b.cell_id].center, BUILDING_RADIUS + PLAYER_RADIUS) for b in world.buildings.values()]
     obstacles += [(planet.cells[cell].center, MOUNTAIN_RADIUS + PLAYER_RADIUS) for cell in world.mountains]
     for player in world.players.values():
-        if player.position is None or world.tick - player.input_tick >= INPUT_TIMEOUT_TICKS:
+        if player.position is None:
             continue
-        position = move_on_surface(player.position, player.move, SPEED * dt_seconds, planet.radius, obstacles)
+        active = world.tick - player.input_tick < INPUT_TIMEOUT_TICKS
+        if active and player.jump_pending and player.altitude <= 0:
+            player.vertical_speed = 3.4
+        player.jump_pending = False
+        if not active:
+            player.jump_held = False
+        if player.vertical_speed or player.altitude:
+            player.vertical_speed -= 5.5 * dt_seconds
+            player.altitude = max(0., player.altitude + player.vertical_speed * dt_seconds)
+            if not player.altitude:
+                player.vertical_speed = 0.
+        move = player.move if active else (0., 0., 0.)
+        speed = SPEED * (1.5 if active and player.running else 1)
+        position = move_on_surface(player.position, move, speed * dt_seconds, planet.radius, obstacles)
+        position = ground_position(position, planet.radius, player.altitude, seed_from_world_id(world.world_id))
         if position != player.position:
             player.position = position
             events.append({"type": "player.moved", "user_id": player.user_id})
@@ -59,14 +74,20 @@ def snapshot(context, unit_of_work, view_radius=12.0):
     def visible(position):
         return player.position is not None and position is not None and surface_distance(player.position, position, planet.radius) <= view_radius
 
-    players = [{"user_id": p.user_id, "team_id": p.team_id, "position": p.position}
+    players = [{"user_id": p.user_id, "team_id": p.team_id,
+                "position": ground_position(p.position, planet.radius, p.altitude, seed_from_world_id(state.world_id)) if p.position else None,
+                "color": p.color, "heading": p.heading, "altitude": p.altitude,
+                "vertical_speed": p.vertical_speed,
+                "running": p.running and state.tick-p.input_tick < INPUT_TIMEOUT_TICKS,
+                "moving": any(p.move) and state.tick-p.input_tick < INPUT_TIMEOUT_TICKS}
                for p in state.players.values() if p.user_id == player.user_id or visible(p.position)]
     buildings = []
     for building in state.buildings.values():
         if not visible(planet.cells[building.cell_id].center):
             continue
         item = {"building_id": building.building_id, "cell_id": building.cell_id,
-                "building_type": building.building_type, "team_id": building.team_id}
+                "building_type": building.building_type, "team_id": building.team_id,
+                "color": state.players[building.creator_id].color}
         if building.team_id == player.team_id:
             item["stock"] = building.stock if building.building_type != "warehouse" else state.team_storage[player.team_id]
         buildings.append(item)

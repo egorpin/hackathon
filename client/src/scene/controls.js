@@ -6,7 +6,7 @@ export class Controls {
     const editing = target => target?.closest?.('input,textarea,select,[contenteditable=true]');
     on(window, 'keydown', e => {
       if (editing(e.target)) return;
-      if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab'].includes(e.code)) e.preventDefault();
+      if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab','Space'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
       if (!e.repeat && e.code === 'Tab') events.emit('camera.toggle');
       if (!e.repeat && e.code === 'KeyB') events.emit('build.request');

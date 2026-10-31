@@ -1,11 +1,14 @@
 """Browser DTOs and per-connection flow control for the authoritative game."""
 import json
+import math
+import os
 from decimal import Decimal
 from dataclasses import asdict
 
 from .game import Context, UnitOfWork, WorldState, apply_command, snapshot
 from .world import generate_planet
 from .world.geometry import surface_distance
+from .world.terrain import ground_position, seed_from_world_id
 
 
 def wire(value):
@@ -46,7 +49,21 @@ def byte_size(value):
 class GameService:
     def __init__(self, db):
         self.db = db
-        self.planet = generate_planet()
+        raw_radius = os.environ.get("MARS_PLANET_RADIUS", "30")
+        try:
+            radius = float(raw_radius)
+        except (TypeError, ValueError):
+            raise ValueError("MARS_PLANET_RADIUS must be a finite number from 20 to 120 metres") from None
+        if not math.isfinite(radius) or not 20 <= radius <= 120:
+            raise ValueError("MARS_PLANET_RADIUS must be a finite number from 20 to 120 metres")
+        raw_subdivisions = os.environ.get("MARS_PLANET_SUBDIVISIONS", "3")
+        try:
+            subdivisions = int(raw_subdivisions)
+        except (TypeError, ValueError):
+            raise ValueError("MARS_PLANET_SUBDIVISIONS must be 3 or 4") from None
+        if str(subdivisions) != raw_subdivisions.strip() or subdivisions not in (3, 4):
+            raise ValueError("MARS_PLANET_SUBDIVISIONS must be 3 or 4")
+        self.planet = generate_planet(subdivisions=subdivisions, radius=radius)
         self.worlds = {}
         self.chunks = {key: wire({'chunk_id': key, 'cells': [asdict(self.planet.cells[cell]) for cell in cells]})
                        for key, cells in self.planet.chunks.items()}
@@ -63,6 +80,13 @@ class GameService:
             # Resource overlay preserves geometry and IDs from the previous map.
             if state.map_version == self.planet.version.removesuffix("-resources-v1"):
                 state.map_version = self.planet.version
+            if state.map_version != self.planet.version:
+                raise ValueError(
+                    f"Saved world '{world_id}' uses map {state.map_version}; server is configured for "
+                    f"{self.planet.version}. To keep this save, restore its MARS_PLANET_RADIUS and "
+                    "MARS_PLANET_SUBDIVISIONS. To benchmark another map, use a separate DATA_DIR or Docker volume. "
+                    "The existing save was left unchanged."
+                )
             self.worlds[world_id] = UnitOfWork(self.planet, state, persist=self.db.save_game)
         return self.worlds[world_id]
 
@@ -94,12 +118,15 @@ class GameService:
         message = snapshot(context, self.runtime(identity))
         data = message['payload']
         data['self_id'], data['team_id'] = context.user_id, context.team_id
+        data['simulation_time'] = message['tick'] * .05
         for player in data['players']:
             player['player_id'] = player.pop('user_id')
         for building in data['buildings']:
-            building['position'] = self.planet.cells[building['cell_id']].center
+            building['position'] = ground_position(self.planet.cells[building['cell_id']].center, self.planet.radius,
+                                                   seed=seed_from_world_id(identity['world_id']))
         data['world'] = dict(radius=self.planet.radius, move_speed=4, view_radius=12,
                              build_distance=4.5, total_bytes=self.total_bytes,
+                             terrain=True, terrain_seed=seed_from_world_id(identity['world_id']),
                              total_chunks=len(self.chunks), shell={'radius': self.planet.radius * .995, 'detail': 2})
         return wire(data)
 

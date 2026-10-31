@@ -27,12 +27,13 @@ export class PlayerTrack {
     this.samples.push({ position: vector(player.position), heading: vector(player.heading || [0,0,-1]), time: now });
     if (this.samples.length > 20) this.samples.shift();
   }
-  sample(time, radius) {
+  sample(time, radius, preserveAltitude = false) {
     while (this.samples.length > 2 && this.samples[1].time <= time) this.samples.shift();
     const a = this.samples[0], b = this.samples[1] || a;
     if (!a) return null;
     const t = b.time === a.time ? 0 : THREE.MathUtils.clamp((time-a.time)/(b.time-a.time),0,1);
-    return { position: a.position.clone().lerp(b.position,t).normalize().multiplyScalar(radius),
+    const height = preserveAltitude ? THREE.MathUtils.lerp(a.position.length(),b.position.length(),t) : radius;
+    return { position: a.position.clone().lerp(b.position,t).normalize().multiplyScalar(height),
       heading: a.heading.clone().lerp(b.heading,t).normalize() };
   }
 }

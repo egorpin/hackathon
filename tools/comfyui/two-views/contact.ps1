@@ -1,0 +1,4 @@
+Add-Type -AssemblyName System.Drawing
+$files=Get-ChildItem 'artifacts/model-review/two-views/split' -Filter '*.png' | Where-Object Name -ne 'contact.png' | Sort-Object Name
+$cw=440;$ch=310;$sheet=[System.Drawing.Bitmap]::new([int](4*$cw),[int](3*$ch));$g=[System.Drawing.Graphics]::FromImage($sheet);$g.Clear([System.Drawing.Color]::White);$font=New-Object System.Drawing.Font('Arial',11)
+$i=0;foreach($f in $files){$im=[System.Drawing.Image]::FromFile($f.FullName);$x=($i%4)*$cw;$y=[int][math]::Floor($i/4)*$ch;$g.DrawString($f.BaseName,$font,[System.Drawing.Brushes]::Black,$x+5,$y+3);$scale=[math]::Min(($cw-10)/$im.Width,($ch-30)/$im.Height);$dw=[int]($im.Width*$scale);$dh=[int]($im.Height*$scale);$g.DrawImage($im,$x+5,$y+24,$dw,$dh);$im.Dispose();$i++};$g.Dispose();$font.Dispose();$sheet.Save('artifacts/model-review/two-views/split/contact.png',[System.Drawing.Imaging.ImageFormat]::Png);$sheet.Dispose()

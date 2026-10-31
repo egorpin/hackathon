@@ -1,0 +1,1123 @@
+{
+  "id": "4a2c6474-dbe5-49d3-a307-299cd0b7d315",
+  "revision": 0,
+  "last_node_id": 50108,
+  "last_link_id": 11003,
+  "nodes": [
+    {
+      "id": 2001,
+      "type": "LoadImage",
+      "pos": [
+        -760,
+        120
+      ],
+      "size": [
+        330,
+        340
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "изображение",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "выберите файл для загрузки",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "ИЗОБРАЖЕНИЕ",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            11001
+          ]
+        },
+        {
+          "localized_name": "МАСКА",
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
+        }
+      ],
+      "title": "View 1 — Front · 0°",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "",
+        "upload": "image"
+      }
+    },
+    {
+      "id": 2002,
+      "type": "LoadImage",
+      "pos": [
+        -760,
+        540
+      ],
+      "size": [
+        330,
+        340
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "изображение",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "выберите файл для загрузки",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "ИЗОБРАЖЕНИЕ",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            11002
+          ]
+        },
+        {
+          "localized_name": "МАСКА",
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
+        }
+      ],
+      "title": "View 2 — Exact side · 90°",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "",
+        "upload": "image"
+      }
+    },
+    {
+      "id": 50108,
+      "type": "TeslaTrellis2MultiView",
+      "pos": [
+        40,
+        220
+      ],
+      "size": [
+        470,
+        1726
+      ],
+      "flags": {
+        "collapsed": false
+      },
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "view_1",
+          "name": "view_1",
+          "type": "IMAGE",
+          "link": 11001
+        },
+        {
+          "localized_name": "view_2",
+          "name": "view_2",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 11002
+        },
+        {
+          "localized_name": "view_3",
+          "name": "view_3",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "view_4",
+          "name": "view_4",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "view_5",
+          "name": "view_5",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "view_6",
+          "name": "view_6",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "view_7",
+          "name": "view_7",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "view_8",
+          "name": "view_8",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "view_9",
+          "name": "view_9",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "view_10",
+          "name": "view_10",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "Seed — вариант модели",
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Общие шаги",
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Целевое число граней",
+          "name": "target_faces",
+          "type": "INT",
+          "widget": {
+            "name": "target_faces"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Размер текстуры (px)",
+          "name": "texture_size",
+          "type": "INT",
+          "widget": {
+            "name": "texture_size"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Нормали — smooth / flat / angle",
+          "name": "normal_mode",
+          "type": "COMBO",
+          "widget": {
+            "name": "normal_mode"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Нормали · угол сглаживания (°)",
+          "name": "normal_angle",
+          "type": "FLOAT",
+          "widget": {
+            "name": "normal_angle"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Remesh — перестраивать сетку",
+          "name": "remesh",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "remesh"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Remesh · ширина полосы",
+          "name": "remesh_band",
+          "type": "FLOAT",
+          "widget": {
+            "name": "remesh_band"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Remesh · возврат к исходной поверхности",
+          "name": "remesh_project",
+          "type": "FLOAT",
+          "widget": {
+            "name": "remesh_project"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Разрешение и каскад",
+          "name": "pipeline_type",
+          "type": "COMBO",
+          "widget": {
+            "name": "pipeline_type"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Общий семплер",
+          "name": "sampler",
+          "type": "COMBO",
+          "widget": {
+            "name": "sampler"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Генерировать текстуры",
+          "name": "generate_texture",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "generate_texture"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Количество вариантов за запуск",
+          "name": "num_samples",
+          "type": "INT",
+          "widget": {
+            "name": "num_samples"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Максимум используемых изображений",
+          "name": "max_views",
+          "type": "INT",
+          "widget": {
+            "name": "max_views"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Дополнительная подготовка изображений",
+          "name": "preprocess_image",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "preprocess_image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Каскад · лимит токенов",
+          "name": "max_num_tokens",
+          "type": "INT",
+          "widget": {
+            "name": "max_num_tokens"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · разрешение вокселей",
+          "name": "sparse_structure_resolution",
+          "type": "COMBO",
+          "widget": {
+            "name": "sparse_structure_resolution"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · закрывать пустоты",
+          "name": "fill_holes",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "fill_holes"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · итерации заполнения",
+          "name": "hole_iterations",
+          "type": "INT",
+          "widget": {
+            "name": "hole_iterations"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · размер ядра заполнения",
+          "name": "hole_structure",
+          "type": "INT",
+          "widget": {
+            "name": "hole_structure"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · способ заполнения",
+          "name": "hole_fill_algorithm",
+          "type": "COMBO",
+          "widget": {
+            "name": "hole_fill_algorithm"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · оставить оболочку",
+          "name": "keep_only_shell",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "keep_only_shell"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "DINO · фиксация референса",
+          "name": "dino_lock",
+          "type": "FLOAT",
+          "widget": {
+            "name": "dino_lock"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "DINO · подшаги",
+          "name": "dino_substeps",
+          "type": "INT",
+          "widget": {
+            "name": "dino_substeps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "DINO · предел основы",
+          "name": "dino_foundation_cap",
+          "type": "FLOAT",
+          "widget": {
+            "name": "dino_foundation_cap"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Память · экономить VRAM",
+          "name": "low_vram",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "low_vram"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Память · держать веса внутри запуска",
+          "name": "keep_models_loaded",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "keep_models_loaded"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Декодер · tiled (нужна совместимая o_voxel)",
+          "name": "use_tiled",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_tiled"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Память · размер блока explicit GEMM",
+          "name": "im2col_chunk_size",
+          "type": "INT",
+          "widget": {
+            "name": "im2col_chunk_size"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · шаги (0 = общие)",
+          "name": "ss_steps",
+          "type": "INT",
+          "widget": {
+            "name": "ss_steps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · семплер",
+          "name": "ss_sampler",
+          "type": "COMBO",
+          "widget": {
+            "name": "ss_sampler"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · CFG",
+          "name": "ss_guidance_strength",
+          "type": "FLOAT",
+          "widget": {
+            "name": "ss_guidance_strength"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · CFG rescale",
+          "name": "ss_guidance_rescale",
+          "type": "FLOAT",
+          "widget": {
+            "name": "ss_guidance_rescale"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · начало CFG",
+          "name": "ss_guidance_start",
+          "type": "FLOAT",
+          "widget": {
+            "name": "ss_guidance_start"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · конец CFG",
+          "name": "ss_guidance_end",
+          "type": "FLOAT",
+          "widget": {
+            "name": "ss_guidance_end"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · rescale t",
+          "name": "ss_rescale_t",
+          "type": "FLOAT",
+          "widget": {
+            "name": "ss_rescale_t"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Структура · sigma min",
+          "name": "ss_sigma_min",
+          "type": "FLOAT",
+          "widget": {
+            "name": "ss_sigma_min"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Форма · шаги (0 = общие)",
+          "name": "shape_steps",
+          "type": "INT",
+          "widget": {
+            "name": "shape_steps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Форма · семплер",
+          "name": "shape_sampler",
+          "type": "COMBO",
+          "widget": {
+            "name": "shape_sampler"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Форма · CFG",
+          "name": "shape_guidance_strength",
+          "type": "FLOAT",
+          "widget": {
+            "name": "shape_guidance_strength"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Форма · CFG rescale",
+          "name": "shape_guidance_rescale",
+          "type": "FLOAT",
+          "widget": {
+            "name": "shape_guidance_rescale"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Форма · начало CFG",
+          "name": "shape_guidance_start",
+          "type": "FLOAT",
+          "widget": {
+            "name": "shape_guidance_start"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Форма · конец CFG",
+          "name": "shape_guidance_end",
+          "type": "FLOAT",
+          "widget": {
+            "name": "shape_guidance_end"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Форма · rescale t",
+          "name": "shape_rescale_t",
+          "type": "FLOAT",
+          "widget": {
+            "name": "shape_rescale_t"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Форма · sigma min",
+          "name": "shape_sigma_min",
+          "type": "FLOAT",
+          "widget": {
+            "name": "shape_sigma_min"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Текстуры · шаги (0 = общие)",
+          "name": "tex_steps",
+          "type": "INT",
+          "widget": {
+            "name": "tex_steps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Текстуры · семплер",
+          "name": "tex_sampler",
+          "type": "COMBO",
+          "widget": {
+            "name": "tex_sampler"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Текстуры · CFG",
+          "name": "tex_guidance_strength",
+          "type": "FLOAT",
+          "widget": {
+            "name": "tex_guidance_strength"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Текстуры · CFG rescale",
+          "name": "tex_guidance_rescale",
+          "type": "FLOAT",
+          "widget": {
+            "name": "tex_guidance_rescale"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Текстуры · начало CFG",
+          "name": "tex_guidance_start",
+          "type": "FLOAT",
+          "widget": {
+            "name": "tex_guidance_start"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Текстуры · конец CFG",
+          "name": "tex_guidance_end",
+          "type": "FLOAT",
+          "widget": {
+            "name": "tex_guidance_end"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Текстуры · rescale t",
+          "name": "tex_rescale_t",
+          "type": "FLOAT",
+          "widget": {
+            "name": "tex_rescale_t"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Текстуры · sigma min",
+          "name": "tex_sigma_min",
+          "type": "FLOAT",
+          "widget": {
+            "name": "tex_sigma_min"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "UV · угол группировки (°)",
+          "name": "uv_angle",
+          "type": "FLOAT",
+          "widget": {
+            "name": "uv_angle"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "UV · итерации уточнения",
+          "name": "uv_refine_iterations",
+          "type": "INT",
+          "widget": {
+            "name": "uv_refine_iterations"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "UV · глобальные итерации",
+          "name": "uv_global_iterations",
+          "type": "INT",
+          "widget": {
+            "name": "uv_global_iterations"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "UV · сглаживание группировки",
+          "name": "uv_smooth_strength",
+          "type": "INT",
+          "widget": {
+            "name": "uv_smooth_strength"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Экспорт · масштаб",
+          "name": "export_scale",
+          "type": "FLOAT",
+          "widget": {
+            "name": "export_scale"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Экспорт · сохранить латенты (.pt)",
+          "name": "save_latents",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "save_latents"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Лог · подробный вывод",
+          "name": "verbose",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "verbose"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "Лог · прогресс экспорта",
+          "name": "export_progress",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "export_progress"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "glb_path",
+          "name": "glb_path",
+          "type": "STRING",
+          "links": [
+            11003
+          ]
+        },
+        {
+          "localized_name": "all_glb_paths",
+          "name": "all_glb_paths",
+          "type": "STRING",
+          "links": []
+        },
+        {
+          "localized_name": "latents_path",
+          "name": "latents_path",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "title": "TRELLIS.2 · two supplied views (0° + 90°)",
+      "properties": {
+        "Node name for S&R": "TeslaTrellis2MultiView",
+        "tesla_3d_stage": true,
+        "tesla_3d_preview_node": "1701",
+        "tesla_settings_version": 4
+      },
+      "widgets_values": [
+        42,
+        "fixed",
+        12,
+        3000,
+        1024,
+        "flat",
+        45,
+        true,
+        1,
+        0,
+        "512",
+        "euler",
+        true,
+        1,
+        2,
+        false,
+        32768,
+        32,
+        false,
+        1,
+        1,
+        "remove_small_holes",
+        false,
+        0,
+        4,
+        0.92,
+        true,
+        false,
+        false,
+        2048,
+        0,
+        "inherit",
+        7.5,
+        0.7,
+        0.6,
+        1,
+        5,
+        1e-05,
+        0,
+        "inherit",
+        7.5,
+        0.5,
+        0.6,
+        1,
+        3,
+        1e-05,
+        0,
+        "inherit",
+        1,
+        0,
+        0.6,
+        0.9,
+        3,
+        1e-05,
+        90,
+        0,
+        1,
+        1,
+        1,
+        false,
+        false,
+        false
+      ],
+      "widgets_values_named": {
+        "seed": 42,
+        "control_after_generate": "fixed",
+        "steps": 12,
+        "target_faces": 3000,
+        "texture_size": 512,
+        "normal_mode": "flat",
+        "normal_angle": 45,
+        "remesh": true,
+        "remesh_band": 1,
+        "remesh_project": 0,
+        "pipeline_type": "512",
+        "sampler": "euler",
+        "generate_texture": true,
+        "num_samples": 1,
+        "max_views": 2,
+        "preprocess_image": false,
+        "max_num_tokens": 32768,
+        "sparse_structure_resolution": 32,
+        "fill_holes": false,
+        "hole_iterations": 1,
+        "hole_structure": 1,
+        "hole_fill_algorithm": "remove_small_holes",
+        "keep_only_shell": false,
+        "dino_lock": 0,
+        "dino_substeps": 4,
+        "dino_foundation_cap": 0.92,
+        "low_vram": true,
+        "keep_models_loaded": false,
+        "use_tiled": false,
+        "im2col_chunk_size": 2048,
+        "ss_steps": 0,
+        "ss_sampler": "inherit",
+        "ss_guidance_strength": 7.5,
+        "ss_guidance_rescale": 0.7,
+        "ss_guidance_start": 0.6,
+        "ss_guidance_end": 1,
+        "ss_rescale_t": 5,
+        "ss_sigma_min": 1e-05,
+        "shape_steps": 0,
+        "shape_sampler": "inherit",
+        "shape_guidance_strength": 7.5,
+        "shape_guidance_rescale": 0.5,
+        "shape_guidance_start": 0.6,
+        "shape_guidance_end": 1,
+        "shape_rescale_t": 3,
+        "shape_sigma_min": 1e-05,
+        "tex_steps": 0,
+        "tex_sampler": "inherit",
+        "tex_guidance_strength": 1,
+        "tex_guidance_rescale": 0,
+        "tex_guidance_start": 0.6,
+        "tex_guidance_end": 0.9,
+        "tex_rescale_t": 3,
+        "tex_sigma_min": 1e-05,
+        "uv_angle": 90,
+        "uv_refine_iterations": 0,
+        "uv_global_iterations": 1,
+        "uv_smooth_strength": 1,
+        "export_scale": 1,
+        "save_latents": false,
+        "verbose": false,
+        "export_progress": false
+      }
+    },
+    {
+      "id": 1701,
+      "type": "Preview3D",
+      "pos": [
+        900,
+        220
+      ],
+      "size": [
+        500,
+        550
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "информация_камеры",
+          "name": "camera_info",
+          "shape": 7,
+          "type": "LOAD3D_CAMERA",
+          "link": null
+        },
+        {
+          "localized_name": "bg_image",
+          "name": "bg_image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "localized_name": "файл_модели",
+          "name": "model_file",
+          "type": "STRING,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_FBX,FILE_3D_OBJ,FILE_3D_STL,FILE_3D_USDZ,FILE_3D",
+          "widget": {
+            "name": "model_file"
+          },
+          "link": 11003
+        },
+        {
+          "localized_name": "изображение",
+          "name": "image",
+          "type": "PREVIEW_3D",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [],
+      "title": "Preview3D · GLB",
+      "properties": {
+        "Node name for S&R": "Preview3D",
+        "Camera Config": {
+          "cameraType": "perspective",
+          "fov": 75,
+          "state": {
+            "position": {
+              "x": -1.045651591596789,
+              "y": 1.095380410640625,
+              "z": -1.7323499892128207
+            },
+            "target": {
+              "x": -0.06606330900327553,
+              "y": 0.004952806930603572,
+              "z": 0.06423218914761009
+            },
+            "zoom": 1,
+            "cameraType": "perspective",
+            "quaternion": {
+              "x": 0.059866820338684505,
+              "y": 0.9401216951401986,
+              "z": 0.23485428784254905,
+              "w": -0.23964687694861428
+            },
+            "fov": 75,
+            "aspect": 1.263157894736842,
+            "near": 0.01,
+            "far": 10000,
+            "frustum": {
+              "left": -5,
+              "right": 5,
+              "top": 5,
+              "bottom": -5
+            }
+          }
+        },
+        "Light Config": {
+          "intensity": 2.4000000000000004,
+          "hdri": {
+            "enabled": false,
+            "hdriPath": "",
+            "showAsBackground": false,
+            "intensity": 1
+          }
+        },
+        "Scene Config": {
+          "showGrid": true,
+          "backgroundColor": "#282828",
+          "backgroundImage": "",
+          "backgroundRenderMode": "tiled",
+          "models": [
+            {
+              "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "quaternion": {
+                "x": 0,
+                "y": 0,
+                "z": 0,
+                "w": 1
+              },
+              "scale": {
+                "x": 1,
+                "y": 1,
+                "z": 1
+              }
+            }
+          ]
+        },
+        "Model Config": {
+          "upDirection": "original",
+          "materialMode": "original",
+          "showSkeleton": false,
+          "gizmo": {
+            "enabled": false,
+            "mode": "translate",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        },
+        "tesla_3d_preview_node": "1701"
+      },
+      "widgets_values": [
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "model_file": "",
+        "image": ""
+      }
+    }
+  ],
+  "groups": [],
+  "links": [
+    [
+      11001,
+      2001,
+      0,
+      50108,
+      0,
+      "IMAGE"
+    ],
+    [
+      11002,
+      2002,
+      0,
+      50108,
+      1,
+      "IMAGE"
+    ],
+    [
+      11003,
+      50108,
+      0,
+      1701,
+      2,
+      "STRING"
+    ]
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.72,
+      "offset": [
+        100,
+        100
+      ]
+    },
+    "workflow_note": "Upload approved front 0-degree and exact side 90-degree images independently. Use already-cropped, consistently framed opaque references with a plain background. view_3 through view_10 are intentionally unconnected."
+  },
+  "version": 0.4
+}

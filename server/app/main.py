@@ -250,7 +250,7 @@ async def websocket_endpoint(socket: WebSocket):
                         else:
                             stream.release(message.get('payload'))
                 continue
-            if kind in ('player.input', 'landing.select', 'world.start', 'building.place',
+            if kind in ('player.input', 'player.color', 'landing.select', 'world.start', 'building.place',
                         'resource.pickup', 'resource.deposit', 'resource.give'):
                 if stream is None:
                     await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),

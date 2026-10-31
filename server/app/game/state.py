@@ -14,7 +14,7 @@ from app.world.geometry import Planet
 TICK_SECONDS = .05
 SPEED = 4.0
 REACH = 4.5
-PLAYER_RADIUS = .3
+PLAYER_RADIUS = .3 / 1.5
 BUILDING_RADIUS = .8
 MOUNTAIN_RADIUS = 1.5
 INVENTORY_CAPACITY = 50
@@ -27,6 +27,10 @@ RECIPES = {"drill": 5, "warehouse": 5, "oxygen_generator": 8}
 INPUT_TIMEOUT_TICKS = 5
 PRODUCTION_TICKS = 20
 OXYGEN_GOAL = 100
+
+# Public palette shared with the color picker. Accept only these exact values.
+PLAYER_COLORS = ("#ff6b4a", "#ffbd4a", "#a7d94b", "#42d6a4",
+                 "#42b8ff", "#687bff", "#bd70ff", "#ff75b8")
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,13 @@ class Player:
     seq: int = -1
     move: tuple[float, float, float] = (0., 0., 0.)
     input_tick: int = -INPUT_TIMEOUT_TICKS
+    color: str = PLAYER_COLORS[0]
+    heading: tuple[float, float, float] = (0., 0., -1.)
+    altitude: float = 0.
+    vertical_speed: float = 0.
+    jump_held: bool = False
+    jump_pending: bool = False
+    running: bool = False
 
 
 @dataclass
