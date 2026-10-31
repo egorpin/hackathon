@@ -6,6 +6,7 @@ geometry dependency is needed. The twelve original vertices become pentagons.
 from dataclasses import dataclass
 from itertools import combinations
 import math
+import hashlib
 
 Vec3 = tuple[float, float, float]
 
@@ -81,6 +82,7 @@ class Cell:
     chunk_id: str
     terrain: str = "ground"
     buildable: bool = True
+    resource: str | None = None
 
 
 @dataclass(frozen=True)
@@ -149,6 +151,17 @@ def generate_planet(subdivisions=3, radius=30.0, chunk_cells=16):
     while len(sites) < 4:
         sites.append(max((i for i in range(12) if i not in sites),
                          key=lambda i: (min(angle(vertices[i], vertices[j]) for j in sites), -i)))
+    # Stable deposits, independent of Python hash randomization and chunking.
+    resources = ("iron", "water", "sulfur")
+    deposits = {}
+    for i in range(len(vertices)):
+        value = int.from_bytes(hashlib.sha256(f"resources-v1:{i}".encode()).digest()[:4], "big")
+        if i not in sites and value % 5 == 0:
+            deposits[i] = resources[(value // 5) % len(resources)]
+    # Each landing site has all three resources within its immediate neighborhood.
+    for site in sites:
+        for index, neighbor in enumerate(sorted(neighbors[site] - set(sites))[:3]):
+            deposits[neighbor] = resources[index]
     cells = {}
     for i, normal in enumerate(vertices):
         axis = (1, 0, 0) if abs(normal[0]) < .9 else (0, 1, 0)
@@ -158,6 +171,6 @@ def generate_planet(subdivisions=3, radius=30.0, chunk_cells=16):
         cell_id = f"cell-{i:04d}"
         cells[cell_id] = Cell(cell_id, scale(normal, radius), tuple(centers[f] for f in ordered),
                               tuple(f"cell-{j:04d}" for j in sorted(neighbors[i])), assignment[i],
-                              "landing" if i in sites else "ground", i not in sites)
-    version = f"icosphere-v1-s{subdivisions}-r{radius:.17g}-c{chunk_cells}"
+                              "landing" if i in sites else "ground", i not in sites, deposits.get(i))
+    version = f"icosphere-v1-s{subdivisions}-r{radius:.17g}-c{chunk_cells}-resources-v1"
     return Planet(version, radius, cells, chunks, tuple(f"cell-{i:04d}" for i in sites))

@@ -20,10 +20,12 @@ export function disposeObject(root) {
 }
 const material = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: .9, flatShading: true, ...extra });
 const mesh = (geometry, color) => new THREE.Mesh(geometry, material(color));
+const resourceLabels = { water: 'В', iron: 'Ж', sulfur: 'С' };
 const upAxis = new THREE.Vector3(0,1,0);
 
 export class WorldScene {
   constructor(host, events) {
+    this.buildType = 'drill';
     this.events = events; this.host = host; this.mode = 'first'; this.enabled = false;
     this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0x170f15);
     this.camera = new THREE.PerspectiveCamera(70,1,.05,2000);
@@ -156,6 +158,19 @@ export class WorldScene {
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(linePoints),new THREE.LineBasicMaterial({color:cell.surface==='landing'?0x9de2d0:0x50362b,transparent:true,opacity:.8}));
       line.userData.ownedGeometries = [line.geometry,sphericalOutline(cell.vertices,this.radius+.05)];
       tile.userData.outline = line; group.add(line);
+      if (resourceLabels[cell.resource]) {
+        const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
+        const context = canvas.getContext('2d');
+        context.font = 'bold 104px sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle';
+        context.lineWidth = 9; context.strokeStyle = '#241710'; context.fillStyle = '#ffffff';
+        context.strokeText(resourceLabels[cell.resource],64,68); context.fillText(resourceLabels[cell.resource],64,68);
+        const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+        const label = new THREE.Sprite(new THREE.SpriteMaterial({map:texture}));
+        const size = center.distanceTo(vertices[0]) * 1.25;
+        label.scale.set(size,size,1);
+        label.position.copy(center.clone().normalize().multiplyScalar(this.radius + .5));
+        tile.userData.decoration = label; group.add(label);
+      }
       if (cell.surface === 'mountain') {
         const width = center.distanceTo(vertices[0]) * .85;
         const mountain = mesh(new THREE.ConeGeometry(width,width*1.5,5),0x755348);
@@ -193,7 +208,7 @@ export class WorldScene {
   select(cell) {
     this.selected = cell;
     const occupied = [...this.buildings.values()].some(b => b.data.cell_id === cell?.cell_id);
-    const allowed = !!cell?.buildable && !occupied && surfaceDistance(this.position,vector(cell.center),this.radius) <= this.buildDistance;
+    const allowed = !!cell?.buildable && (this.buildType !== 'drill' || !!resourceLabels[cell.resource]) && !occupied && surfaceDistance(this.position,vector(cell.center),this.radius) <= this.buildDistance;
     this.preview.visible = !!cell;
     if (cell) {
       this.place(this.preview,vector(cell.center)); this.preview.material.color.setHex(allowed ? 0x80ffd7 : 0xff605a);

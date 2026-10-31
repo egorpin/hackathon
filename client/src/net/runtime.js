@@ -26,9 +26,12 @@ export class Runtime {
       events.on('player.input', input => { if (this.state?.stage !== 'lobby') transport.input(input); }),
       events.on('command', ({type,payload}) => this.command(type,payload)),
       events.on('build.request', () => {
+        if (scene.selected && (this.buildType || 'drill') === 'drill' && !['water','iron','sulfur'].includes(scene.selected.resource)) {
+          events.emit('notice','Бур можно построить только на ресурсной клетке: В, Ж или С.'); return;
+        }
         if (scene.selected) this.command('building.place',{cell_id:scene.selected.cell_id,building_type:this.buildType || 'drill'});
       }),
-      events.on('build.type', type => { this.buildType = type; }),
+      events.on('build.type', type => { this.buildType = type; scene.buildType = type; scene.select(scene.selected); }),
       events.on('interact.request', () => events.emit('building.selected',scene.nearestBuilding())),
     ];
   }

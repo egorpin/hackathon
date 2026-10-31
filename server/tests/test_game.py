@@ -61,6 +61,12 @@ class GeometryTests(unittest.TestCase):
         self.assertEqual(len(planet.landing_sites), 4)
         self.assertTrue(all(len(planet.cells[c].neighbors) == 5 for c in planet.landing_sites))
 
+    def test_deposits_are_deterministic_and_available_at_landings(self):
+        self.assertEqual({c.resource for c in self.planet.cells.values()}, {None, "water", "iron", "sulfur"})
+        for site in self.planet.landing_sites:
+            self.assertIsNone(self.planet.cells[site].resource)
+            self.assertTrue({"water", "iron", "sulfur"} <= {self.planet.cells[n].resource for n in self.planet.cells[site].neighbors})
+
     def test_export_byte_counts_and_hashes(self):
         with tempfile.TemporaryDirectory() as directory:
             manifest = export_planet(self.planet, directory)
@@ -156,22 +162,43 @@ class GameTests(unittest.TestCase):
         drill = self.build("drill", neighbors[0])
         warehouse = self.build("warehouse", neighbors[1])
         generator = self.build("oxygen_generator", neighbors[2])
-        self.assertEqual(self.world.state.players["alice"].inventory["ore"], 2)
         self.advance(100)
-        self.assertEqual(self.world.state.buildings[drill].stock["ore"], 5)
-        self.ok(self.act("resource.pickup", building_id=drill, resource="ore", amount=5))
-        self.ok(self.act("resource.deposit", building_id=warehouse, resource="ore", amount=5))
-        self.assertEqual(self.world.state.team_storage["team-a"]["ore"], 5)
-        self.ok(self.act("resource.pickup", building_id=warehouse, resource="ore", amount=3))
-        self.ok(self.act("resource.deposit", building_id=generator, resource="ore", amount=3))
+        self.assertEqual(self.world.state.buildings[drill].stock["iron"], 5)
+        self.ok(self.act("resource.pickup", building_id=drill, resource="iron", amount=5))
+        self.ok(self.act("resource.deposit", building_id=warehouse, resource="iron", amount=5))
+        self.ok(self.act("resource.pickup", building_id=warehouse, resource="iron", amount=3))
+        self.ok(self.act("resource.deposit", building_id=generator, resource="iron", amount=3))
         self.advance(60)
         state = self.world.state
-        self.assertEqual(state.team_oxygen["team-a"], 6)
-        self.assertEqual(state.buildings[generator].stock["ore"], 0)
+        self.assertEqual(state.team_oxygen["team-a"], 0)
+        self.assertEqual(state.buildings[generator].stock["iron"], 3)
         self.assertEqual(state.players["alice"].inventory["ore"], 2)
-        # Starting 20 + mined 8 = spent building 18 + consumed 3 + remaining 7.
-        remaining = state.players["alice"].inventory["ore"] + state.team_storage["team-a"]["ore"] + sum(b.stock["ore"] for b in state.buildings.values())
-        self.assertEqual(20 + 8, 18 + 3 + remaining)
+        remaining = state.players["alice"].inventory["iron"] + state.team_storage["team-a"]["iron"] + sum(b.stock["iron"] for b in state.buildings.values())
+        self.assertEqual(remaining, 8)
+
+    def test_drill_requires_resource_without_spending(self):
+        self.start()
+        cell = next(c for c in self.planet.cells.values() if c.buildable and c.resource is None)
+        with self.world.transaction() as state:
+            state.players["alice"].position = self.planet.cells[cell.neighbors[0]].center
+        before = self.world.state
+        response = self.act("building.place", cell_id=cell.cell_id, building_type="drill")
+        self.assertEqual(response["payload"]["code"], "RESOURCE_REQUIRED")
+        self.assertEqual(self.world.state.players, before.players)
+        self.assertEqual(self.world.state.buildings, before.buildings)
+        self.build("warehouse", cell.cell_id)
+
+    def test_each_deposit_produces_and_transfers_its_resource(self):
+        self.start()
+        for cell_id in self.planet.cells[self.planet.landing_sites[0]].neighbors[:3]:
+            resource = self.planet.cells[cell_id].resource
+            building_id = self.build(cell_id=cell_id)
+            self.advance(20)
+            self.assertEqual(self.world.state.buildings[building_id].stock[resource], 1)
+            self.ok(self.act("resource.pickup", building_id=building_id, resource=resource, amount=1))
+            self.assertEqual(self.world.state.players["alice"].inventory[resource], 1)
+            self.assertEqual(self.act("resource.pickup", building_id=building_id, resource="oxygen", amount=1)["payload"]["code"], "INVALID_ARGUMENT")
+        self.assertEqual(self.world.state.players["alice"].inventory["oxygen"], 0)
 
     def test_retry_conflict_and_concurrent_build(self):
         self.start()
@@ -214,7 +241,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(json.loads(json.dumps(restored.state.to_dict())), json.loads(saved[-1]))
         self.assertEqual(apply_command(self.context, request, restored), response)
         self.assertEqual(snapshot(self.context, restored)["payload"]["inventory"]["ore"], 15)
-        self.assertEqual(next(iter(restored.state.buildings.values())).stock["ore"], 2)
+        self.assertEqual(next(iter(restored.state.buildings.values())).stock["iron"], 2)
         with self.assertRaises(ValueError):
             UnitOfWork(generate_planet(subdivisions=1), restored.state)
 
@@ -246,13 +273,14 @@ class GameTests(unittest.TestCase):
         self.start()
         drill = self.build()
         self.advance(2000)
-        self.assertEqual(self.world.state.buildings[drill].stock["ore"], BUILDING_CAPACITY)
+        self.assertEqual(self.world.state.buildings[drill].stock["iron"], BUILDING_CAPACITY)
         for amount in (-1, 0, True, 1.5, "1", 51, 10**300, None):
             self.assertEqual(self.act("resource.pickup", building_id=drill, resource="ore", amount=amount)["payload"]["code"], "INVALID_ARGUMENT")
         with self.world.transaction() as state:
-            state.players["alice"].inventory["ore"] = INVENTORY_CAPACITY
-        self.assertEqual(self.act("resource.pickup", building_id=drill, resource="ore", amount=1)["payload"]["code"], "INVENTORY_FULL")
-        self.assertEqual(self.act("resource.deposit", building_id=drill, resource="ore", amount=1)["payload"]["code"], "INVENTORY_FULL")
+            state.players["alice"].inventory["ore"] = INVENTORY_CAPACITY - 1
+            state.players["alice"].inventory["iron"] = 1
+        self.assertEqual(self.act("resource.pickup", building_id=drill, resource="iron", amount=1)["payload"]["code"], "INVENTORY_FULL")
+        self.assertEqual(self.act("resource.deposit", building_id=drill, resource="iron", amount=1)["payload"]["code"], "INVENTORY_FULL")
 
     def test_give_and_private_snapshot(self):
         bob = Context("world-a", "bob", "team-a")

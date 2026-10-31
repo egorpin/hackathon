@@ -10,10 +10,11 @@ root.innerHTML = `
   <header><div class="brand">MARS<span>COLONY / ЭКСПЕДИЦИЯ 01</span></div><div id="connection" role="status">Подключение…</div></header>
   <section class="instrument"><span class="eyebrow">ТЕЛЕМЕТРИЯ ЭКСПЕДИЦИИ</span><h1>Поверхность Марса</h1>
     <p id="mode">Камера: первое лицо</p><p id="cache">Данные мира: ожидание манифеста</p><p id="performance">FPS: —</p>
+    <p>В — вода · Ж — железо · С — сера · O₂ — заглушка</p>
     <p id="selection">Наведитесь на клетку</p>
     <div class="actions"><button id="camera">Сменить камеру · Tab</button>
     <button id="start" hidden>Начать экспедицию</button>
-    <select id="building" aria-label="Тип постройки"><option value="drill">Бур</option><option value="oxygen_generator">Генератор O₂</option><option value="warehouse">Склад</option></select>
+    <select id="building" aria-label="Тип постройки"><option value="drill">Бур</option><option value="oxygen_generator">Генератор O₂ (заглушка)</option><option value="warehouse">Склад</option></select>
     <button id="build">Построить · B</button></div>
   </section>
   <div id="crosshair" aria-hidden="true">+</div>
@@ -40,7 +41,7 @@ events.on('connection.status', status=>{
 events.on('cache.stats', s=>show('cache',`Чанки: ${s.chunks} / ${totalChunks || '—'} · данные: ${s.percent.toFixed(2)}% · предел: 10% · очередь: ${s.queuedBytes} Б`));
 events.on('world.ready', ({totalChunks:count})=>{ totalChunks=count; show('notice','Щёлкните по сцене для захвата мыши. Tab переключает камеру.'); });
 events.on('performance', s=>show('performance',`FPS: ${Math.round(s.fps)} · вызовы отрисовки: ${s.drawCalls}`));
-events.on('cell.selected', ({cell,locallyAllowed})=>{ show('selection',cell ? `Клетка ${cell.cell_id} · ${locallyAllowed?'доступна для запроса':'строительство ограничено'}` : 'Наведитесь на клетку'); });
+events.on('cell.selected', ({cell,locallyAllowed})=>{ show('selection',cell ? `Клетка ${cell.cell_id} · ${{water:'Вода',iron:'Железо',sulfur:'Сера'}[cell.resource] || 'Нет ресурса'} · ${locallyAllowed?'доступна для запроса':'строительство ограничено'}` : 'Наведитесь на клетку'); });
 events.on('camera.changed', mode=>{ show('mode',mode==='first'?'Камера: первое лицо':'Камера: сверху · прежний радиус обзора'); document.getElementById('crosshair').hidden=mode!=='first'; });
 events.on('action.result', result=>show('notice',result.ok?'Действие подтверждено сервером':`Действие отклонено: ${result.message || result.code}`));
 events.on('building.selected', building=>show('notice',building ? `Выбрано: ${building.building_id}. Событие building.selected передано интерфейсу ресурсов.`:'Рядом нет доступных построек.'));

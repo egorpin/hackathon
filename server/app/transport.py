@@ -41,6 +41,9 @@ class GameService:
         if world_id not in self.worlds:
             saved = self.db.load_game(world_id)
             state = WorldState.from_dict(saved) if saved else WorldState(world_id, self.planet.version)
+            # Resource overlay preserves geometry and IDs from the previous map.
+            if state.map_version == self.planet.version.removesuffix("-resources-v1"):
+                state.map_version = self.planet.version
             self.worlds[world_id] = UnitOfWork(self.planet, state, persist=self.db.save_game)
         return self.worlds[world_id]
 

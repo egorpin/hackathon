@@ -34,3 +34,24 @@ def test_all_chunk_sizes_match_javascript(tmp_path):
         "let s='';for await(const c of process.stdin)s+=c;console.log(JSON.stringify(JSON.parse(s).map(x=>Buffer.byteLength(JSON.stringify(x)))));"],
         input=json.dumps(chunks), text=True, capture_output=True, check=True)
     assert json.loads(measured.stdout) == [byte_size(chunk) for chunk in chunks]
+
+
+def test_resource_overlay_restores_legacy_save(tmp_path):
+    db = Database(tmp_path / 'legacy.sqlite3')
+    db.initialize()
+    identity = db.register('alice', b'salt', b'hash', 'session', 3600)
+    service = GameService(db)
+    service.join(identity)
+    legacy = service.runtime(identity).state
+    legacy.map_version = service.planet.version.removesuffix('-resources-v1')
+    legacy.players[identity['user_id']].inventory = {'ore': 17}
+    legacy.team_storage[identity['team_id']] = {'ore': 3}
+    db.save_game(legacy)
+    restored = GameService(db)
+    restored.join(identity)
+    dto = restored.dto(identity)
+    assert dto['map_version'] == restored.planet.version
+    assert dto['inventory'] == {'ore': 17, 'water': 0, 'sulfur': 0, 'iron': 0, 'oxygen': 0}
+    assert dto['team_storage']['ore'] == 3
+    assert dto['config']['oxygen_enabled'] is False
+    assert {cell['resource'] for chunk in restored.chunks.values() for cell in chunk['cells']} == {None, 'water', 'iron', 'sulfur'}

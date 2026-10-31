@@ -4,9 +4,9 @@ import math
 from app.world.geometry import move_on_surface, surface_distance
 from .commands import authorize
 from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INPUT_TIMEOUT_TICKS,
-                    MOUNTAIN_RADIUS, OXYGEN_GOAL, OXYGEN_PER_ORE, PLAYER_RADIUS,
+                    MOUNTAIN_RADIUS, OXYGEN_GOAL, PLAYER_RADIUS,
                     PRODUCTION_TICKS, REACH, RECIPES, SPEED, TICK_SECONDS,
-                    INVENTORY_CAPACITY, STORAGE_CAPACITY, STARTING_ORE)
+                    INVENTORY_CAPACITY, STORAGE_CAPACITY, STARTING_ORE, MINABLE_RESOURCES)
 
 
 def step(world, dt_seconds, planet):
@@ -36,13 +36,12 @@ def step(world, dt_seconds, planet):
         if building.production_ticks < PRODUCTION_TICKS:
             continue
         building.production_ticks = 0
-        if building.building_type == "drill" and building.stock["ore"] < BUILDING_CAPACITY:
-            building.stock["ore"] += 1
+        resource = planet.cells[building.cell_id].resource
+        if (building.building_type == "drill" and resource in MINABLE_RESOURCES
+                and sum(building.stock.values()) < BUILDING_CAPACITY):
+            building.stock[resource] = building.stock.get(resource, 0) + 1
             events.append({"type": "building.updated", "building_id": building.building_id})
-        elif building.building_type == "oxygen_generator" and building.stock["ore"] > 0:
-            building.stock["ore"] -= 1
-            world.team_oxygen[building.team_id] += OXYGEN_PER_ORE
-            events.append({"type": "team.progress", "team_id": building.team_id})
+        # Oxygen is a placeholder: generators do not consume or produce resources.
     world.tick += 1
     world.revision += 1
     return events
@@ -84,4 +83,4 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                                    "mountain_radius": MOUNTAIN_RADIUS, "recipes": dict(RECIPES),
                                    "inventory_capacity": INVENTORY_CAPACITY, "building_capacity": BUILDING_CAPACITY,
                                    "storage_capacity": STORAGE_CAPACITY, "starting_ore": STARTING_ORE,
-                                   "production_ticks": PRODUCTION_TICKS, "oxygen_per_ore": OXYGEN_PER_ORE}}}
+                                   "production_ticks": PRODUCTION_TICKS, "oxygen_enabled": False}}}

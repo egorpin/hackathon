@@ -6,7 +6,7 @@ import uuid
 
 from app.world.geometry import surface_distance
 from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INVENTORY_CAPACITY,
-                    PLAYER_RADIUS, REACH, RECIPES, STORAGE_CAPACITY, Building, Context, UnitOfWork)
+                    PLAYER_RADIUS, REACH, RECIPES, MINABLE_RESOURCES, STORAGE_CAPACITY, Building, Context, UnitOfWork)
 
 
 class Rejected(Exception):
@@ -80,6 +80,7 @@ def dispatch(context, kind, payload, state, planet):
         require(not any(building.cell_id == cell_id for building in state.buildings.values()), "CELL_OCCUPIED")
         require(all(other.position is None or surface_distance(other.position, cell.center, planet.radius)
                     >= BUILDING_RADIUS + PLAYER_RADIUS for other in state.players.values()), "CELL_OCCUPIED")
+        require(building_type != "drill" or cell.resource in MINABLE_RESOURCES, "RESOURCE_REQUIRED")
         cost = RECIPES[building_type]
         require(player.inventory["ore"] >= cost, "INSUFFICIENT_RESOURCES")
         building_id = str(uuid.uuid4())
@@ -92,7 +93,8 @@ def dispatch(context, kind, payload, state, planet):
         fields(payload, target_key, "resource", "amount")
         target_id = identifier(payload[target_key])
         amount = payload["amount"]
-        require(payload["resource"] == "ore" and type(amount) is int and 1 <= amount <= INVENTORY_CAPACITY)
+        resource = payload["resource"]
+        require(isinstance(resource, str) and resource in ("ore", *MINABLE_RESOURCES) and type(amount) is int and 1 <= amount <= INVENTORY_CAPACITY)
         if kind == "resource.give":
             target = state.players.get(target_id)
             require(target is not None and target.user_id != player.user_id)
@@ -111,10 +113,10 @@ def dispatch(context, kind, payload, state, planet):
             else:
                 source, destination = player.inventory, stock
                 capacity = STORAGE_CAPACITY if building.building_type == "warehouse" else BUILDING_CAPACITY
-        require(source.get("ore", 0) >= amount, "INSUFFICIENT_RESOURCES")
+        require(source.get(resource, 0) >= amount, "INSUFFICIENT_RESOURCES")
         require(sum(destination.values()) + amount <= capacity, "INVENTORY_FULL")
-        source["ore"] -= amount
-        destination["ore"] = destination.get("ore", 0) + amount
+        source[resource] -= amount
+        destination[resource] = destination.get(resource, 0) + amount
         return {}
     raise Rejected("NOT_IMPLEMENTED")
 

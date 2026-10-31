@@ -85,3 +85,22 @@ test('unconfirmed commands replay with original IDs only after snapshot',()=>{
  c.receive({type:'action.result',request_id:id,payload:{ok:true}});
  assert.equal(c.pending.size,0);c.close();
 });
+
+
+test('drill requests require deposits and changing building type refreshes preview', async () => {
+ const { Runtime } = await import('../src/net/runtime.js');
+ const { Events } = await import('../src/net/events.js');
+ const events = new Events(), transport = new Events(), sent = [];
+ transport.command = (type, payload) => sent.push({type, payload});
+ const scene = {selected:{cell_id:'ground',resource:null}, select(cell){this.refreshed = cell;}};
+ new Runtime(transport,scene,events);
+ events.emit('build.request'); assert.equal(sent.length,0);
+ for (const resource of ['water','iron','sulfur']) {
+  scene.selected = {cell_id:resource,resource}; events.emit('build.request');
+ }
+ assert.equal(sent.length,3);
+ scene.selected = {cell_id:'ground',resource:null};
+ events.emit('build.type','warehouse');
+ assert.equal(scene.buildType,'warehouse'); assert.equal(scene.refreshed,scene.selected);
+ events.emit('build.request'); assert.equal(sent.at(-1).payload.building_type,'warehouse');
+});

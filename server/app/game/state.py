@@ -20,11 +20,12 @@ MOUNTAIN_RADIUS = 1.5
 INVENTORY_CAPACITY = 50
 BUILDING_CAPACITY = 50
 STORAGE_CAPACITY = 200
+MINABLE_RESOURCES = ("water", "sulfur", "iron")
+RESOURCES = ("ore", *MINABLE_RESOURCES, "oxygen")
 STARTING_ORE = 20
 RECIPES = {"drill": 5, "warehouse": 5, "oxygen_generator": 8}
 INPUT_TIMEOUT_TICKS = 5
 PRODUCTION_TICKS = 20
-OXYGEN_PER_ORE = 2
 OXYGEN_GOAL = 100
 
 
@@ -41,7 +42,7 @@ class Player:
     user_id: str
     team_id: str
     position: tuple[float, float, float] | None = None
-    inventory: dict = field(default_factory=lambda: {"ore": STARTING_ORE})
+    inventory: dict = field(default_factory=lambda: {**dict.fromkeys(RESOURCES, 0), "ore": STARTING_ORE})
     seq: int = -1
     move: tuple[float, float, float] = (0., 0., 0.)
     input_tick: int = -INPUT_TIMEOUT_TICKS
@@ -54,7 +55,7 @@ class Building:
     building_type: str
     team_id: str
     creator_id: str
-    stock: dict = field(default_factory=lambda: {"ore": 0})
+    stock: dict = field(default_factory=lambda: dict.fromkeys(RESOURCES, 0))
     production_ticks: int = 0
 
 
@@ -87,6 +88,12 @@ class WorldState:
                 player.position = tuple(player.position)
             player.move = tuple(player.move)
         values["buildings"] = {key: Building(**value) for key, value in values["buildings"].items()}
+        # Older saves contain only ore; retain balances and add empty resources.
+        for stock in [*(p.inventory for p in values["players"].values()),
+                      *(b.stock for b in values["buildings"].values()),
+                      *values.get("team_storage", {}).values()]:
+            for resource in RESOURCES:
+                stock.setdefault(resource, 0)
         return cls(**values)
 
 
@@ -133,6 +140,6 @@ class UnitOfWork:
             if state.stage != "lobby" or len(state.players) >= 4:
                 raise ValueError("World is full or already started")
             state.players[context.user_id] = Player(context.user_id, context.team_id)
-            state.team_storage.setdefault(context.team_id, {"ore": 0})
+            state.team_storage.setdefault(context.team_id, dict.fromkeys(RESOURCES, 0))
             state.team_oxygen.setdefault(context.team_id, 0)
             state.revision += 1
