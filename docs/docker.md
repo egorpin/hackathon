@@ -2,9 +2,11 @@
 
 ## Что уже есть
 
-После слияния образ включает новый Three.js-клиент и игровое ядро. Production-клиент ожидает игровой поток, который FastAPI пока не выдаёт: доступная страница/healthcheck не означают готовую игру. Dev preview запускается отдельно через Vite `?fixture` по [goldberg.md](goldberg.md). Модули и оставшиеся задачи описаны в [status.md](status.md).
+Compose собирает два образа: клиент на Nginx и сервер на FastAPI. Клиент обращается к `/api` и `/ws` на том же адресе, с которого открыта страница; Nginx передаёт запросы серверу по внутренней сети Compose. Наружу публикуется только порт клиента. Сервер слушает `0.0.0.0:8000` внутри контейнера, поэтому Compose может обслуживать браузеры на этом компьютере и позднее в LAN.
 
-Многоэтапная сборка: Node собирает Vite, Python запускает FastAPI со статикой. Один Uvicorn worker слушает 0.0.0.0:8000. Процесс работает от непривилегированного пользователя; SQLite с WAL хранится в именованном volume `/data`. `/api/health` проверяет чтение базы. Реализованы вход, сессии и командный чат через WebSocket; игра и агенты ещё не подключены.
+**Ограничение приложения:** сервер пока выдаёт авторизацию и чат, но не игровой snapshot, движение и чанки. Docker-конфигурация соединяет сервисы, однако обычный игровой процесс не заработает до подключения игрового ядра к WebSocket. Dev preview запускается отдельно через Vite `?fixture` по [goldberg.md](goldberg.md). Состояние разработки описано в [status.md](status.md).
+
+Node собирает Vite, а Nginx обслуживает статические файлы и проксирует API/WebSocket. Один Uvicorn worker работает от непривилегированного пользователя; SQLite с WAL хранится в именованном volume `/data`. `/api/health` проверяет чтение базы. Клиент стартует после успешной проверки здоровья сервера.
 
 ## Запуск при наличии интернета
 
@@ -27,14 +29,14 @@ docker compose logs --tail 100
 Сборка требует интернета для базовых образов и пакетов. До отключения сети собрать и проверить итоговый образ:
 
 ```powershell
-docker image save -o mars-colony-image.tar mars-colony:local
+docker image save -o mars-colony-images.tar mars-colony-client:local mars-colony-server:local
 docker compose up -d --no-build --pull never
 ```
 
 На другом серверном ноутбуке предварительно установить Docker, перенести образ, compose.yaml и .env:
 
 ```powershell
-docker image load -i mars-colony-image.tar
+docker image load -i mars-colony-images.tar
 docker compose up -d --no-build --pull never
 ```
 
@@ -48,11 +50,11 @@ docker compose up -d --no-build --pull never
 
 ```powershell
 docker compose stop
-docker compose cp mars-colony:/data ./mars-data-backup
+docker compose cp server:/data ./mars-data-backup
 docker compose start
 ```
 
-Восстановление на новом, пустом volume: создать контейнер через `docker compose create`, затем `docker compose cp ./mars-data-backup/. mars-colony:/data`. Если копирование сменило владельца, выполнить `docker compose run --rm --no-deps --user root mars-colony chown -R 10001:10001 /data`, затем `docker compose up -d --no-build --pull never`. Сначала проверить восстановление на отдельной копии, не поверх единственного рабочего прогресса.
+Восстановление на новом, пустом volume: создать контейнер через `docker compose create`, затем `docker compose cp ./mars-data-backup/. server:/data`. Если копирование сменило владельца, выполнить `docker compose run --rm --no-deps --user root server chown -R 10001:10001 /data`, затем `docker compose up -d --no-build --pull never`. Сначала проверить восстановление на отдельной копии, не поверх единственного рабочего прогресса.
 
 ## Без Docker для разработки
 

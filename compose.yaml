@@ -1,13 +1,11 @@
 services:
-  mars-colony:
-    image: mars-colony:local
+  server:
+    image: mars-colony-server:local
     build:
       context: .
-    ports:
-      - "${MARS_PORT:-8000}:8000"
+      dockerfile: Dockerfile
     environment:
       DATA_DIR: /data
-      STATIC_DIR: /app/static
       MARS_ALLOWED_ORIGINS: ${MARS_ALLOWED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
       MARS_SECURE_COOKIE: ${MARS_SECURE_COOKIE:-false}
     volumes:
@@ -15,6 +13,18 @@ services:
     restart: unless-stopped
     init: true
     stop_grace_period: 20s
+
+  client:
+    image: mars-colony-client:local
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "${MARS_PORT:-8000}:80"
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   mars-data:
