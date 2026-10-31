@@ -1,0 +1,11 @@
+.env
+node_modules/
+dist/
+__pycache__/
+*.py[cod]
+.venv/
+data/
+*.sqlite*
+*.db*
+mars-colony-image.tar
+mars-data-backup/

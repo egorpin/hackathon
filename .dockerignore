@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+!.env.example
+**/node_modules
+**/dist
+**/__pycache__
+**/.venv
+**/*.sqlite*
+**/*.db*
+docs
+.agents
+mars-colony-image.tar
+mars-data-backup
+data

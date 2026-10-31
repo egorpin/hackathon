@@ -1,0 +1,18 @@
+services:
+  mars-colony:
+    image: mars-colony:local
+    build:
+      context: .
+    ports:
+      - "${MARS_PORT:-8000}:8000"
+    environment:
+      DATA_DIR: /data
+      STATIC_DIR: /app/static
+    volumes:
+      - mars-data:/data
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
+
+volumes:
+  mars-data:
