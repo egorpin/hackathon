@@ -1,5 +1,8 @@
 # HTTPS и WSS в автономной LAN
 
+Для сервера в WSL и клиентов Windows 11 подготовлен
+[запуск с Windows mDNS-утилитой и единым адресом mars.local](windows-lan.md).
+
 Браузеры подключаются к `https://<IPv4-сервера>:8443`, WebSocket автоматически
 использует `wss://<IPv4-сервера>:8443/ws`. TLS завершается в Nginx. API и WebSocket
 между Nginx и FastAPI идут по внутренней Docker-сети; backend не публикует порт
@@ -93,7 +96,7 @@ py tools/generate-lan-cert.py --hostname mars.local
 
 Ответчик должен работать на ОС сервера с LAN-интерфейсом, например Avahi на Linux
 или настроенная служба Bonjour на Windows. Сам Nginx в Docker Desktop не объявляет
-`mars.local`; эта настройка в проект не включена. Сеть с client isolation или
+`mars.local`; используйте [Windows-утилиту проекта](windows-lan.md). Сеть с client isolation или
 запретом multicast может мешать mDNS. Суффикс `.local` предназначен для mDNS,
 а `home.arpa` — для локального DNS.
 
