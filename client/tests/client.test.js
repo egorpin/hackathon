@@ -85,3 +85,14 @@ test('unconfirmed commands replay with original IDs only after snapshot',()=>{
  c.receive({type:'action.result',request_id:id,payload:{ok:true}});
  assert.equal(c.pending.size,0);c.close();
 });
+
+test('server errors emit readable text once, preserving the raw message separately',()=>{
+ const c=new GameClient({url:'ws://test/ws',WebSocketClass:Socket});c.connect();
+ c.receive({type:'session.ready',payload:{user_id:'u',world_id:'w',team_id:'t'}});
+ const errors=[], messages=[];
+ c.on('error',error=>errors.push(error));c.on('message',message=>messages.push(message));
+ const message={type:'error',payload:{code:'WORLD_UNAVAILABLE',message:'World is full or already started'}};
+ c.receive(message);
+ assert.deepEqual(errors,['World is full or already started']);
+ assert.deepEqual(messages,[message]);assert.equal(c.ready,false);c.close();
+});

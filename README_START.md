@@ -9,7 +9,7 @@
 | Быстро показать 3D-мир | `http://127.0.0.1:5173/?fixture` | Геометрия, движение, две камеры, чанки и счётчик данных |
 | Разрабатывать frontend + backend | `http://127.0.0.1:5173` | Авторизация, API, WebSocket/reconnect и чат; Vite проксирует backend |
 | Проверить production-сборку | `http://127.0.0.1:8000` | FastAPI раздаёт собранный frontend, API и WebSocket |
-| Запустить через Docker/LAN | `http://<IP-сервера>:8000` | Production-сборка и SQLite volume |
+| Запустить dev через Docker/LAN | `http://<IP-сервера>:8000` | Vite + один FastAPI, HMR/reload и SQLite volume |
 
 Обычные адреса `:5173` и `:8000` получают состояние мира, движение и чанки по WebSocket. Войдите всеми участниками (до четырёх), затем нажмите «Начать экспедицию». После старта доступны переподключения существующих игроков. Подробности: [сетевой контракт](docs/websocket-integration.md).
 
@@ -86,16 +86,17 @@ Set-Location ..
 ## 5. Docker и LAN
 
 ```powershell
-Copy-Item .env.example .env
-docker compose up -d --build
+docker compose up -d --build --wait
 docker compose ps
 docker compose logs --tail 100
 ```
 
+Dev-клиент и единственный backend связаны через Vite-прокси `/api` и `/ws`. Изменения исходников подхватываются автоматически. Production: `docker compose -f compose.prod.yaml up -d --build --wait`.
+
 Локальный адрес: `http://localhost:8000`. Для других ноутбуков в одной сети:
 
 1. Узнайте IPv4 сервера командой `ipconfig`.
-2. Добавьте точный URL в `.env`, например `MARS_ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://192.168.1.10:8000`.
+2. Скопируйте `.env.example` в `.env` и добавьте точный URL, например `MARS_ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://192.168.1.10:8000`.
 3. Повторите `docker compose up -d`.
 4. Разрешите TCP-порт 8000 в Windows Firewall для частной сети.
 5. Откройте `http://192.168.1.10:8000` на клиентах.

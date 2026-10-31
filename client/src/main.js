@@ -34,7 +34,7 @@ const show = (id,text) => { document.getElementById(id).textContent=text; };
 let totalChunks=0;
 events.on('notice', text=>show('notice',text));
 events.on('connection.status', status=>{
-  const names={connecting:'Подключение…',syncing:'Синхронизация…',connected:'Подключено',reconnecting:'Нет связи · переподключение',unauthorized:'Требуется вход через сервер'};
+  const names={connecting:'Подключение…',syncing:'Синхронизация…',connected:'Подключено',reconnecting:'Нет связи · переподключение',unauthorized:'Требуется вход через сервер',world_unavailable:'Мир недоступен'};
   show('connection',names[status] || status);
 });
 events.on('cache.stats', s=>show('cache',`Чанки: ${s.chunks} / ${totalChunks || '—'} · данные: ${s.percent.toFixed(2)}% · предел: 10% · очередь: ${s.queuedBytes} Б`));
@@ -72,6 +72,10 @@ async function authenticate(transport) {
   const openSocket=()=>{ panel.hidden=true; transport.connect(); };
   transport.on('status', status=>{
     if(status==='unauthorized') { panel.hidden=false; show('connection','Требуется вход'); }
+    if(status==='world_unavailable') {
+      panel.hidden=false;
+      error.textContent='Мир уже запущен или заполнен. Войдите под именем игрока, который уже участвует в этой экспедиции.';
+    }
   });
   form.addEventListener('submit',async event=>{
     event.preventDefault(); error.textContent='';
