@@ -3,11 +3,11 @@
 Инструкция рассчитана на Windows PowerShell. Все команды, кроме явно отмеченных, выполняются из корня репозитория.
 
 **Проект в WSL, сервер и клиенты Windows 11:** [запуск через единое имя mars.local](docs/windows-lan.md).
-Сервер: `start-server.cmd`, клиенты: `start-client.cmd` из подготовленной клиентской папки.
-Из WSL: `./start-server.sh -Prepare`, затем `./start-server.sh`; Windows mDNS запускается автоматически.
+Сервер: `lan/start-server.cmd`, клиенты: `start-client.cmd` из подготовленной клиентской папки.
+Из WSL: `./lan/start-server.sh -Prepare`, затем `./lan/start-server.sh`; Windows mDNS запускается автоматически.
 
 Для автономной демонстрации по **HTTPS + WSS в LAN** используйте
-[отдельную инструкцию](docs/https-lan.md) и `start-https.cmd`.
+[отдельную инструкцию](docs/https-lan.md) и `lan/start-https.cmd`.
 Сертификаты выпускаются локально для IPv4 или постоянного имени сервера;
 на клиентах нужно установить `ca.crt`.
 

@@ -29,7 +29,7 @@ Python и OpenSSL нужны только при выпуске сертифик
 2. Пока интернет доступен, соберите production-образы:
 
    ```powershell
-   docker compose -f compose.https.yaml build
+   docker compose --project-directory . -f lan/compose.https.yaml build
    ```
 
 3. Выпустите локальный CA и сертификат сервера, интернет для этого не нужен:
@@ -130,10 +130,10 @@ py tools/check-https.py https://mars.home.arpa:8443 --ca certs/ca.crt
 каналы интернета на всех компьютерах: мобильную сеть, второй Wi-Fi и VPN.
 Так автономно работает весь компьютер, включая браузер, ОС и Docker Desktop.
 
-На Windows запустите из корня проекта `start-https.cmd`. Эквивалентная команда:
+На Windows запустите из корня проекта `lan/start-https.cmd`. Эквивалентная команда:
 
 ```powershell
-docker compose -f compose.https.yaml up -d --no-build --pull never --remove-orphans --wait
+docker compose --project-directory . -f lan/compose.https.yaml up -d --no-build --pull never --remove-orphans --wait
 ```
 
 Эта команда не собирает образы, не устанавливает пакеты и не загружает образы.

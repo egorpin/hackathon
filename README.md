@@ -6,7 +6,7 @@
 
 **HTTPS + WSS без интернета:** [настройка LAN-сертификатов и автономный запуск](docs/https-lan.md).
 **Windows 11 + WSL + mars.local:** [серверная утилита и скрипты запуска](docs/windows-lan.md).
-Готовый режим: `compose.https.yaml`, запуск на Windows — `start-https.cmd`.
+Готовый режим: `lan/compose.https.yaml`, запуск на Windows — `lan/start-https.cmd`.
 
 Для обычного запуска нужен только запущенный Docker Desktop. Из корня проекта выполните одну команду:
 

@@ -1,6 +1,6 @@
 @echo off
 setlocal
-pushd "%~dp0"
+pushd "%~dp0.."
 
 if not exist "certs\server.crt" goto missing_cert
 if not exist "certs\server.key" goto missing_cert
@@ -19,13 +19,13 @@ if errorlevel 1 (
   )
 )
 
-"%DOCKER_EXE%" compose -f compose.https.yaml up -d --no-build --pull never --remove-orphans --wait
+"%DOCKER_EXE%" compose --project-directory . -f lan/compose.https.yaml up -d --no-build --pull never --remove-orphans --wait
 if errorlevel 1 (
   echo Launch failed. Prepare images and certificates first; see docs\https-lan.md.
   popd
   exit /b 1
 )
-"%DOCKER_EXE%" compose -f compose.https.yaml ps
+"%DOCKER_EXE%" compose --project-directory . -f lan/compose.https.yaml ps
 if not defined MARS_HTTPS_PORT set "MARS_HTTPS_PORT=8443"
 echo Open https://SERVER-HOST-OR-IP:%MARS_HTTPS_PORT% and trust certs\ca.crt on each client.
 echo If .env overrides the port, use MARS_HTTPS_PORT from that file.

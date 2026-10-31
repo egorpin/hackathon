@@ -11,14 +11,14 @@ Windows-утилита `mars-mdns.py` объявляет имя `mars.local` в 
 PowerShell, сохраняя правильный дистрибутив и путь проекта:
 
 ```bash
-./start-server.sh -Prepare             # заранее, с интернетом
-./start-client.sh -TrustCertificate -InstallOnly  # CA для браузера сервера
-./start-server.sh -Interface 'Wi-Fi'   # обычный автономный запуск
+./lan/start-server.sh -Prepare             # заранее, с интернетом
+./lan/start-client.sh -TrustCertificate -InstallOnly  # CA для браузера сервера
+./lan/start-server.sh -Interface 'Wi-Fi'   # обычный автономный запуск
 ```
 
 Названия параметров остаются PowerShell-стилем (`-Prepare`, `-Port`, `-Interface`).
 На клиентах без WSL используйте подготовленный `start-client.cmd`; при наличии
-репозитория в WSL доступен также `./start-client.sh`. mDNS в любом случае работает
+репозитория в WSL доступен также `./lan/start-client.sh`. mDNS в любом случае работает
 в Windows, а не в виртуальной сети WSL. Настройка firewall остаётся отдельным
 явным шагом ниже.
 
@@ -31,13 +31,13 @@ PowerShell, сохраняя правильный дистрибутив и пу
 PowerShell (замените путь своим):
 
 ```powershell
-& '\\wsl.localhost\Ubuntu\home\USER\projects\hackathon\start-server.cmd' -Prepare
+& '\\wsl.localhost\Ubuntu\home\USER\projects\hackathon\lan\start-server.cmd' -Prepare
 ```
 
 Скрипт определяет дистрибутив и Linux-путь из UNC-пути. Их можно задать явно:
 
 ```powershell
-.\start-server.cmd -Distro Ubuntu -ProjectPath /home/USER/projects/hackathon -Prepare
+.\lan\start-server.cmd -Distro Ubuntu -ProjectPath /home/USER/projects/hackathon -Prepare
 ```
 
 Подготовка создаёт отдельное Windows-окружение
@@ -73,7 +73,7 @@ client/
 пользователем выполните:
 
 ```powershell
-& '\\wsl.localhost\Ubuntu\home\USER\projects\hackathon\windows\setup-server-firewall.ps1'
+& '\\wsl.localhost\Ubuntu\home\USER\projects\hackathon\lan\windows\setup-server-firewall.ps1'
 ```
 
 Скрипт создаёт два входящих LAN-правила: TCP 8443 для игры и UDP 5353 для
@@ -103,7 +103,7 @@ Firewall не отключается, настройки WSL, `hosts` и сис�
 Если включено несколько физических адаптеров, задайте нужный явно:
 
 ```powershell
-.\start-server.cmd -Distro Ubuntu -ProjectPath /home/USER/projects/hackathon -Interface 'Wi-Fi'
+.\lan\start-server.cmd -Distro Ubuntu -ProjectPath /home/USER/projects/hackathon -Interface 'Wi-Fi'
 ```
 
 Список адаптеров можно посмотреть без изменения настроек:
@@ -155,7 +155,7 @@ firewall. Если подключение по IP работает, а по им
 прохождение multicast и разрешение `.local` штатным резолвером и браузером.
 
 Остановка игры: в WSL из папки проекта выполните
-`docker compose -f compose.https.yaml stop`. Для удаления добавленных firewall-правил
+`docker compose --project-directory . -f lan/compose.https.yaml stop`. Для удаления добавленных firewall-правил
 на сервере: `Get-NetFirewallRule -Group 'Mars Colony' | Remove-NetFirewallRule`
 из административного PowerShell. Окружение утилиты можно удалить из
 `%LOCALAPPDATA%\MarsColony\mdns` после её остановки; служба Windows не устанавливается.

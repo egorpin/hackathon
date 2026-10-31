@@ -97,7 +97,7 @@ def main():
     if args.hostname:
         print("Configure local DNS/mDNS to resolve these names to the server's current LAN IP.")
         print("Changing the IP does not require reissuing the certificate when connecting by name.")
-    print("After reissuing: docker compose -f compose.https.yaml up -d --no-build --pull never --force-recreate client")
+    print("After reissuing: docker compose --project-directory . -f lan/compose.https.yaml up -d --no-build --pull never --force-recreate client")
 
 
 if __name__ == "__main__":

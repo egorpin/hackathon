@@ -9,7 +9,7 @@ param(
     [switch]$NoBrowser
 )
 $ErrorActionPreference = 'Stop'
-$repo = Split-Path $PSScriptRoot -Parent
+$repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 # Running the script via Explorer's WSL UNC path needs no machine-specific config.
 if ($repo -match '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)(\\.*)$') {
     if (-not $Distro) { $Distro = $Matches[1] }
@@ -36,15 +36,15 @@ if ($Prepare) {
     if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the Windows mDNS environment.' }
     Copy-Item (Join-Path $repo 'tools\mars-mdns.py') (Join-Path $runtime 'mars-mdns.py') -Force
     Invoke-ProjectWsl -Arguments @('python3', 'tools/generate-lan-cert.py', '--hostname', 'mars.local')
-    Invoke-ProjectWsl -Arguments @('docker', 'compose', '-f', 'compose.https.yaml', 'build')
+    Invoke-ProjectWsl -Arguments @('docker', 'compose', '--project-directory', '.', '-f', 'lan/compose.https.yaml', 'build')
     $bundle = Join-Path $env:LOCALAPPDATA 'MarsColony\client'
     New-Item -ItemType Directory -Force (Join-Path $bundle 'windows') | Out-Null
-    Copy-Item (Join-Path $repo 'start-client.cmd') $bundle -Force
-    Copy-Item (Join-Path $repo 'windows\start-client.ps1') (Join-Path $bundle 'windows') -Force
+    Copy-Item (Join-Path $repo 'lan\start-client.cmd') $bundle -Force
+    Copy-Item (Join-Path $repo 'lan\windows\start-client.ps1') (Join-Path $bundle 'windows') -Force
     Copy-Item (Join-Path $repo 'certs\ca.crt') $bundle -Force
     Write-Host "Prepared client bundle: $bundle"
     Write-Host 'Copy this folder to clients; run start-client.cmd -TrustCertificate -InstallOnly once on every computer, including this server.'
-    Write-Host 'Configure server firewall using windows\setup-server-firewall.ps1 as administrator.'
+    Write-Host 'Configure server firewall using lan\windows\setup-server-firewall.ps1 as administrator.'
     Write-Host 'Preparation complete. Run start-server.cmd without -Prepare for the offline demo.'
     exit 0
 }
@@ -63,7 +63,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'mDNS preflight failed; Docker containers were not restarted.' }
 Invoke-ProjectWsl -Arguments @('test', '-f', 'certs/server.crt')
 Invoke-ProjectWsl -Arguments @('openssl', 'verify', '-CAfile', 'certs/ca.crt', '-verify_hostname', 'mars.local', 'certs/server.crt')
-Invoke-ProjectWsl -Arguments @('env', "MARS_HTTPS_PORT=$Port", 'docker', 'compose', '-f', 'compose.https.yaml',
+Invoke-ProjectWsl -Arguments @('env', "MARS_HTTPS_PORT=$Port", 'docker', 'compose', '--project-directory', '.', '-f', 'lan/compose.https.yaml',
     'up', '-d', '--no-build', '--pull', 'never', '--force-recreate', '--remove-orphans', '--wait')
 $mdnsArgs = @((Join-Path $runtime 'mars-mdns.py'), '--port', "$Port")
 if ($Interface) { $mdnsArgs += @('--interface', $Interface) }
