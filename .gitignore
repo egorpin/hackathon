@@ -9,3 +9,6 @@ data/
 *.db*
 mars-colony-image.tar
 mars-data-backup/
+
+.venv-world/
+world/generated/

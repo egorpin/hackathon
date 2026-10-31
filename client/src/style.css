@@ -1,4 +1,12 @@
-:root { font-family: system-ui, sans-serif; color: #f4e5dc; background: #241713; }
-body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
-main { max-width: 44rem; margin: 2rem; padding: 2rem; border: 1px solid #b66f4d; border-radius: 1rem; }
-h1 { color: #ffaf77; }
+:root{font-family:system-ui,sans-serif;color:#f3e5d8;background:#170f15;font-synthesis:none}
+*{box-sizing:border-box}body{margin:0;overflow:hidden}main,#viewport{width:100%;height:100dvh}canvas{display:block;width:100%;height:100%;outline:none}
+header,footer{position:absolute;left:0;right:0;display:flex;align-items:center;justify-content:space-between;padding:24px 32px;pointer-events:none;gap:16px}
+header{top:0;background:linear-gradient(#170f15bb,transparent)}footer{bottom:0;font-size:12px;color:#d6b8a5;background:linear-gradient(transparent,#170f15dd)}
+.brand{font-size:27px;font-weight:800;letter-spacing:5px}.brand span{display:block;font-size:9px;letter-spacing:2px;color:#c99b80;margin-top:5px}
+#connection{font-size:12px;padding:9px 14px;border:1px solid #ba795a55;border-radius:24px;background:#251a20}
+.instrument{position:absolute;top:110px;left:32px;width:320px;background:#211820e8;border:1px solid #bf855347;border-radius:12px;padding:23px;box-shadow:0 16px 50px #0003}
+.eyebrow{font-size:9px;letter-spacing:2px;color:#dba17b}h1{font-size:22px;font-weight:500;margin:12px 0 24px}p{font-size:12px;line-height:1.65;color:#d8bca9}#cache{font-variant-numeric:tabular-nums}#selection{min-height:40px}
+.actions{display:grid;gap:8px}button,select{font:inherit;font-size:12px;padding:11px;color:#f7e4d5;border:1px solid #b8795e77;background:#3a272a;border-radius:6px;cursor:pointer}button:hover{background:#614035}button:focus-visible,select:focus-visible{outline:2px solid #8fe7cd}#build{background:#c9794d;color:#190f12;border:none;font-weight:700}
+#crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;color:#ffebcbbb}
+#notice{position:absolute;bottom:68px;left:50%;transform:translateX(-50%);max-width:680px;width:calc(100% - 48px);font-size:12px;line-height:1.6;text-align:center;background:#211820e8;border:1px solid #bf855347;border-radius:8px;padding:12px 20px;pointer-events:none}
+@media(max-width:650px){header,footer{padding:16px}.instrument{left:16px;top:90px;width:240px;padding:16px}.instrument h1{font-size:18px;margin-bottom:12px}footer span:last-child{display:none}footer{font-size:10px}.brand{font-size:20px}#connection{max-width:145px}.actions{gap:5px}#notice{bottom:55px}}

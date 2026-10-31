@@ -3,7 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite --host 0.0.0.0", "build": "vite build" },
-  "dependencies": { "three": "0.170.0" },
-  "devDependencies": { "vite": "6.4.1" }
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "world:generate": "node ../tools/run-world-generator.mjs",
+    "build": "vite build",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "vite": "6.4.5"
+  }
 }
