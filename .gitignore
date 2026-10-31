@@ -1,4 +1,6 @@
 .env
+certs/
+mars-colony-images.tar
 node_modules/
 dist/
 __pycache__/
