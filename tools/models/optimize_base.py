@@ -4,7 +4,7 @@ import json
 import struct
 import sys
 from pathlib import Path
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageDraw
 from collections import Counter
 
 source, target = map(Path, sys.argv[1:3])
@@ -90,6 +90,33 @@ for start in range(len(pixels)):
 original = Image.new('P', labels.size)
 original.putpalette([28,30,32, 245,245,245, 245,78,24] + [0]*759)
 original.putdata(pixels)
+if '--straight-panels' in sys.argv:
+    # Replace noisy painted boundaries with the straight UV edges of mesh faces.
+    def values(index):
+        accessor = g['accessors'][index]
+        view = views[accessor['bufferView']]
+        count = {'SCALAR':1,'VEC2':2,'VEC3':3,'VEC4':4}[accessor['type']]
+        code = {5126:'f',5123:'H',5125:'I',5121:'B'}[accessor['componentType']]
+        fmt = '<'+code*count
+        stride = view.get('byteStride',struct.calcsize(fmt))
+        offset = view['byteOffset']+accessor.get('byteOffset',0)
+        return [struct.unpack_from(fmt,packed,offset+i*stride) for i in range(accessor['count'])]
+    colors = original.copy()
+    draw = ImageDraw.Draw(original)
+    for mesh in g['meshes']:
+        for primitive in mesh['primitives']:
+            uv = values(primitive['attributes']['TEXCOORD_0'])
+            indices = [item[0] for item in values(primitive['indices'])]
+            for offset in range(0,len(indices),3):
+                points = [(uv[i][0]*width,uv[i][1]*height) for i in indices[offset:offset+3]]
+                samples = Counter()
+                for a in range(1,10):
+                    for b in range(1,11-a):
+                        weights = (a/12,b/12,1-(a+b)/12)
+                        x = min(width-1,max(0,int(sum(p[0]*w for p,w in zip(points,weights)))))
+                        y = min(height-1,max(0,int(sum(p[1]*w for p,w in zip(points,weights)))))
+                        samples[colors.getpixel((x,y))] += 1
+                draw.polygon(points,fill=samples.most_common(1)[0][0])
 output = io.BytesIO()
 original.save(output, 'PNG', optimize=True)
 g['images'] = [{'bufferView':append(output.getvalue()),'mimeType':'image/png','name':'BaseColor_1024_clean'}]
@@ -102,6 +129,30 @@ low, high = position['min'], position['max']
 scale = 1.6 / max(high[0]-low[0], high[2]-low[2])
 g['nodes'][0]['scale'] = [scale]*3
 g['nodes'][0]['translation'] = [-(high[0]+low[0])*scale/2, -low[1]*scale, -(high[2]+low[2])*scale/2]
+if '--extend-drill-legs' in sys.argv:
+    # Preserve the original ground pivot: the feet intentionally penetrate soil.
+    cx,cz=(high[0]+low[0])/2,(high[2]+low[2])/2
+    leg_zone=(high[1]-low[1])*.38
+    moved=0
+    for mesh in g['meshes']:
+        for primitive in mesh['primitives']:
+            accessor=g['accessors'][primitive['attributes']['POSITION']]
+            view=views[accessor['bufferView']]
+            stride=view.get('byteStride',12)
+            offset=view['byteOffset']+accessor.get('byteOffset',0)
+            updated=[]
+            for i in range(accessor['count']):
+                x,y,z=struct.unpack_from('<fff',packed,offset+i*stride)
+                outer=max(abs(x-cx),abs(z-cz)) > max(high[0]-low[0],high[2]-low[2])*.22
+                weight=max(0,min(1,1-(y-low[1])/leg_zone)) if outer else 0
+                if weight:
+                    y-=.18/scale*weight
+                    struct.pack_into('<fff',packed,offset+i*stride,x,y,z)
+                    moved+=1
+                updated.append((x,y,z))
+            accessor['min']=[min(p[a] for p in updated) for a in range(3)]
+            accessor['max']=[max(p[a] for p in updated) for a in range(3)]
+    print('Extended leg vertices:',moved,'; penetration: 0.18 m')
 g['bufferViews'] = views
 g['buffers'] = [{'byteLength':len(packed)}]
 encoded = json.dumps(g,separators=(',',':')).encode()
