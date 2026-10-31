@@ -3,6 +3,7 @@ export class Runtime {
   constructor(transport, scene, events) {
     this.transport = transport; this.scene = scene; this.events = events; this.cache = new WorldCache();
     this.unsubs = [
+      transport.on('lobby.state', state => { this.lobbyStage = state.stage; }),
       transport.on('session.ready', () => transport.send({type:'world.subscribe',payload:{}})),
       this.cache.on('stats', stats => events.emit('cache.stats', stats)),
       this.cache.on('evict', key => {
@@ -23,7 +24,7 @@ export class Runtime {
       }),
       transport.on('error', error => events.emit('notice',error)),
       transport.on('message', message => events.emit(message.type,message.payload)),
-      events.on('player.input', input => { if (this.state?.stage !== 'lobby') transport.input(input); }),
+      events.on('player.input', input => { if (this.state?.stage !== 'lobby' && (!transport.session || this.lobbyStage === 'running')) transport.input(input); }),
       events.on('command', ({type,payload}) => this.command(type,payload)),
       events.on('build.request', () => {
         if (scene.selected && (this.buildType || 'drill') === 'drill' && !['water','iron','sulfur'].includes(scene.selected.resource)) {
@@ -107,7 +108,7 @@ export class Runtime {
     this.scene.applyState({buildings:(this.state?.buildings || []).filter(building=>ids.has(building.cell_id))});
   }
   command(type,payload) {
-    const allowed = new Set(['landing.select','world.start','player.color','building.place','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release']);
+    const allowed = new Set(['landing.select','player.color','building.place','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release']);
     if (!allowed.has(type)) { this.events.emit('notice','Неизвестная клиентская команда'); return; }
     try { return this.transport.command(type,payload); }
     catch (error) { this.events.emit('notice',error.message); }

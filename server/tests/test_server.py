@@ -151,9 +151,10 @@ def test_two_clients_receive_authoritative_movement(client):
         with runtime.transaction() as state:
             position = state.players[alice['user_id']].position
             state.players[bob['user_id']].position = position
-        a.send_json({'type': 'world.start', 'request_id': str(uuid.uuid4()), 'payload': {}})
-        result = read_state(a, 'action.result')
-        assert result['payload']['ok']
+        a.send_json({'type': 'lobby.ready', 'payload': {'ready': True}})
+        b.send_json({'type': 'lobby.ready', 'payload': {'ready': True}})
+        while read_state(a, 'lobby.state')['payload']['stage'] != 'running':
+            pass
         a.send_json({'type': 'player.input', 'payload': {'seq': 1, 'move': [0, 0, 1]}})
         for _ in range(20):
             delta = read_state(b, 'world.delta')
@@ -184,6 +185,11 @@ def test_four_connections_and_logout(client):
 
 
 def test_real_uvicorn_websocket(tmp_path):
+    def recv_without_lobby(ws):
+        while True:
+            message = json.loads(ws.recv(timeout=3))
+            if message['type'] != 'lobby.state':
+                return message
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -216,10 +222,10 @@ def test_real_uvicorn_websocket(tmp_path):
                 assert json.loads(ws.recv(timeout=3))["payload"]["ok"]
                 assert json.loads(ws.recv(timeout=3))["type"] == "chat.message"
                 ws.send(json.dumps({'type': 'world.subscribe', 'payload': {}}))
-                offer = json.loads(ws.recv(timeout=3))
+                offer = recv_without_lobby(ws)
                 assert offer['type'] == 'world.offer'
                 ws.send(json.dumps({'type': 'world.accept', 'payload': {}}))
-                initial = json.loads(ws.recv(timeout=3))
+                initial = recv_without_lobby(ws)
                 assert initial['type'] == 'world.snapshot'
                 assert initial['payload']['self_id'] == response.json()['user_id']
                 assert initial['payload']['stage'] == 'lobby'
@@ -244,7 +250,9 @@ def test_real_uvicorn_websocket(tmp_path):
                         assert message['payload']['cells']
                         got_chunk = True
                     elif message['type'] == 'action.result' and message.get('request_id') == start_id:
-                        assert message['payload']['ok']
+                        assert message['payload']['code'] == 'READY_REQUIRED'
+                        ws.send(json.dumps({'type': 'lobby.ready', 'payload': {'ready': True}}))
+                    elif message['type'] == 'lobby.state' and message['payload']['stage'] == 'running':
                         got_start = True
                         ws.send(json.dumps({'type': 'player.input', 'payload': {'seq': 1, 'move': [0, 0, 1]}}))
                     elif message['type'] == 'world.delta':
@@ -256,9 +264,9 @@ def test_real_uvicorn_websocket(tmp_path):
                          additional_headers={'Cookie': f"mars_session={client.cookies['mars_session']}"}) as ws:
                 assert json.loads(ws.recv(timeout=3))['type'] == 'session.ready'
                 ws.send(json.dumps({'type': 'world.subscribe', 'payload': {}}))
-                assert json.loads(ws.recv(timeout=3))['type'] == 'world.offer'
+                assert recv_without_lobby(ws)['type'] == 'world.offer'
                 ws.send(json.dumps({'type': 'world.accept', 'payload': {}}))
-                restored = json.loads(ws.recv(timeout=3))
+                restored = recv_without_lobby(ws)
                 assert restored['payload']['stage'] == 'running'
                 assert restored['payload']['last_input_seq'] == 1
     finally:

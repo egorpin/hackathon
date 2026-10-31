@@ -94,8 +94,8 @@ class GameService:
         runtime = self.runtime(identity)
         context = Context(identity['world_id'], identity['user_id'], identity['team_id'])
         runtime.enroll(context)
-        # Assign an available landing site; the explicit Start command keeps
-        # the lobby open while the remaining players connect.
+        # Assign an available landing site; the lobby starts the world only
+        # after every connected player has confirmed readiness.
         with runtime.transaction() as state:
             player = state.players[context.user_id]
             if player.position is None:

@@ -1,4 +1,5 @@
 import './style.css';
+import { Lobby } from './ui/lobby.js';
 import { Events } from './net/events.js';
 import { GameClient } from './net/client.js';
 import { Runtime } from './net/runtime.js';
@@ -14,7 +15,6 @@ root.innerHTML = `
     <p id="selection">Наведитесь на клетку</p><p id="selection-help">Выберите свободную клетку рядом с персонажем.</p>
     <p id="build-info">Стоимость постройки: ожидание состояния</p>
     <div class="actions"><button id="camera">Сменить камеру · Tab</button>
-    <button id="start" hidden>Начать экспедицию</button>
     <label class="setting">Качество графики<select id="quality" aria-label="Качество графики"><option value="low">Низкое</option><option value="medium">Среднее</option><option value="high">Высокое</option></select></label>
     <label class="setting setting-check"><input id="camera-bob" type="checkbox"> Покачивание камеры</label>
     <select id="building" aria-label="Тип постройки"><option value="drill">Бур</option><option value="oxygen_generator">Генератор O₂ (кислород)</option><option value="warehouse">Склад</option></select>
@@ -125,8 +125,6 @@ events.on('action.result', result=>show('notice',explainAction(result)));
 events.on('building.selected', building=>show('notice',building ? `Выбрано: ${building.building_id}. Подойдите ближе для работы с ресурсами.`:'Рядом нет доступных построек.'));
 document.getElementById('camera').onclick=()=>events.emit('camera.toggle');
 document.getElementById('build').onclick=()=>events.emit('build.request');
-document.getElementById('start').onclick=()=>events.emit('command',{type:'world.start',payload:{}});
-events.on('world.stage', stage=>{ document.getElementById('start').hidden=stage!=='lobby'; });
 buildingSelect.onchange=e=>{events.emit('build.type',e.target.value);updateBuildInfo();updateSelection();};
 const playerColors=[['#ff6b4a','Красный'],['#ffbd4a','Жёлтый'],['#a7d94b','Лаймовый'],['#42d6a4','Бирюзовый'],['#42b8ff','Голубой'],['#687bff','Синий'],['#bd70ff','Фиолетовый'],['#ff75b8','Розовый']];
 const colorGroup=document.getElementById('colors');
@@ -159,19 +157,20 @@ try {
     show('environment','GOLDBERG · ПРОСМОТР ГЕОМЕТРИИ · НЕ МУЛЬТИПЛЕЕР');
   } else transport=new GameClient();
   const runtime=new Runtime(transport,scene,events);
+  const lobby=new Lobby({events,transport,scene,preview:import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')});
   // Participant 4 integration surface: subscribe to events; send intentions via command().
   window.marsClient={events,command:(type,payload)=>runtime.command(type,payload),toggleCamera:()=>events.emit('camera.toggle'),dispose:()=>runtime.dispose()};
-  if (import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) transport.connect();
-  else authenticate(transport);
-  window.addEventListener('pagehide',()=>runtime.dispose(),{once:true});
-  if(import.meta.hot) import.meta.hot.dispose(()=>runtime.dispose());
+  if (import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) { lobby.setIdentity({user_id:'preview-explorer',username:'Explorer',world_id:'Марс / просмотр'}); transport.connect(); }
+  else authenticate(transport,lobby);
+  window.addEventListener('pagehide',()=>{lobby.dispose();runtime.dispose();},{once:true});
+  if(import.meta.hot) import.meta.hot.dispose(()=>{lobby.dispose();runtime.dispose();});
 } catch(error) { show('notice',`Не удалось запустить 3D: ${error.message}`); }
 
-async function authenticate(transport) {
+async function authenticate(transport,lobby) {
   const panel=document.getElementById('auth');
   const form=document.getElementById('auth-form');
   const error=document.getElementById('auth-error');
-  const openSocket=()=>{ panel.hidden=true; transport.connect(); };
+  const openSocket=(identity)=>{ panel.hidden=true; lobby.setIdentity(identity); transport.connect(); };
   transport.on('status', status=>{
     if(status==='unauthorized') { panel.hidden=false; show('connection','Требуется вход'); }
     if(status==='world_unavailable') {
@@ -194,13 +193,13 @@ async function authenticate(transport) {
         const messages={401:'Неверное имя или пароль.',409:'Такое имя уже занято.',422:'Проверьте имя и длину пароля.'};
         throw new Error(messages[response.status] || body.detail || `HTTP ${response.status}`);
       }
-      openSocket();
+      const identity=await response.json(); form.reset(); openSocket(identity);
     } catch(cause) { error.textContent=cause.message; }
     finally { buttons.forEach(button=>button.disabled=false); }
   });
   try {
     const response=await fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'});
-    if(response.ok){ openSocket(); return; }
+    if(response.ok){ openSocket(await response.json()); return; }
     if(response.status!==401) throw new Error(`HTTP ${response.status}`);
   } catch (cause) {
     error.textContent=`Сервер авторизации недоступен: ${cause.message}`;

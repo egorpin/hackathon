@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .storage import Database
 from .transport import GameService, Stream
+from .lobby import Lobby
 from .game import step
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
@@ -74,6 +75,7 @@ class Credentials(BaseModel):
 async def lifespan(app: FastAPI):
     db.initialize()
     app.state.game = GameService(db)
+    app.state.lobby = Lobby(app.state.game)
     task = asyncio.create_task(game_loop())
     try:
         yield
@@ -93,7 +95,9 @@ async def game_loop():
     while True:
         deadline += .05
         await asyncio.sleep(max(0, deadline - loop.time()))
-        for runtime in app.state.game.worlds.values():
+        for world_id, runtime in app.state.game.worlds.items():
+            if app.state.lobby.stage(world_id) != 'running':
+                continue
             with runtime.transaction() as draft:
                 step(draft, .05, runtime.planet)
         for socket in list(connections):
@@ -195,6 +199,20 @@ async def send_team(world_id: str, team_id: str, message: dict) -> None:
                 connections.discard(socket)
 
 
+async def broadcast_lobby(world_id):
+    for peer in list(connections):
+        identity = app.state.lobby.members.get(peer)
+        if (identity is None or identity['world_id'] != world_id
+                or peer not in app.state.lobby.loaded):
+            continue
+        try:
+            async with peer.state.send_lock:
+                # Build inside the lock so queued broadcasts never send stale votes.
+                await peer.send_json(app.state.lobby.state(world_id))
+        except (RuntimeError, WebSocketDisconnect, OSError):
+            pass  # The receive loop removes disconnected members in finally.
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(socket: WebSocket):
     token = socket.cookies.get(COOKIE)
@@ -206,8 +224,10 @@ async def websocket_endpoint(socket: WebSocket):
     socket.state.send_lock = asyncio.Lock()
     await socket.accept()
     connections.add(socket)
-    await socket.send_json({"type": "session.ready", "payload": identity})
+    app.state.lobby.connect(socket, identity)
     try:
+        await socket.send_json({"type": "session.ready", "payload": identity})
+        await broadcast_lobby(identity['world_id'])
         while True:
             raw = await socket.receive_text()
             identity = db.identity(token)
@@ -230,16 +250,37 @@ async def websocket_endpoint(socket: WebSocket):
                     try:
                         app.state.game.join(identity)
                     except ValueError as error:
+                        app.state.lobby.disconnect(socket)
+                        await broadcast_lobby(identity['world_id'])
                         await socket.send_json({'type': 'error', 'payload': {'code': 'WORLD_UNAVAILABLE', 'message': str(error)}})
                         continue
                     socket.state.stream = Stream(app.state.game, identity)
+                    app.state.lobby.connect(socket, identity)
+                    app.state.lobby.loaded.add(socket)
                 async with socket.state.send_lock:
                     await socket.state.stream.offer(socket)
+                await broadcast_lobby(identity['world_id'])
                 continue
             stream = getattr(socket.state, 'stream', None)
             if stream is not None and identity != stream.identity:
                 await socket.close(code=1008)
                 break
+            if kind in ('lobby.ready', 'lobby.profile'):
+                if socket not in app.state.lobby.members:
+                    code = 'NOT_READY'
+                elif kind == 'lobby.ready':
+                    code = app.state.lobby.set_ready(socket, message.get('payload'))
+                else:
+                    code = app.state.lobby.set_profile(socket, message.get('payload'))
+                if code:
+                    await socket.send_json({'type': 'lobby.error', 'payload': {'code': code}})
+                await broadcast_lobby(identity['world_id'])
+                continue
+            # The public start command cannot bypass the unanimous lobby vote.
+            if kind == 'world.start':
+                await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),
+                                        'payload': {'ok': False, 'code': 'READY_REQUIRED'}})
+                continue
             if kind in ('world.accept', 'chunk.request', 'chunk.release'):
                 if stream is not None:
                     async with socket.state.send_lock:
@@ -255,6 +296,10 @@ async def websocket_endpoint(socket: WebSocket):
                 if stream is None:
                     await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),
                                             'payload': {'ok': False, 'code': 'NOT_READY'}})
+                    continue
+                if kind not in ('landing.select', 'player.color') and app.state.lobby.stage(identity['world_id']) != 'running':
+                    await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),
+                                            'payload': {'ok': False, 'code': 'READY_REQUIRED'}})
                     continue
                 result = app.state.game.command(identity, message)
                 if kind != 'player.input' or not result['payload']['ok']:
@@ -281,10 +326,13 @@ async def websocket_endpoint(socket: WebSocket):
             await socket.send_json(result)
             if event:
                 await send_team(identity["world_id"], identity["team_id"], event)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, RuntimeError, OSError):
         pass
     finally:
         connections.discard(socket)
+        world_id = app.state.lobby.disconnect(socket)
+        if world_id is not None:
+            await broadcast_lobby(world_id)
 
 
 if STATIC_DIR.is_dir():
