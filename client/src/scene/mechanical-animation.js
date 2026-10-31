@@ -6,7 +6,7 @@ import * as THREE from 'three';
 const RULES = {
   drill: [
     { key: 'bit', match: /drill.?bit|bit.?drill/i, type: 'spin', axis: [0, 1, 0], speed: 3.2 },
-    { key: 'body', match: /drill.?body|chassis/i, type: 'bob', axis: [0, 1, 0], amplitude: 0.012 },
+    { key: 'body', match: /drill.?body|chassis/i, type: 'bob', axis: [1, 0, 0], amplitude: 0.006, speed: 28, verticalAmplitude: 0.006 },
   ],
   rover: [
     { key: 'wheel', match: /wheel/i, type: 'spin', axis: [1, 0, 0], speed: 0.45 },
@@ -33,6 +33,10 @@ export function attachMechanicalAnimation(root, kind) {
   const axis = new THREE.Vector3();
   function update(dt, { active = false } = {}) {
     if (!Number.isFinite(dt) || dt <= 0) return;
+    if(kind==='drill' && !active) {
+      for(const {node,rule,base} of parts)if(rule.type==='bob')node.position.copy(base.position);
+      return;
+    }
     time += Math.min(dt, 0.1);
     const gain = active ? 1.5 : 1;
     for (const { node, rule, base } of parts) {
@@ -46,7 +50,8 @@ export function attachMechanicalAnimation(root, kind) {
         const angle = Math.sin(time * rule.speed) * rule.amplitude * gain;
         node.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axis, angle));
       } else if (rule.type === 'bob') {
-        node.position.addScaledVector(axis, Math.sin(time * 2.1) * rule.amplitude * gain);
+        node.position.addScaledVector(axis, Math.sin(time * (rule.speed || 2.1)) * rule.amplitude * gain);
+        if (rule.verticalAmplitude) node.position.y += Math.cos(time * (rule.speed || 2.1)) * rule.verticalAmplitude * gain;
       }
     }
   }

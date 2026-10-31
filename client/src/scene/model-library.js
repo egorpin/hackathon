@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
+import { prepareDrillParts } from './drill-parts.js';
+import { attachMechanicalAnimation } from './mechanical-animation.js';
 
 export const MODEL_NAMES = ['astronaut','drill','oxygen_generator','storage','dome_base','rover'];
 const suitTints = new WeakMap();
@@ -47,6 +49,7 @@ export class ModelLibrary {
       const revision=manifest.revision?`?v=${encodeURIComponent(manifest.revision)}`:'';
       const asset = await this.loader.loadAsync(`/assets/models/${name}.glb${revision}`);
       if(this.disposed) { this.release(asset); return; }
+      if(name==='drill')prepareDrillParts(asset.scene);
       this.assets.set(name,asset); onLoad?.(name);
     }));
     const failures = results.filter(result => result.status === 'rejected');
@@ -63,6 +66,7 @@ export class ModelLibrary {
       }
     });
     recolor(root,color);
+    if(name==='drill')root.userData.mechanical=attachMechanicalAnimation(root,'drill');
     if(asset.animations.length) {
       const mixer = new THREE.AnimationMixer(root);
       root.userData.animation = { mixer, clips:asset.animations, current:null };
