@@ -27,13 +27,14 @@ if errorlevel 1 (
 )
 "%DOCKER_EXE%" compose -f compose.https.yaml ps
 if not defined MARS_HTTPS_PORT set "MARS_HTTPS_PORT=8443"
-echo Open https://SERVER-LAN-IP:%MARS_HTTPS_PORT% and trust certs\ca.crt on each client.
+echo Open https://SERVER-HOST-OR-IP:%MARS_HTTPS_PORT% and trust certs\ca.crt on each client.
 echo If .env overrides the port, use MARS_HTTPS_PORT from that file.
 popd
 exit /b 0
 
 :missing_cert
 echo Prepare certificates first: py tools\generate-lan-cert.py SERVER-LAN-IP
+echo Or use a stable name: py tools\generate-lan-cert.py --hostname mars.home.arpa
 echo See docs\https-lan.md. No internet is needed to issue certificates.
 popd
 exit /b 1

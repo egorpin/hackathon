@@ -1,16 +1,31 @@
 """Issue an offline LAN TLS certificate using OpenSSL (no Python packages needed).
 
 Usage: python tools/generate-lan-cert.py 192.168.1.10 [192.168.1.11 ...]
+Or: python tools/generate-lan-cert.py --hostname mars.home.arpa
 The CA is retained across runs so clients need to trust it only once.
 """
 import argparse
 import ipaddress
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import subprocess
 import tempfile
+
+
+def hostname(value):
+    name = value.lower().rstrip(".")
+    labels = name.split(".")
+    if len(name) > 253 or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                              for label in labels):
+        raise argparse.ArgumentTypeError("Use a DNS name without scheme, port or wildcard")
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        return name
+    raise argparse.ArgumentTypeError("Pass IPv4 addresses as positional arguments, not --hostname")
 
 
 def find_openssl():
@@ -29,10 +44,14 @@ def find_openssl():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("addresses", nargs="+", type=ipaddress.IPv4Address,
+    parser.add_argument("addresses", nargs="*", type=ipaddress.IPv4Address,
                         help="server LAN IPv4 addresses from ipconfig")
+    parser.add_argument("--hostname", action="append", type=hostname, default=[],
+                        help="stable local DNS/mDNS name; repeat for additional names")
     parser.add_argument("--output", type=Path, default=Path(__file__).resolve().parents[1] / "certs")
     args = parser.parse_args()
+    if not args.addresses and not args.hostname:
+        parser.error("Provide at least one LAN IPv4 address or --hostname")
     openssl = find_openssl()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -56,7 +75,8 @@ def main():
             (work / "ca.key").replace(ca_key)
             (work / "ca.crt").replace(ca_cert)
         addresses = sorted({"127.0.0.1", *map(str, args.addresses)})
-        san = "DNS:localhost," + ",".join(f"IP:{address}" for address in addresses)
+        names = sorted({"localhost", *args.hostname})
+        san = ",".join([*(f"DNS:{name}" for name in names), *(f"IP:{address}" for address in addresses)])
         extensions = work / "server.ext"
         extensions.write_text(
             "basicConstraints=critical,CA:FALSE\n"
@@ -73,7 +93,10 @@ def main():
         for name in ("server.key", "server.crt"):
             (work / name).replace(output / name)
     print(f"Certificates: {output}\nTrust ONLY ca.crt on clients; keep both .key files private.")
-    print("Valid hosts: localhost, " + ", ".join(addresses))
+    print("Valid hosts: " + ", ".join([*names, *addresses]))
+    if args.hostname:
+        print("Configure local DNS/mDNS to resolve these names to the server's current LAN IP.")
+        print("Changing the IP does not require reissuing the certificate when connecting by name.")
     print("After reissuing: docker compose -f compose.https.yaml up -d --no-build --pull never --force-recreate client")
 
 

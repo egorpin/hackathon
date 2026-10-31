@@ -11,6 +11,11 @@ WSS: браузер блокирует обычный `ws://` как mixed conte
 
 ## Подготовка до демонстрации
 
+Если IPv4 меняется при переходе между точками доступа, используйте
+[постоянное имя сервера](#постоянное-имя-вместо-ipv4). Тогда перевыпускать
+сертификат при смене IP не потребуется. Ни клиент, ни backend не содержат
+фиксированного LAN-IP: клиент берёт API и WebSocket с адреса открытой страницы.
+
 На сервере нужны Docker Desktop с Linux containers, Python 3 и OpenSSL.
 Генератор на Windows также находит OpenSSL из стандартной установки Git for Windows.
 Python и OpenSSL нужны только при выпуске сертификатов. На клиентах нужен браузер.
@@ -35,7 +40,7 @@ Python и OpenSSL нужны только при выпуске сертифик
    Создаются `certs/ca.crt`, `certs/ca.key`, `certs/server.crt`, `certs/server.key`.
    CA действует 10 лет, серверный сертификат — 365 дней.
    При повторном запуске CA сохраняется, сертификат сервера перевыпускается.
-   При смене IP повторите команду с новым адресом и пересоздайте контейнер клиента
+   При подключении по IP после его смены повторите команду с новым адресом и пересоздайте контейнер клиента
    командой, которую выводит скрипт. CA заново устанавливать не требуется.
    Проверьте дату и время на компьютерах.
 4. Передайте **только `ca.crt`** на каждый клиент и установите его в доверенные
@@ -55,6 +60,66 @@ Python и OpenSSL нужны только при выпуске сертифик
    Гостевой Wi-Fi с client isolation не подходит: клиенты должны видеть сервер.
    Для другого порта задайте `MARS_HTTPS_PORT` в `.env` и разрешите его в firewall.
    Из-за смены порта менять сертификат не требуется.
+
+## Постоянное имя вместо IPv4
+
+Выпустите сертификат на имя один раз:
+
+```powershell
+py tools/generate-lan-cert.py --hostname mars.home.arpa
+```
+
+CA устанавливается на клиентах так же, как в варианте с IP. Открывайте
+`https://mars.home.arpa:8443`; клиент автоматически подключается к
+`wss://mars.home.arpa:8443/ws`. При смене IP сертификат и настройки приложения
+остаются прежними. Сертификат всё равно нужно обновлять по окончании его срока
+действия или при смене имени.
+
+**Имя должно разрешаться внутри LAN.** Генератор сертификатов не настраивает DNS
+и не объявляет сервер в сети. Есть три варианта:
+
+| Способ | Что происходит при смене точки доступа/IP |
+| --- | --- |
+| Локальный DNS роутера: `mars.home.arpa` → IP сервера | Обновите запись на новом роутере либо настройте интеграцию DHCP/DNS, если роутер её поддерживает. Клиенты должны использовать этот локальный DNS. |
+| mDNS: например `mars.local` | Настроенный на сервере mDNS-ответчик объявляет текущий IP без DNS роутера. Клиенты должны поддерживать mDNS; multicast и UDP 5353 должны быть разрешены в LAN. |
+| Файл `hosts` на каждом клиенте | После смены IP обновите запись на каждом компьютере. Это ручной резервный вариант; сертификат остаётся прежним. |
+
+Для частой смены точек доступа удобен mDNS, если он поддерживается компьютерами
+и сетью. Для него используйте сертификат с нужным именем:
+
+```powershell
+py tools/generate-lan-cert.py --hostname mars.local
+```
+
+Ответчик должен работать на ОС сервера с LAN-интерфейсом, например Avahi на Linux
+или настроенная служба Bonjour на Windows. Сам Nginx в Docker Desktop не объявляет
+`mars.local`; эта настройка в проект не включена. Сеть с client isolation или
+запретом multicast может мешать mDNS. Суффикс `.local` предназначен для mDNS,
+а `home.arpa` — для локального DNS.
+
+Проверить имя на Windows можно командой:
+
+```powershell
+Test-NetConnection mars.home.arpa -Port 8443
+```
+
+В ручном варианте добавьте строку вида `192.168.1.10 mars.home.arpa` в
+`C:\Windows\System32\drivers\etc\hosts` на каждом клиенте с правами администратора.
+После смены IP обновите её. Внешний DNS и интернет не нужны ни одному из вариантов.
+
+Можно включить несколько имён и IP в один сертификат:
+
+```powershell
+py tools/generate-lan-cert.py 192.168.1.10 --hostname mars.home.arpa --hostname mars.local
+```
+
+Проверка HTTPS/WSS по имени:
+
+```powershell
+py tools/check-https.py https://mars.home.arpa:8443 --ca certs/ca.crt
+```
+
+При переходе между сетями корневой CA на клиентах повторно устанавливать не нужно.
 
 ## Запуск во время показа
 
@@ -90,7 +155,7 @@ docker compose -f compose.https.yaml up -d --no-build --pull never --remove-orph
 docker image save -o mars-colony-images.tar mars-colony-server:local mars-colony-client:local
 ```
 
-На целевом сервере нужны файлы проекта, сертификат для его IPv4 и импорт образов
+На целевом сервере нужны файлы проекта, сертификат для используемого имени/IP и импорт образов
 `docker image load -i mars-colony-images.tar`. Существующий SQLite volume
 переносится отдельно, если нужно сохранить игру.
 
@@ -115,4 +180,6 @@ cookie `Secure`, авторизацию, запрет постороннего O
 
 Документация: [Nginx TLS](https://nginx.org/en/docs/http/configuring_https_servers.html),
 [OpenSSL](https://docs.openssl.org/3.2/man1/openssl-req/),
-[WebSocket и mixed content](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_client_applications).
+[WebSocket и mixed content](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_client_applications),
+[home.arpa (RFC 8375)](https://www.rfc-editor.org/rfc/rfc8375.html),
+[mDNS (RFC 6762)](https://www.rfc-editor.org/rfc/rfc6762).
