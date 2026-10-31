@@ -1,0 +1,25 @@
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+require('node:fs').mkdirSync('client/test-results',{recursive:true});
+(async()=>{
+ const browser=await chromium.launch({channel:'msedge',headless:true,args:['--enable-webgl','--ignore-gpu-blocklist']});
+ const context=await browser.newContext({viewport:{width:1365,height:900}});
+ const page=await context.newPage(); const errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ page.on('console',msg=>{if(msg.type()==='error' && /shader|webgl|THREE/i.test(msg.text()))errors.push(msg.text());});
+ await page.goto('http://localhost:5173/?fixture'); await page.waitForFunction(()=>!!window.marsClient);
+ await page.waitForTimeout(2000);
+ const first=await page.locator('#cache').innerText();
+ await page.screenshot({path:'client/test-results/first-person.png'});
+ await page.getByRole('button',{name:'Сменить камеру'}).click();
+ await page.waitForTimeout(1000);
+ const top=await page.locator('#cache').innerText();
+ if(first!==top)throw Error('Camera changed world budget');
+ await page.screenshot({path:'client/test-results/top.png'});
+ await page.keyboard.press('Tab');
+ await page.keyboard.down('KeyW'); await page.waitForTimeout(1000);await page.keyboard.up('KeyW');
+ const pages=await Promise.all([1,2,3].map(async()=>{const p=await context.newPage();await p.goto('http://localhost:5173/?fixture');await p.waitForFunction(()=>!!window.marsClient);return p;}));
+ await page.bringToFront();await page.waitForTimeout(1500);
+ console.log(JSON.stringify({errors,first,top,fps:await page.locator('#performance').innerText(),fixtureContexts:pages.length+1}));
+ if(errors.length)throw Error(errors.join('\n'));
+ await browser.close();
+})().catch(e=>{console.error(e);process.exit(1);});
