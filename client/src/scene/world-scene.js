@@ -7,6 +7,7 @@ import { configureTerrain, projectTerrain } from './terrain.js';
 import { Atmosphere } from './atmosphere.js';
 import { FirstPersonHands } from './first-person-hands.js';
 import { ModelLibrary, recolor } from './model-library.js';
+import { withFoundation, fitFoundation } from './building-foundation.js';
 import { resourcePile } from './resource-pile.js';
 import { surfaceRocks } from './surface-rocks.js';
 import { DEFAULT_VISUAL_OPTIONS, updateVisualOptions } from './visual-options.js';
@@ -14,7 +15,11 @@ import { CHARACTER_SCALE, CHARACTER_HEIGHT_SCALE, EYE_HEIGHT } from './character
 
 export function disposeObject(root) {
   const geometries = new Set(), materials = new Set(), textures = new Set();
+  const skeletons = new Set();
+  root.userData.animation?.mixer.stopAllAction();
+  root.userData.animation?.mixer.uncacheRoot(root);
   root.traverse(object => {
+    if(object.isSkinnedMesh && object.skeleton)skeletons.add(object.skeleton);
     if (object.geometry && !object.userData.sharedAsset) geometries.add(object.geometry);
     for (const geometry of object.userData.ownedGeometries || []) geometries.add(geometry);
     for (const material of [object.material].flat().filter(Boolean)) {
@@ -24,6 +29,7 @@ export function disposeObject(root) {
     if (object.isInstancedMesh) object.dispose();
   });
   geometries.forEach(x => x.dispose()); materials.forEach(x => x.dispose()); textures.forEach(x => x.dispose());
+  skeletons.forEach(skeleton=>skeleton.dispose());
   root.removeFromParent();
 }
 const material = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: .9, flatShading: true, ...extra });
@@ -80,7 +86,7 @@ export class WorldScene {
   modelLoaded(name) {
     if(name==='astronaut') {
       this.hands.dispose();
-      this.hands=new FirstPersonHands(this.camera,{astronaut:this.models.assets.get(name).scene});
+      this.hands=new FirstPersonHands(this.camera,{astronaut:this.models.assets.get(name).scene,animations:this.models.assets.get(name).animations});
       for(const entry of this.players.values()) {
         disposeObject(entry.mesh); entry.mesh=this.models.create(name,entry.data?.color); entry.mesh.scale.multiply(new THREE.Vector3(CHARACTER_SCALE, CHARACTER_HEIGHT_SCALE, CHARACTER_SCALE));this.scene.add(entry.mesh);
       }
@@ -173,7 +179,7 @@ export class WorldScene {
     }
   }
   buildingModel(type,color) {
-    const loaded=this.models.create(type==='warehouse'?'storage':type,color); if(loaded)return loaded;
+    const loaded=this.models.create(type==='warehouse'?'storage':type,color); if(loaded)return withFoundation(loaded);
     const group = new THREE.Group();
     const base = mesh(new THREE.CylinderGeometry(1,1.2,.35,6),0x383e47); base.position.y = .18; group.add(base);
     if (type === 'drill') {
@@ -189,9 +195,10 @@ export class WorldScene {
       const box = mesh(new THREE.BoxGeometry(1.6,1.3,1.3),0xcdb697); box.position.y = .9; group.add(box);
     }
     group.traverse(node=>{if(node.material && node.position.y>.35)node.material.name='Accent';}); recolor(group,color);
-    return group;
+    return withFoundation(group);
   }
   place(object, position) {
+    fitFoundation(object,position,this.radius,this.terrain);
     object.position.copy(position);
     object.quaternion.setFromUnitVectors(upAxis,position.clone().normalize());
   }
@@ -389,6 +396,8 @@ export class WorldScene {
           this.place(entry.mesh,sample.position);
           const basis = tangent(sample.position,sample.heading);
           entry.mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(basis.right,basis.up,basis.forward.clone().negate()));
+          // The imported astronaut faces +Z; the camera basis faces -Z.
+          entry.mesh.rotateY(Math.PI);
           entry.mesh.visible = surfaceDistance(origin,sample.position,this.radius) <= this.viewRadius;
           this.models.animate(entry.mesh,entry.data?.altitude>.05?'jump':entry.data?.moving?(entry.data.running?'run':'walk'):'idle',dt);
         }

@@ -3,26 +3,54 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 
 export const MODEL_NAMES = ['astronaut','drill','oxygen_generator','storage','dome_base','rover'];
+const suitTints = new WeakMap();
+function tintSuit(material, color) {
+  let uniform = suitTints.get(material);
+  if (!uniform) {
+    uniform = {value: new THREE.Color(color)};
+    suitTints.set(material, uniform);
+    material.color.set(0xffffff);
+    material.onBeforeCompile = shader => {
+      shader.uniforms.playerSuitColor = uniform;
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>',
+        '#include <common>\nuniform vec3 playerSuitColor;');
+      shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+        #include <map_fragment>
+        // Recolor orange/red fabric only; preserve visor, neutral suit and shading.
+        float warmPanel = smoothstep(0.08, 0.28, diffuseColor.r - max(diffuseColor.g, diffuseColor.b));
+        float panelValue = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
+        diffuseColor.rgb = mix(diffuseColor.rgb, playerSuitColor * panelValue, warmPanel);
+      `);
+    };
+    material.customProgramCacheKey = () => 'astronaut-orange-panels-v1';
+    material.needsUpdate = true;
+  }
+  uniform.value.set(color);
+}
 export function recolor(root, color) {
   if (!color) return;
   root.traverse(node => {
     for (const material of [node.material].flat().filter(Boolean)) {
       if (material.name === 'Accent') material.color?.set(color);
+      if (material.name.startsWith('AstronautSuit') || material.name === 'BaseSuit') tintSuit(material,color);
     }
   });
 }
 export class ModelLibrary {
   constructor() { this.assets = new Map(); this.loader = new GLTFLoader(); this.disposed=false; }
   async load(onLoad) {
-    const response = await fetch('/assets/models/manifest.json');
+    const response = await fetch('/assets/models/manifest.json', {cache:'no-store'});
     if(!response.ok)return;
     const manifest=await response.json();
     const approved=MODEL_NAMES.filter(name=>manifest.approved?.includes(name));
-    await Promise.allSettled(approved.map(async name => {
-      const asset = await this.loader.loadAsync(`/assets/models/${name}.glb`);
+    const results = await Promise.allSettled(approved.map(async name => {
+      const revision=manifest.revision?`?v=${encodeURIComponent(manifest.revision)}`:'';
+      const asset = await this.loader.loadAsync(`/assets/models/${name}.glb${revision}`);
       if(this.disposed) { this.release(asset); return; }
       this.assets.set(name,asset); onLoad?.(name);
     }));
+    const failures = results.filter(result => result.status === 'rejected');
+    if(failures.length) throw new AggregateError(failures.map(result=>result.reason),'Model loading failed');
   }
   create(name,color) {
     const asset = this.assets.get(name); if (!asset) return null;
@@ -46,7 +74,10 @@ export class ModelLibrary {
     if(animation.current!==state) {
       const clip=animation.clips.find(c=>c.name.toLowerCase()===state) || animation.clips[0];
       const action=animation.mixer.clipAction(clip);
-      animation.action?.fadeOut(.15); action.reset().fadeIn(.15).play();
+      animation.action?.fadeOut(.15);
+      action.reset().setLoop(state==='jump'?THREE.LoopOnce:THREE.LoopRepeat,Infinity);
+      action.clampWhenFinished=state==='jump';
+      action.fadeIn(.15).play();
       animation.action=action; animation.current=state;
     }
     animation.mixer.update(dt);
@@ -54,6 +85,7 @@ export class ModelLibrary {
   release(asset) {
     const resources=new Set();
     asset.scene.traverse(node=>{
+      if(node.isSkinnedMesh && node.skeleton)resources.add(node.skeleton);
       if(node.geometry)resources.add(node.geometry);
       for(const material of [node.material].flat().filter(Boolean)) {
         resources.add(material);

@@ -157,6 +157,16 @@ class GameTests(unittest.TestCase):
         self.assertEqual(len(self.world.state.mountains), 3)
         self.assertEqual(self.act("building.place", cell_id=self.planet.landing_sites[1], building_type="drill")["payload"]["code"], "CELL_UNBUILDABLE")
 
+    def test_base_can_be_placed_without_producing_resources(self):
+        self.start()
+        before = self.world.state.players['alice'].inventory['ore']
+        base_id = self.build('dome_base')
+        self.assertEqual(self.world.state.players['alice'].inventory['ore'], before - 5)
+        stock = dict(self.world.state.buildings[base_id].stock)
+        self.advance(40)
+        self.assertEqual(self.world.state.buildings[base_id].stock, stock)
+        self.assertEqual(self.world.state.buildings[base_id].building_type, 'dome_base')
+
     def test_complete_resource_loop_and_balance(self):
         self.start()
         neighbors = self.planet.cells[self.planet.landing_sites[0]].neighbors

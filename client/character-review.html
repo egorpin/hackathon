@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Проверка космонавта</title>
+<style>body{margin:0;background:#171c25;color:#eee;font:15px system-ui}canvas{display:block}aside{position:absolute;top:20px;left:20px;padding:20px;background:#202734ed;border:1px solid #465164;border-radius:16px;max-width:280px}h1{font-size:21px;margin:0 0 12px}label{display:block;margin:12px 0}select,button,input{font:inherit;margin-top:6px}select,button{padding:8px;border-radius:7px;background:#303c50;color:white;border:1px solid #64718a}a{color:#a9d8ff}small{display:block;line-height:1.5;color:#b7c4d4}#status{margin:14px 0;font-size:13px}</style></head>
+<body><aside><h1>Космонавт</h1><small>Поверните модель мышью. Колесо меняет расстояние.</small>
+<label>Движение <select id="motion"><option value="idle">Покой</option><option value="walk">Ходьба</option><option value="run">Бег</option><option value="jump">Прыжок</option></select></label>
+<label>Цвет скафандра <input id="color" type="color" value="#ff6b4a"></label>
+<label><input id="skeleton" type="checkbox"> Показать скелет</label>
+<label><input id="hands" type="checkbox"> Вид от первого лица</label>
+<label><input id="pause" type="checkbox"> Пауза анимации</label>
+<label>Кадр <input id="frame" type="range" min="0" max="1" step="0.01" value="0"></label>
+<button id="replay">Повторить движение</button><div id="status">Загрузка модели…</div><p><a href="/character-markup.html">Расставить суставы вручную →</a></p><a href="/">Вернуться в игру</a></aside>
+<style>#stage{position:fixed;left:340px;right:0;top:0;bottom:0}aside{z-index:1} @media(max-width:750px){aside{top:0;left:0;right:0;max-width:none;height:225px;overflow:auto;border-radius:0;padding:12px}#stage{left:0;top:225px}}</style>
+<div id="stage"></div><script type="module" src="/src/character-review.js"></script></body></html>
