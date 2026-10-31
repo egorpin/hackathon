@@ -10,6 +10,7 @@ import uuid
 from contextlib import asynccontextmanager
 from contextlib import suppress
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -34,8 +35,33 @@ def hash_password(password: str, salt: bytes) -> bytes:
     return hashlib.scrypt(password.encode("utf-8"), salt=salt, n=16384, r=8, p=1, dklen=32)
 
 
-def require_origin(origin: str | None) -> None:
-    if origin not in ALLOWED_ORIGINS:
+def origin_allowed(headers, request_scheme: str) -> bool:
+    """Allow configured dev origins and the public same-origin address.
+
+    Browsers set Host to the server they contact and Origin to the page that
+    opened the request. Matching both lets Docker work on any LAN address
+    without accepting cross-site requests from an unrelated page.
+    """
+    origin = headers.get("origin")
+    if origin in ALLOWED_ORIGINS:
+        return True
+    try:
+        parsed = urlsplit(origin or "")
+    except ValueError:
+        return False
+    if (parsed.scheme not in ("http", "https") or not parsed.netloc or
+            parsed.username is not None or parsed.password is not None or
+            parsed.path or parsed.query or parsed.fragment):
+        return False
+    public_scheme = headers.get("x-forwarded-proto")
+    if public_scheme not in ("http", "https"):
+        public_scheme = "https" if request_scheme in ("https", "wss") else "http"
+    host = headers.get("host", "").lower()
+    return parsed.scheme == public_scheme and parsed.netloc.lower() == host
+
+
+def require_origin(request: Request) -> None:
+    if not origin_allowed(request.headers, request.url.scheme):
         raise HTTPException(status_code=403, detail="Origin is not allowed")
 
 
@@ -105,7 +131,7 @@ def set_session(response: Response, token: str) -> None:
 
 @app.post("/api/auth/register", status_code=201)
 def register(credentials: Credentials, request: Request, response: Response):
-    require_origin(request.headers.get("origin"))
+    require_origin(request)
     salt, token = secrets.token_bytes(16), secrets.token_urlsafe(32)
     try:
         identity = db.register(credentials.username, salt, hash_password(credentials.password, salt), token, SESSION_SECONDS)
@@ -117,7 +143,7 @@ def register(credentials: Credentials, request: Request, response: Response):
 
 @app.post("/api/auth/login")
 def login(credentials: Credentials, request: Request, response: Response):
-    require_origin(request.headers.get("origin"))
+    require_origin(request)
     user = db.password_record(credentials.username)
     actual = hash_password(credentials.password, user["salt"] if user else bytes(16))
     if not user or not hmac.compare_digest(actual, user["password_hash"]):
@@ -139,7 +165,7 @@ def me(request: Request, response: Response):
 
 @app.post("/api/auth/logout", status_code=204)
 async def logout(request: Request, response: Response):
-    require_origin(request.headers.get("origin"))
+    require_origin(request)
     token = request.cookies.get(COOKIE)
     db.delete_session(token)
     for socket in list(connections):
@@ -173,7 +199,7 @@ async def send_team(world_id: str, team_id: str, message: dict) -> None:
 async def websocket_endpoint(socket: WebSocket):
     token = socket.cookies.get(COOKIE)
     identity = db.identity(token)
-    if socket.headers.get("origin") not in ALLOWED_ORIGINS or not identity:
+    if not origin_allowed(socket.headers, socket.scope["scheme"]) or not identity:
         await socket.close(code=1008)
         return
     socket.state.session_token = token
