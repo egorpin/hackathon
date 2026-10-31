@@ -2,7 +2,7 @@
 
 ## Что уже есть
 
-Многоэтапная сборка: Node собирает Vite, Python запускает FastAPI со статикой. Один Uvicorn worker слушает 0.0.0.0:8000. Процесс работает от непривилегированного пользователя; SQLite с WAL хранится в именованном volume `/data`. `/api/health` проверяет чтение базы. Это каркас: игра, вход, WebSocket и агенты ещё не реализованы.
+Многоэтапная сборка: Node собирает Vite, Python запускает FastAPI со статикой. Один Uvicorn worker слушает 0.0.0.0:8000. Процесс работает от непривилегированного пользователя; SQLite с WAL хранится в именованном volume `/data`. `/api/health` проверяет чтение базы. Реализованы вход, сессии и командный чат через WebSocket; игра и агенты ещё не подключены.
 
 ## Запуск при наличии интернета
 
@@ -15,6 +15,8 @@ docker compose up -d
 docker compose ps
 docker compose logs --tail 100
 ```
+
+Перед запуском с других ноутбуков добавьте в `MARS_ALLOWED_ORIGINS` в `.env` точный адрес страницы, например `http://192.168.1.10:8000`, сохранив нужные адреса localhost. После изменения выполнить `docker compose up -d`. Для HTTPS установите `MARS_SECURE_COOKIE=true`; при обычном HTTP в LAN оставьте `false`.
 
 Открыть `http://localhost:8000` и `http://localhost:8000/api/health`. На других ноутбуках — `http://<LAN-IP>:8000`; IP посмотреть через `ipconfig`. При необходимости разрешить входящий TCP-порт 8000 в частной сети Windows Firewall. Порт меняется через MARS_PORT в .env; внутри контейнера всегда 8000.
 
@@ -52,7 +54,9 @@ docker compose start
 
 ## Без Docker для разработки
 
-Python 3.12 и Node 22. В корне: `python -m venv .venv`, затем `.venv/Scripts/python -m pip install -r server/requirements.txt`. Запуск: `.venv/Scripts/python -m uvicorn app.main:app --app-dir server --host 0.0.0.0 --port 8000`. В другом терминале из client: `npm ci`, `npm run dev`. Vite проксирует `/api` и `/ws`; локальная база создаётся в data/.
+Python 3.12 и Node 22. В корне: `python -m venv .venv`, затем `.venv/Scripts/python -m pip install -r server/requirements.txt`. Запуск: `.venv/Scripts/python -m uvicorn app.main:app --app-dir server --host 0.0.0.0 --port 8000 --ws-max-size 4096`. В другом терминале из client: `npm ci`, `npm run dev`. Vite проксирует `/api` и `/ws`; локальная база создаётся в data/.
+
+Тесты сервера: `.venv/Scripts/python -m pip install -r server/requirements-dev.txt`, затем `.venv/Scripts/python -m pytest -q` из корня. Для LAN без Docker задайте `MARS_ALLOWED_ORIGINS` в окружении процесса сервера. По умолчанию разрешены только адреса localhost и 127.0.0.1 на портах 8000 и 5173.
 
 ## Приёмка контейнера
 

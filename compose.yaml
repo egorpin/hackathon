@@ -8,6 +8,8 @@ services:
     environment:
       DATA_DIR: /data
       STATIC_DIR: /app/static
+      MARS_ALLOWED_ORIGINS: ${MARS_ALLOWED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      MARS_SECURE_COOKIE: ${MARS_SECURE_COOKIE:-false}
     volumes:
       - mars-data:/data
     restart: unless-stopped
