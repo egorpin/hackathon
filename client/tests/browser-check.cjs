@@ -7,6 +7,7 @@ require('node:fs').mkdirSync('client/test-results',{recursive:true});
  page.on('pageerror',e=>errors.push(e.message));
  page.on('console',msg=>{if(msg.type()==='error' && /shader|webgl|THREE/i.test(msg.text()))errors.push(msg.text());});
  await page.goto('http://localhost:5173/?fixture'); await page.waitForFunction(()=>!!window.marsClient);
+ await page.getByRole('button',{name:'Закрыть лобби',exact:true}).click();await page.waitForTimeout(250);
  await page.waitForTimeout(2000);
  const first=await page.locator('#cache').innerText();
  await page.screenshot({path:'client/test-results/first-person.png'});
