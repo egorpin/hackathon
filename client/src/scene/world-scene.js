@@ -405,7 +405,7 @@ export class WorldScene {
       const loadedCells = new Set([...this.chunks.values()].flatMap(c => c.cells.map(t => t.userData.cell.cell_id)));
       for (const entry of this.buildings.values()) {
         entry.mesh.visible = loadedCells.has(entry.data.cell_id) && surfaceDistance(origin,entry.mesh.position,this.radius) <= this.viewRadius;
-        if(entry.mesh.visible)entry.mesh.userData.mechanical?.update(dt,{active:this.stage==='running' && (!entry.data.stock || Object.values(entry.data.stock).reduce((a,b)=>a+b,0)<50)});
+        if(entry.mesh.visible)entry.mesh.userData.mechanical?.update(dt,{active:true});
       }
       if (this.mode === 'first') this.pick();
       if (this.selected) {
