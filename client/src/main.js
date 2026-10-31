@@ -12,7 +12,8 @@ root.innerHTML = `
     <p id="mode">Камера: первое лицо</p><p id="cache">Данные мира: ожидание манифеста</p><p id="performance">FPS: —</p>
     <p id="selection">Наведитесь на клетку</p>
     <div class="actions"><button id="camera">Сменить камеру · Tab</button>
-    <select id="building" aria-label="Тип постройки"><option value="drill">Бур</option><option value="oxygen_generator">Генератор O₂</option><option value="storage">Склад</option></select>
+    <button id="start" hidden>Начать экспедицию</button>
+    <select id="building" aria-label="Тип постройки"><option value="drill">Бур</option><option value="oxygen_generator">Генератор O₂</option><option value="warehouse">Склад</option></select>
     <button id="build">Построить · B</button></div>
   </section>
   <div id="crosshair" aria-hidden="true">+</div>
@@ -45,6 +46,8 @@ events.on('action.result', result=>show('notice',result.ok?'Действие п�
 events.on('building.selected', building=>show('notice',building ? `Выбрано: ${building.building_id}. Событие building.selected передано интерфейсу ресурсов.`:'Рядом нет доступных построек.'));
 document.getElementById('camera').onclick=()=>events.emit('camera.toggle');
 document.getElementById('build').onclick=()=>events.emit('build.request');
+document.getElementById('start').onclick=()=>events.emit('command',{type:'world.start',payload:{}});
+events.on('world.stage', stage=>{ document.getElementById('start').hidden=stage!=='lobby'; });
 document.getElementById('building').onchange=e=>events.emit('build.type',e.target.value);
 try {
   const scene=new WorldScene(document.getElementById('viewport'),events);
@@ -67,14 +70,9 @@ async function authenticate(transport) {
   const form=document.getElementById('auth-form');
   const error=document.getElementById('auth-error');
   const openSocket=()=>{ panel.hidden=true; transport.connect(); };
-  try {
-    const response=await fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'});
-    if(response.ok){ openSocket(); return; }
-    if(response.status!==401) throw new Error(`HTTP ${response.status}`);
-  } catch (cause) {
-    error.textContent=`Сервер авторизации недоступен: ${cause.message}`;
-  }
-  panel.hidden=false; show('connection','Требуется вход');
+  transport.on('status', status=>{
+    if(status==='unauthorized') { panel.hidden=false; show('connection','Требуется вход'); }
+  });
   form.addEventListener('submit',async event=>{
     event.preventDefault(); error.textContent='';
     const submitter=event.submitter?.value==='register'?'register':'login';
@@ -94,4 +92,12 @@ async function authenticate(transport) {
     } catch(cause) { error.textContent=cause.message; }
     finally { buttons.forEach(button=>button.disabled=false); }
   });
+  try {
+    const response=await fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'});
+    if(response.ok){ openSocket(); return; }
+    if(response.status!==401) throw new Error(`HTTP ${response.status}`);
+  } catch (cause) {
+    error.textContent=`Сервер авторизации недоступен: ${cause.message}`;
+  }
+  panel.hidden=false; show('connection','Требуется вход');
 }

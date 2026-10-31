@@ -1,5 +1,6 @@
 """HTTP authentication and team-scoped WebSocket transport."""
 import hashlib
+import asyncio
 import hmac
 import json
 import os
@@ -7,12 +8,15 @@ import secrets
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
+from contextlib import suppress
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .storage import Database
+from .transport import GameService, Stream
+from .game import step
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
 STATIC_DIR = Path(os.environ.get("STATIC_DIR", "client/dist"))
@@ -43,9 +47,44 @@ class Credentials(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.initialize()
-    yield
-    for socket in list(connections):
-        await socket.close(code=1001)
+    app.state.game = GameService(db)
+    task = asyncio.create_task(game_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        for socket in list(connections):
+            with suppress(RuntimeError):
+                await socket.close(code=1001)
+        connections.clear()
+
+
+async def game_loop():
+    loop = asyncio.get_running_loop()
+    deadline = loop.time()
+    while True:
+        deadline += .05
+        await asyncio.sleep(max(0, deadline - loop.time()))
+        for runtime in app.state.game.worlds.values():
+            with runtime.transaction() as draft:
+                step(draft, .05, runtime.planet)
+        for socket in list(connections):
+            stream = getattr(socket.state, 'stream', None)
+            if stream is None:
+                continue
+            identity = db.identity(socket.state.session_token)
+            if identity != stream.identity:
+                connections.discard(socket)
+                with suppress(RuntimeError):
+                    await socket.close(code=1008)
+                continue
+            try:
+                async with socket.state.send_lock:
+                    await stream.offer(socket)
+            except (RuntimeError, WebSocketDisconnect, OSError):
+                connections.discard(socket)
 
 
 app = FastAPI(title="Mars Colony", lifespan=lifespan)
@@ -138,6 +177,7 @@ async def websocket_endpoint(socket: WebSocket):
         await socket.close(code=1008)
         return
     socket.state.session_token = token
+    socket.state.send_lock = asyncio.Lock()
     await socket.accept()
     connections.add(socket)
     await socket.send_json({"type": "session.ready", "payload": identity})
@@ -157,6 +197,42 @@ async def websocket_endpoint(socket: WebSocket):
                     raise ValueError
             except ValueError:
                 await socket.send_json({"type": "error", "payload": {"code": "INVALID_ARGUMENT"}})
+                continue
+            kind = message.get('type')
+            if kind == 'world.subscribe':
+                if getattr(socket.state, 'stream', None) is None:
+                    try:
+                        app.state.game.join(identity)
+                    except ValueError as error:
+                        await socket.send_json({'type': 'error', 'payload': {'code': 'WORLD_UNAVAILABLE', 'message': str(error)}})
+                        continue
+                    socket.state.stream = Stream(app.state.game, identity)
+                async with socket.state.send_lock:
+                    await socket.state.stream.offer(socket)
+                continue
+            stream = getattr(socket.state, 'stream', None)
+            if stream is not None and identity != stream.identity:
+                await socket.close(code=1008)
+                break
+            if kind in ('world.accept', 'chunk.request', 'chunk.release'):
+                if stream is not None:
+                    async with socket.state.send_lock:
+                        if kind == 'world.accept':
+                            await stream.accept(socket)
+                        elif kind == 'chunk.request':
+                            await stream.chunk_request(socket, message.get('payload'))
+                        else:
+                            stream.release(message.get('payload'))
+                continue
+            if kind in ('player.input', 'landing.select', 'world.start', 'building.place',
+                        'resource.pickup', 'resource.deposit', 'resource.give'):
+                if stream is None:
+                    await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),
+                                            'payload': {'ok': False, 'code': 'NOT_READY'}})
+                    continue
+                result = app.state.game.command(identity, message)
+                if kind != 'player.input' or not result['payload']['ok']:
+                    await socket.send_json(result)
                 continue
             if message.get("type") != "chat.send":
                 await socket.send_json({"type": "error", "request_id": message.get("request_id"),

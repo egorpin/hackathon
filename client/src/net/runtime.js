@@ -3,6 +3,7 @@ export class Runtime {
   constructor(transport, scene, events) {
     this.transport = transport; this.scene = scene; this.events = events; this.cache = new WorldCache();
     this.unsubs = [
+      transport.on('session.ready', () => transport.send({type:'world.subscribe',payload:{}})),
       this.cache.on('stats', stats => events.emit('cache.stats', stats)),
       this.cache.on('evict', key => {
         if (key.startsWith('chunk:')) {
@@ -22,7 +23,7 @@ export class Runtime {
       }),
       transport.on('error', error => events.emit('notice',error)),
       transport.on('message', message => events.emit(message.type,message.payload)),
-      events.on('player.input', input => transport.input(input)),
+      events.on('player.input', input => { if (this.state?.stage !== 'lobby') transport.input(input); }),
       events.on('command', ({type,payload}) => this.command(type,payload)),
       events.on('build.request', () => {
         if (scene.selected) this.command('building.place',{cell_id:scene.selected.cell_id,building_type:this.buildType || 'drill'});
@@ -66,6 +67,7 @@ export class Runtime {
     // Shell is retained only in this one canonical snapshot DTO; not counted twice.
     if (!this.cache.put('state',snapshot,{pinned:true})) return this.fail('Snapshot превышает бюджет данных.');
     this.state = snapshot;
+    this.events.emit('world.stage', snapshot.stage);
     this.scene.configure(snapshot);
     this.events.emit('world.ready',{selfId:snapshot.self_id,teamId:snapshot.team_id,totalChunks:w.total_chunks});
   }
@@ -75,12 +77,13 @@ export class Runtime {
       const values = new Map(old.map(v=>[v[id],v]));
       removed.forEach(key=>values.delete(key)); updates.forEach(v=>values.set(v[id],v)); return [...values.values()];
     };
-    const next = { ...this.state,
+    const next = { ...this.state, ...delta,
       players:merge(this.state.players,delta.players,delta.removed_players,'player_id'),
       buildings:merge(this.state.buildings || [],delta.buildings,delta.removed_buildings,'building_id') };
     this.cache.drop('incoming:state');
     if (!this.cache.put('state',next,{pinned:true})) return this.fail('Динамическое состояние превышает бюджет данных.');
     this.state=next; this.scene.applyState(delta);
+    this.events.emit('world.stage', next.stage);
   }
   offer({chunk_id,byte_size,distance=0}) {
     if (typeof chunk_id !== 'string') return this.fail('Некорректный chunk.offer');
@@ -100,7 +103,7 @@ export class Runtime {
     this.scene.applyState({buildings:(this.state?.buildings || []).filter(building=>ids.has(building.cell_id))});
   }
   command(type,payload) {
-    const allowed = new Set(['building.place','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release']);
+    const allowed = new Set(['landing.select','world.start','building.place','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release']);
     if (!allowed.has(type)) { this.events.emit('notice','Неизвестная клиентская команда'); return; }
     try { return this.transport.command(type,payload); }
     catch (error) { this.events.emit('notice',error.message); }

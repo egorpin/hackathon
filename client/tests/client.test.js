@@ -61,7 +61,7 @@ test('snapshot gate, input sequence and revision gap resync',()=>{
  const c=new GameClient({url:'ws://test/ws',WebSocketClass:Socket});c.connect();c.input({axes:{}});
  assert.equal(c.socket.sent.length,0);
  c.receive({type:'world.snapshot',revision:5,payload:{last_input_seq:10}});
- c.input({axes:{forward:1,right:0},heading:[0,0,-1]});assert.equal(c.socket.sent[0].payload.seq,11);
+ c.input({move:[0,0,-1]});assert.deepEqual(c.socket.sent[0].payload,{seq:11,move:[0,0,-1]});
  c.receive({type:'world.delta',revision:7,payload:{players:[]}}); assert.equal(c.ready,false);assert.equal(c.socket.closed,true);c.close();
 });
 test('authenticated session opens the existing server transport',()=>{
@@ -70,6 +70,8 @@ test('authenticated session opens the existing server transport',()=>{
  c.receive({type:'session.ready',payload:{user_id:'user-1',world_id:'world-1',team_id:'team-1'}});
  assert.equal(c.ready,true);assert.equal(c.session.user_id,'user-1');
  assert.equal(statuses.at(-1),'connected');
+ c.input({move:[0,0,1]});assert.equal(c.socket.sent.length,0);
+ assert.throws(()=>c.command('building.place',{cell_id:'x'}),/состояния мира/);
  const id=c.command('chat.send',{text:'hello'});
  assert.equal(c.socket.sent[0].request_id,id);c.close();
 });

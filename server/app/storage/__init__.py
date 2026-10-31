@@ -81,6 +81,9 @@ class Database:
                     user_id TEXT NOT NULL REFERENCES users(id), text TEXT NOT NULL, created_at INTEGER NOT NULL,
                     FOREIGN KEY(team_id, world_id) REFERENCES teams(id, world_id)
                 );
+                CREATE TABLE IF NOT EXISTS game_states (
+                    world_id TEXT PRIMARY KEY REFERENCES worlds(id), state TEXT NOT NULL
+                );
                 INSERT OR IGNORE INTO worlds(id, map_version, stage) VALUES ('demo-world', 'pending', 'lobby');
                 INSERT OR IGNORE INTO teams(id, world_id, name) VALUES ('demo-team', 'demo-world', 'Expedition');
                 INSERT OR IGNORE INTO team_storage(team_id) VALUES ('demo-team');
@@ -89,6 +92,38 @@ class Database:
     @staticmethod
     def token_hash(token):
         return hashlib.sha256(token.encode()).hexdigest()
+
+    def load_game(self, world_id):
+        with self.connect() as db:
+            row = db.execute('SELECT state FROM game_states WHERE world_id=?', (world_id,)).fetchone()
+            return json.loads(row['state']) if row else None
+
+    def save_game(self, state):
+        with self.connect() as db:
+            db.execute('INSERT OR REPLACE INTO game_states VALUES (?, ?)',
+                       (state.world_id, json.dumps(state.to_dict(), allow_nan=False)))
+            for key, entry in state.command_results.items():
+                user_id, request_id = key.split(':', 1)
+                db.execute('INSERT OR IGNORE INTO command_results VALUES (?, ?, ?, ?, ?)',
+                           (state.world_id, user_id, request_id, entry['fingerprint'], json.dumps(entry['result'])))
+
+    def command_result(self, identity, message):
+        request_id = message.get('request_id')
+        if not isinstance(request_id, str):
+            return None
+        with self.connect() as db:
+            row = db.execute('SELECT fingerprint, result FROM command_results WHERE world_id=? AND user_id=? AND request_id=?',
+                             (identity['world_id'], identity['user_id'], request_id)).fetchone()
+        if not row:
+            return None
+        try:
+            fingerprint = hashlib.sha256(json.dumps({'type': message.get('type'), 'payload': message.get('payload')},
+                                                     sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+        except (ValueError, TypeError):
+            fingerprint = None
+        if fingerprint == row['fingerprint']:
+            return json.loads(row['result'])
+        return {'type': 'action.result', 'request_id': request_id, 'payload': {'ok': False, 'code': 'REQUEST_CONFLICT'}}
 
     def register(self, username, salt, password_hash, token, lifetime):
         user_id = str(uuid.uuid4())

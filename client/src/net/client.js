@@ -12,6 +12,11 @@ export class GameClient extends Events {
     this.ready = false; this.stopped = true; this.session = null;
   }
   connect() {
+    clearTimeout(this.timer);
+    const previous = this.socket;
+    this.socket = null;
+    previous?.close();
+    this.revision = null;
     this.stopped = false; this.ready = false;
     this.emit('status', 'connecting');
     const socket = this.socket = new this.Socket(this.url);
@@ -60,7 +65,7 @@ export class GameClient extends Events {
       this.emit(type, payload);
       if (!this.ready) return;
       this.emit('status', 'connected');
-      for (const command of this.pending.values()) this.send(command);
+      for (const command of this.pending.values()) if (command.type !== 'chat.send') this.send(command);
       return;
     }
     if (type === 'world.delta') {
@@ -69,7 +74,8 @@ export class GameClient extends Events {
       if (revision !== this.revision + 1) { this.resync(); return; }
       this.revision = revision;
     } else if (!this.ready) return;
-    if (type === 'action.result') this.pending.delete(request_id);
+    if (type === 'action.result' || type === 'error') this.pending.delete(request_id);
+    if (type === 'error') this.emit('error', payload.message || payload.code);
     this.emit(type, payload);
     this.emit('message', message);
   }
@@ -78,11 +84,12 @@ export class GameClient extends Events {
     this.socket.send(JSON.stringify(message)); return true;
   }
   input(input) {
-    if (!this.ready) return;
-    this.send({ type: 'player.input', payload: { seq: ++this.seq, ...input } });
+    if (!this.ready || this.revision === null) return;
+    this.send({ type: 'player.input', payload: { seq: ++this.seq, move: input.move } });
   }
   command(type, payload) {
     if (!this.ready) throw new Error('Дождитесь синхронизации с сервером.');
+    if (type !== 'chat.send' && this.revision === null) throw new Error('Дождитесь состояния мира.');
     if (this.pending.size >= 64) throw new Error('Слишком много неподтверждённых действий.');
     const request_id = globalThis.crypto?.randomUUID?.() || uuid();
     const message = { type, request_id, payload: structuredClone(payload) };

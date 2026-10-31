@@ -253,7 +253,10 @@ export class WorldScene {
       this.inputTime += dt;
       if (this.inputTime >= .05) {
         this.inputTime = 0;
-        this.events.emit('player.input',{ axes, heading: this.heading.toArray(), pitch: this.controls.pitch });
+        const basis = tangent(this.position,this.heading);
+        const move = basis.forward.multiplyScalar(axes.forward).addScaledVector(basis.right,axes.right);
+        if (move.lengthSq() > 1) move.normalize();
+        this.events.emit('player.input',{ axes, heading: this.heading.toArray(), pitch: this.controls.pitch, move:move.toArray() });
       }
       const { up, forward } = tangent(this.position,this.heading);
       if (this.mode === 'first') {
