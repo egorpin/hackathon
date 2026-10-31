@@ -10,11 +10,11 @@ root.innerHTML = `
   <header><div class="brand">MARS<span>COLONY / ЭКСПЕДИЦИЯ 01</span></div><div id="connection" role="status">Подключение…</div></header>
   <section class="instrument"><span class="eyebrow">ТЕЛЕМЕТРИЯ ЭКСПЕДИЦИИ</span><h1>Поверхность Марса</h1>
     <p id="mode">Камера: первое лицо</p><p id="cache">Данные мира: ожидание манифеста</p><p id="performance">FPS: —</p>
-    <p>В — вода · Ж — железо · С — сера · O₂ — заглушка</p>
+    <p>В — вода · Ж — железо · С — сера · O₂ — кислород</p>
     <p id="selection">Наведитесь на клетку</p>
     <div class="actions"><button id="camera">Сменить камеру · Tab</button>
     <button id="start" hidden>Начать экспедицию</button>
-    <select id="building" aria-label="Тип постройки"><option value="drill">Бур</option><option value="oxygen_generator">Генератор O₂ (заглушка)</option><option value="warehouse">Склад</option></select>
+    <select id="building" aria-label="Тип постройки"><option value="drill">Бур</option><option value="oxygen_generator">Генератор O₂ (кислород)</option><option value="warehouse">Склад</option></select>
     <button id="build">Построить · B</button></div>
   </section>
   <div id="crosshair" aria-hidden="true">+</div>
