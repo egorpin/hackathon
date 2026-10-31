@@ -162,6 +162,14 @@ def generate_planet(subdivisions=3, radius=30.0, chunk_cells=16):
     for site in sites:
         for index, neighbor in enumerate(sorted(neighbors[site] - set(sites))[:3]):
             deposits[neighbor] = resources[index]
+    for i in range(len(vertices)):
+        value = int.from_bytes(hashlib.sha256(f"copper-v2:{i}".encode()).digest()[:4], "big")
+        if i not in sites and i not in deposits and value % 12 == 0:
+            deposits[i] = "copper"
+    for site in sites:
+        neighbor = sorted(neighbors[site] - set(sites))[3]
+        if neighbor not in deposits:
+            deposits[neighbor] = "copper"
     cells = {}
     for i, normal in enumerate(vertices):
         axis = (1, 0, 0) if abs(normal[0]) < .9 else (0, 1, 0)
@@ -172,5 +180,5 @@ def generate_planet(subdivisions=3, radius=30.0, chunk_cells=16):
         cells[cell_id] = Cell(cell_id, scale(normal, radius), tuple(centers[f] for f in ordered),
                               tuple(f"cell-{j:04d}" for j in sorted(neighbors[i])), assignment[i],
                               "landing" if i in sites else "ground", i not in sites, deposits.get(i))
-    version = f"icosphere-v1-s{subdivisions}-r{radius:.17g}-c{chunk_cells}-resources-v1"
+    version = f"icosphere-v1-s{subdivisions}-r{radius:.17g}-c{chunk_cells}-resources-v2"
     return Planet(version, radius, cells, chunks, tuple(f"cell-{i:04d}" for i in sites))

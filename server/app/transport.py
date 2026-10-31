@@ -78,7 +78,8 @@ class GameService:
             saved = self.db.load_game(world_id)
             state = WorldState.from_dict(saved) if saved else WorldState(world_id, self.planet.version)
             # Resource overlay preserves geometry and IDs from the previous map.
-            if state.map_version == self.planet.version.removesuffix("-resources-v1"):
+            if state.map_version in (self.planet.version.removesuffix("-resources-v2"),
+                                     self.planet.version.replace("-resources-v2", "-resources-v1")):
                 state.map_version = self.planet.version
             if state.map_version != self.planet.version:
                 raise ValueError(

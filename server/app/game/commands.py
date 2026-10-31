@@ -6,8 +6,8 @@ import uuid
 
 from app.world.geometry import surface_distance
 from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INVENTORY_CAPACITY,
-                    PLAYER_RADIUS, REACH, RECIPES, MINABLE_RESOURCES, STORAGE_CAPACITY, Building, Context, UnitOfWork)
-from .state import PLAYER_COLORS
+                    PLAYER_RADIUS, REACH, RECIPES, MINABLE_RESOURCES, Building, Context, UnitOfWork)
+from .state import PLAYER_COLORS, MOUNTAIN_RADIUS, storage_capacity
 
 
 class Rejected(Exception):
@@ -99,12 +99,55 @@ def dispatch(context, kind, payload, state, planet):
                     >= BUILDING_RADIUS + PLAYER_RADIUS for other in state.players.values()), "CELL_OCCUPIED")
         require(building_type != "drill" or cell.resource in MINABLE_RESOURCES, "RESOURCE_REQUIRED")
         cost = RECIPES[building_type]
-        require(player.inventory["ore"] >= cost, "INSUFFICIENT_RESOURCES")
+        pool = state.team_storage[player.team_id]
+        require(all(pool.get(resource, 0) >= amount for resource, amount in cost.items()), "INSUFFICIENT_RESOURCES")
         building_id = str(uuid.uuid4())
         building = Building(building_id, cell_id, building_type, player.team_id, player.user_id)
-        player.inventory["ore"] -= cost
+        building.paid_cost = dict(cost)
+        for resource, amount in cost.items():
+            pool[resource] -= amount
         state.buildings[building_id] = building
         return {"building_id": building_id}
+    if kind == "building.remove":
+        fields(payload, "building_id")
+        building = state.buildings.get(identifier(payload["building_id"]))
+        require(building is not None)
+        require(building.team_id == player.team_id, "FORBIDDEN")
+        in_reach(planet, player, planet.cells[building.cell_id].center)
+        pool = state.team_storage[player.team_id]
+        # Refunds can exceed capacity: never destroy resources during demolition.
+        for stock in (building.paid_cost, building.stock):
+            for resource, amount in stock.items():
+                pool[resource] = pool.get(resource, 0) + amount
+        del state.buildings[building.building_id]
+        return {"refunded": dict(building.paid_cost)}
+    if kind == "player.respawn":
+        fields(payload)
+        bases = [b for b in state.buildings.values()
+                 if b.team_id == player.team_id and b.building_type == "dome_base"]
+        own = [b for b in bases if b.creator_id == player.user_id]
+        base = (own or bases)[-1] if bases else None
+        origin = base.cell_id if base else next(cell for cell, user in state.landing_claims.items()
+                                               if user == player.user_id)
+        blocked = {b.cell_id for b in state.buildings.values()} | set(state.mountains)
+        candidates = sorted(planet.cells.values(), key=lambda c: surface_distance(
+            c.center, planet.cells[origin].center, planet.radius))
+        obstacles = [(planet.cells[b.cell_id].center, BUILDING_RADIUS + PLAYER_RADIUS)
+                     for b in state.buildings.values()]
+        obstacles += [(planet.cells[cell].center, MOUNTAIN_RADIUS + PLAYER_RADIUS)
+                      for cell in state.mountains]
+        destination = next((c for c in candidates if c.cell_id not in blocked and all(
+            surface_distance(c.center, position, planet.radius) >= radius
+            for position, radius in obstacles) and all(
+            other.user_id == player.user_id or other.position is None or
+            surface_distance(c.center, other.position, planet.radius) >= 2 * PLAYER_RADIUS
+            for other in state.players.values())), None)
+        require(destination is not None, "SPAWN_BLOCKED")
+        player.position = destination.center
+        player.move = (0., 0., 0.)
+        player.altitude = player.vertical_speed = 0.
+        player.jump_held = player.jump_pending = player.running = False
+        return {"cell_id": destination.cell_id, "building_id": base.building_id if base else None}
     if kind in ("resource.pickup", "resource.deposit", "resource.give"):
         target_key = "recipient_player_id" if kind == "resource.give" else "building_id"
         fields(payload, target_key, "resource", "amount")
@@ -129,7 +172,7 @@ def dispatch(context, kind, payload, state, planet):
                 source, destination, capacity = stock, player.inventory, INVENTORY_CAPACITY
             else:
                 source, destination = player.inventory, stock
-                capacity = STORAGE_CAPACITY if building.building_type == "warehouse" else BUILDING_CAPACITY
+                capacity = storage_capacity(state, player.team_id) if building.building_type == "warehouse" else BUILDING_CAPACITY
         require(source.get(resource, 0) >= amount, "INSUFFICIENT_RESOURCES")
         require(sum(destination.values()) + amount <= capacity, "INVENTORY_FULL")
         source[resource] -= amount

@@ -7,7 +7,8 @@ from .commands import authorize
 from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INPUT_TIMEOUT_TICKS,
                     MOUNTAIN_RADIUS, OXYGEN_GOAL, PLAYER_RADIUS,
                     PRODUCTION_TICKS, REACH, RECIPES, SPEED, TICK_SECONDS,
-                    INVENTORY_CAPACITY, STORAGE_CAPACITY, STARTING_ORE, MINABLE_RESOURCES)
+                    INVENTORY_CAPACITY, STORAGE_CAPACITY, STARTING_ORE, MINABLE_RESOURCES,
+                    STARTING_RESOURCES, OXYGEN_PER_CYCLE, storage_capacity)
 
 
 def step(world, dt_seconds, planet):
@@ -44,19 +45,40 @@ def step(world, dt_seconds, planet):
         if position != player.position:
             player.position = position
             events.append({"type": "player.moved", "user_id": player.user_id})
-    for building in world.buildings.values():
-        if building.building_type == "warehouse":
+    # Stable order and two phases: every drill delivers before generators consume.
+    producers = sorted(world.buildings.values(), key=lambda b: b.building_id)
+    ready = []
+    for building in producers:
+        if building.building_type not in ("drill", "oxygen_generator"):
             continue
         building.production_ticks += 1
-        if building.production_ticks < PRODUCTION_TICKS:
+        if building.production_ticks >= PRODUCTION_TICKS:
+            building.production_ticks = 0
+            ready.append(building)
+    for building in ready:
+        if building.building_type != "drill":
             continue
-        building.production_ticks = 0
+        pool = world.team_storage[building.team_id]
+        room = max(0, storage_capacity(world, building.team_id) - sum(pool.values()))
         resource = planet.cells[building.cell_id].resource
-        if (building.building_type == "drill" and resource in MINABLE_RESOURCES
-                and sum(building.stock.values()) < BUILDING_CAPACITY):
-            building.stock[resource] = building.stock.get(resource, 0) + 1
+        # The local buffer is real stock, never a duplicate of the shared pool.
+        # Stop extraction when full; keep the buffer for future transport logic.
+        if resource in MINABLE_RESOURCES and room > 0 and sum(building.stock.values()) < BUILDING_CAPACITY:
+            building.stock[resource] += 1
+        for resource, amount in building.stock.items():
+            delivered = min(room, amount)
+            building.stock[resource] -= delivered
+            pool[resource] += delivered
+            room -= delivered
+        events.append({"type": "building.updated", "building_id": building.building_id})
+    for building in ready:
+        if building.building_type != "oxygen_generator" or world.oxygen_percent >= OXYGEN_GOAL:
+            continue
+        pool = world.team_storage[building.team_id]
+        if pool["water"] >= 1:
+            pool["water"] -= 1
+            world.oxygen_percent = min(OXYGEN_GOAL, round(world.oxygen_percent + OXYGEN_PER_CYCLE, 6))
             events.append({"type": "building.updated", "building_id": building.building_id})
-        # Oxygen is a placeholder: generators do not consume or produce resources.
     world.tick += 1
     world.revision += 1
     return events
@@ -95,13 +117,15 @@ def snapshot(context, unit_of_work, view_radius=12.0):
             "payload": {"stage": state.stage, "map_version": planet.version,
                         "players": players, "buildings": buildings, "inventory": player.inventory,
                         "last_input_seq": player.seq, "team_storage": state.team_storage[player.team_id],
-                        "oxygen": state.team_oxygen[player.team_id], "oxygen_goal": OXYGEN_GOAL,
+                        "oxygen": state.oxygen_percent, "oxygen_percent": state.oxygen_percent, "oxygen_goal": OXYGEN_GOAL,
                         "landing_sites": planet.landing_sites, "landing_claims": state.landing_claims,
                         "mountains": state.mountains,
                         "config": {"radius": planet.radius, "tick_seconds": TICK_SECONDS, "speed": SPEED,
                                    "interaction_distance": REACH, "view_radius": view_radius,
                                    "building_radius": BUILDING_RADIUS, "player_radius": PLAYER_RADIUS,
-                                   "mountain_radius": MOUNTAIN_RADIUS, "recipes": dict(RECIPES),
+                                   "mountain_radius": MOUNTAIN_RADIUS, "recipes": {kind: dict(cost) for kind, cost in RECIPES.items()},
                                    "inventory_capacity": INVENTORY_CAPACITY, "building_capacity": BUILDING_CAPACITY,
-                                   "storage_capacity": STORAGE_CAPACITY, "starting_ore": STARTING_ORE,
-                                   "production_ticks": PRODUCTION_TICKS, "oxygen_enabled": False}}}
+                                   "storage_capacity": storage_capacity(state, player.team_id),
+                                   "warehouse_capacity": STORAGE_CAPACITY, "starting_resources": dict(STARTING_RESOURCES),
+                                   "starting_ore": STARTING_ORE, "oxygen_per_cycle": OXYGEN_PER_CYCLE,
+                                   "production_ticks": PRODUCTION_TICKS, "oxygen_enabled": True}}}
