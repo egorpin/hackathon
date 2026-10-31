@@ -13,14 +13,12 @@ Node собирает Vite, а Nginx обслуживает статически
 Нужен Docker Engine с Compose v2 (на Windows — Docker Desktop в режиме Linux containers). Из корня репозитория:
 
 ```powershell
-Copy-Item .env.example .env
-docker compose build --pull
-docker compose up -d
-docker compose ps
-docker compose logs --tail 100
+.\start.cmd
 ```
 
-Перед запуском с других ноутбуков добавьте в `MARS_ALLOWED_ORIGINS` в `.env` точный адрес страницы, например `http://192.168.1.10:8000`, сохранив нужные адреса localhost. После изменения выполнить `docker compose up -d`. Для HTTPS установите `MARS_SECURE_COOKIE=true`; при обычном HTTP в LAN оставьте `false`.
+Скрипт выполняет `docker compose up -d --build --remove-orphans --wait`: собирает оба образа, устраняет конфликт со старыми контейнерами этого проекта и возвращает управление только после успешных healthcheck. Он ищет Docker CLI в `PATH` и в стандартных каталогах Docker Desktop на дисках C: и D:.
+
+LAN-адрес страницы автоматически проходит same-origin-проверку HTTP и WebSocket, поэтому добавлять каждый IP в `.env` не требуется. `MARS_ALLOWED_ORIGINS` нужен только для дополнительных адресов разработки. Для HTTPS установите `MARS_SECURE_COOKIE=true`; при обычном HTTP в LAN оставьте `false`.
 
 Открыть `http://localhost:8000` и `http://localhost:8000/api/health`. На других ноутбуках — `http://<LAN-IP>:8000`; IP посмотреть через `ipconfig`. При необходимости разрешить входящий TCP-порт 8000 в частной сети Windows Firewall. Порт меняется через MARS_PORT в .env; внутри контейнера всегда 8000.
 
@@ -60,7 +58,7 @@ docker compose start
 
 Python 3.12 и Node 22. В корне: `python -m venv .venv`, затем `.venv/Scripts/python -m pip install -r server/requirements.txt`. Запуск: `.venv/Scripts/python -m uvicorn app.main:app --app-dir server --host 0.0.0.0 --port 8000 --ws-max-size 4096`. В другом терминале из client: `npm ci`, `npm run dev`. Vite проксирует `/api` и `/ws`; локальная база создаётся в data/.
 
-Тесты сервера: `.venv/Scripts/python -m pip install -r server/requirements-dev.txt`, затем `.venv/Scripts/python -m pytest -q` из корня. Для LAN без Docker задайте `MARS_ALLOWED_ORIGINS` в окружении процесса сервера. По умолчанию разрешены только адреса localhost и 127.0.0.1 на портах 8000 и 5173.
+Тесты сервера: `.venv/Scripts/python -m pip install -r server/requirements-dev.txt`, затем `.venv/Scripts/python -m pytest -q` из корня. Для LAN сервер принимает Origin, совпадающий с фактическим Host запроса. Дополнительные адреса разработки задаются через `MARS_ALLOWED_ORIGINS`.
 
 ## Приёмка контейнера
 
