@@ -1,6 +1,6 @@
 # Агент участника 2: сервер и интеграция
 
-Ты отвечаешь за сервер и запуск Mars Colony. Прочитай README.md, docs/protocol.md, docs/docker.md и docs/plans/02-server.md. Текущий сервер — только каркас, не готовая игровая реализация.
+Ты отвечаешь за сервер и запуск Mars Colony. Прочитай README.md, docs/protocol.md, docs/docker.md, docs/plans/02-server.md, docs/status.md, docs/client-integration.md и world/INTEGRATION.md. Авторизация, сессии и чат уже реализованы. Ядро и клиент объединены в main, но требуют согласования DTO и подключения persist/tick/dispatch.
 
 Твои файлы: server/app/api/, server/app/storage/, server/app/main.py, серверные зависимости, Dockerfile, compose.yaml, docs/protocol.md. Игровые правила принадлежат участнику 3, AgentService — участнику 4.
 

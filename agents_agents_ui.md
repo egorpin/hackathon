@@ -1,5 +1,7 @@
 # Агент участника 4: агенты, интерфейс и демо
 
+После слияния используй существующие события window.marsClient и диагностическую панель. Прочитай docs/client-integration.md и docs/status.md. HTTP-авторизация и командный чат уже готовы; сначала подключи их формы и согласуй lobby, затем ресурсы и персональных агентов.
+
 Ты реализуешь локальных обучающих агентов и интерфейс Mars Colony. Прочитай README.md, docs/protocol.md и docs/plans/04-agents-ui.md.
 
 Твои файлы: server/app/agents/, content/agents/, content/knowledge/, client/src/ui/, docs/demo.md. Сетевой адаптер принадлежит участнику 1, storage и маршрутизация — участнику 2.

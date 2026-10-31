@@ -1,5 +1,7 @@
 # Геометрия Голдберга
 
+Статус после слияния: это генератор dev preview клиента. В `server/app/world/` параллельно существует игровой генератор икосферы с другой версией и ID. Экспорт Голдберга пока не подключён к `UnitOfWork`; карты не взаимозаменяемы. Выбор общего формата и генератора зафиксирован в [задачах интеграции](protocol.md).
+
 Генератор скопирован из [guillochon/goldberg-hexgrid](https://github.com/guillochon/goldberg-hexgrid/tree/51d110bb15e59c94afbf926729e6baf90f78fd6d).
 Три исходных модуля в tools/vendor/goldberg_hexgrid сохранены без изменений; MIT-лицензия и происхождение находятся рядом. Вызов generate_goldberg_hex_sphere выполняется в tools/generate_world.py, вне браузера.
 

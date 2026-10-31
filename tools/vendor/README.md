@@ -1,5 +1,9 @@
 # Vendored Goldberg generator
 
+Integration status: this generator powers the client development preview. The
+gameplay generator in `server/app/world/` remains separate; map versions and cell
+IDs are not interchangeable. See [integration status](../../docs/status.md).
+
 Source: https://github.com/guillochon/goldberg-hexgrid
 Commit: 51d110bb15e59c94afbf926729e6baf90f78fd6d
 Copyright (c) 2026 James Guillochon. MIT; see LICENSE.goldberg-hexgrid.
