@@ -64,6 +64,15 @@ test('snapshot gate, input sequence and revision gap resync',()=>{
  c.input({axes:{forward:1,right:0},heading:[0,0,-1]});assert.equal(c.socket.sent[0].payload.seq,11);
  c.receive({type:'world.delta',revision:7,payload:{players:[]}}); assert.equal(c.ready,false);assert.equal(c.socket.closed,true);c.close();
 });
+test('authenticated session opens the existing server transport',()=>{
+ const c=new GameClient({url:'ws://test/ws',WebSocketClass:Socket});const statuses=[];
+ c.on('status',status=>statuses.push(status));c.connect();
+ c.receive({type:'session.ready',payload:{user_id:'user-1',world_id:'world-1',team_id:'team-1'}});
+ assert.equal(c.ready,true);assert.equal(c.session.user_id,'user-1');
+ assert.equal(statuses.at(-1),'connected');
+ const id=c.command('chat.send',{text:'hello'});
+ assert.equal(c.socket.sent[0].request_id,id);c.close();
+});
 test('unconfirmed commands replay with original IDs only after snapshot',()=>{
  const c=new GameClient({url:'ws://test/ws',WebSocketClass:Socket});c.connect();
  c.receive({type:'world.snapshot',revision:1,payload:{}});

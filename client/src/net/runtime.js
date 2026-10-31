@@ -17,7 +17,7 @@ export class Runtime {
       transport.on('chunk.load', chunk => this.load(chunk)),
       transport.on('chunk.unload', ({chunk_id}) => this.cache.drop('chunk:'+chunk_id)),
       transport.on('status', status => {
-        scene.enabled = status === 'connected'; scene.controls.clear();
+        scene.enabled = status === 'connected' && !!this.state; scene.controls.clear();
         if (status === 'reconnecting') { this.cache.reset(); this.state = null; scene.reset(); } events.emit('connection.status',status);
       }),
       transport.on('error', error => events.emit('notice',error)),

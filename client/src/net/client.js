@@ -9,7 +9,7 @@ export class GameClient extends Events {
   constructor({ url = socketURL(window.location), WebSocketClass = WebSocket } = {}) {
     super(); this.url = url; this.Socket = WebSocketClass;
     this.seq = 0; this.revision = null; this.attempt = 0; this.pending = new Map();
-    this.ready = false; this.stopped = true;
+    this.ready = false; this.stopped = true; this.session = null;
   }
   connect() {
     this.stopped = false; this.ready = false;
@@ -41,6 +41,17 @@ export class GameClient extends Events {
   receive(message) {
     const { type, payload, revision, request_id } = message;
     if (typeof type !== 'string' || !payload) throw new Error('Некорректное сообщение сервера');
+    if (type === 'session.ready') {
+      if (!['user_id','world_id','team_id'].every(key => typeof payload[key] === 'string')) {
+        throw new Error('Сервер вернул некорректную сессию');
+      }
+      this.session = payload; this.ready = true; this.attempt = 0;
+      this.emit(type, payload); this.emit('status', 'connected');
+      // Chat is available as soon as the authenticated transport is ready.
+      // Gameplay commands continue to wait for an authoritative snapshot.
+      for (const command of this.pending.values()) if (command.type === 'chat.send') this.send(command);
+      return;
+    }
     if (type === 'world.offer') { this.emit(type, payload); return; }
     if (type === 'world.snapshot') {
       if (!Number.isSafeInteger(revision)) throw new Error('Snapshot без revision');

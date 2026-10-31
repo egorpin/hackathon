@@ -17,6 +17,15 @@ root.innerHTML = `
   </section>
   <div id="crosshair" aria-hidden="true">+</div>
   <aside id="notice" role="status" aria-live="polite">Ожидание серверного состояния. WASD — движение, мышь или стрелки — взгляд.</aside>
+  <section id="auth" class="auth" aria-labelledby="auth-title" hidden>
+    <form id="auth-form">
+      <span class="eyebrow">ЗАЩИЩЁННОЕ ПОДКЛЮЧЕНИЕ</span><h2 id="auth-title">Вход в экспедицию</h2>
+      <label>Имя игрока<input name="username" autocomplete="username" minlength="3" maxlength="32" pattern="[A-Za-z0-9_]+" required></label>
+      <label>Пароль<input name="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required></label>
+      <p id="auth-error" role="alert" aria-live="polite"></p>
+      <div class="auth-actions"><button type="submit" value="login">Войти</button><button type="submit" value="register">Создать игрока</button></div>
+    </form>
+  </section>
   <footer><span>WASD · движение &nbsp; E · взаимодействие &nbsp; Esc · освободить мышь</span><span id="environment">ЛОКАЛЬНАЯ СЕТЬ</span></footer>
 `;
 const events = new Events();
@@ -47,7 +56,42 @@ try {
   const runtime=new Runtime(transport,scene,events);
   // Participant 4 integration surface: subscribe to events; send intentions via command().
   window.marsClient={events,command:(type,payload)=>runtime.command(type,payload),toggleCamera:()=>events.emit('camera.toggle'),dispose:()=>runtime.dispose()};
-  transport.connect();
+  if (import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) transport.connect();
+  else authenticate(transport);
   window.addEventListener('pagehide',()=>runtime.dispose(),{once:true});
   if(import.meta.hot) import.meta.hot.dispose(()=>runtime.dispose());
 } catch(error) { show('notice',`Не удалось запустить 3D: ${error.message}`); }
+
+async function authenticate(transport) {
+  const panel=document.getElementById('auth');
+  const form=document.getElementById('auth-form');
+  const error=document.getElementById('auth-error');
+  const openSocket=()=>{ panel.hidden=true; transport.connect(); };
+  try {
+    const response=await fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'});
+    if(response.ok){ openSocket(); return; }
+    if(response.status!==401) throw new Error(`HTTP ${response.status}`);
+  } catch (cause) {
+    error.textContent=`Сервер авторизации недоступен: ${cause.message}`;
+  }
+  panel.hidden=false; show('connection','Требуется вход');
+  form.addEventListener('submit',async event=>{
+    event.preventDefault(); error.textContent='';
+    const submitter=event.submitter?.value==='register'?'register':'login';
+    const fields=new FormData(form);
+    const buttons=[...form.querySelectorAll('button')]; buttons.forEach(button=>button.disabled=true);
+    try {
+      const response=await fetch(`/api/auth/${submitter}`,{
+        method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({username:fields.get('username'),password:fields.get('password')})
+      });
+      if(!response.ok) {
+        const body=await response.json().catch(()=>({}));
+        const messages={401:'Неверное имя или пароль.',409:'Такое имя уже занято.',422:'Проверьте имя и длину пароля.'};
+        throw new Error(messages[response.status] || body.detail || `HTTP ${response.status}`);
+      }
+      openSocket();
+    } catch(cause) { error.textContent=cause.message; }
+    finally { buttons.forEach(button=>button.disabled=false); }
+  });
+}
