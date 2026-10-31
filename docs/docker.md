@@ -64,4 +64,6 @@ Python 3.12 и Node 22. В корне: `python -m venv .venv`, затем `.venv
 
 Проверки исходников после слияния: из корня `.venv/Scripts/python -m pytest -q`; из `client` — `npm test` и `npm run build`. Это отдельные проверки, не замена сборке контейнера, LAN и восстановлению volume.
 
+31 октября 2026 года проверены `docker compose build --pull`, запуск, healthcheck, раздача HTML/JS/CSS и работа от UID 10001. Тестовый пользователь и его cookie-сессия сохранились после `docker compose restart`; `/data/mars.sqlite3` осталась в режиме WAL. Compose-файл задаёт имя проекта `mars-colony`, поэтому команды работают и из каталога с кириллическим именем.
+
 После сборки проверить healthy, страницу и API с другого ноутбука, затем restart и повторный health. Проверить наличие файла `/data/mars.sqlite3` и режим WAL. После реализации игры выполнить docs/demo.md; успешный healthcheck сам по себе не подтверждает готовность игры.

@@ -1,3 +1,5 @@
+name: mars-colony
+
 services:
   mars-colony:
     image: mars-colony:local
