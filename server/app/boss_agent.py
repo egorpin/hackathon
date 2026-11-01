@@ -3,6 +3,7 @@ import asyncio
 import json
 import re
 import uuid
+from copy import deepcopy
 
 import httpx
 from mcp import ClientSession
@@ -15,10 +16,15 @@ MAX_RESULT_CHARS = 50000
 
 
 def ollama_tool(tool):
+    schema = deepcopy(tool.inputSchema)
+    for key in ('world_id', 'request_id'):
+        schema.get('properties', {}).pop(key, None)
+        if key in schema.get('required', []):
+            schema['required'].remove(key)
     return {'type': 'function', 'function': {
         'name': tool.name,
         'description': tool.description or '',
-        'parameters': tool.inputSchema,
+        'parameters': schema,
     }}
 
 
@@ -40,6 +46,34 @@ def arguments(call):
 
 
 READ_TOOLS = {'admin_get_overview', 'admin_get_world', 'admin_get_cells'}
+
+GIVE_RESOURCE = {'type': 'function', 'function': {
+    'name': 'give_resource',
+    'description': 'Бесплатно добавить ресурс в инвентарь пользователя. Железо=iron, вода=water, медь=copper, сера=sulfur. Запасы не нужны.',
+    'parameters': {'type': 'object', 'properties': {
+        'resource': {'type': 'string', 'enum': ['iron', 'water', 'copper', 'sulfur']},
+        'amount': {'type': 'integer', 'minimum': 1, 'maximum': 1000000}},
+        'required': ['resource', 'amount'], 'additionalProperties': False}}}
+
+
+async def resource_arguments(session, config, values):
+    resource, amount = values.get('resource'), values.get('amount')
+    if resource not in GIVE_RESOURCE['function']['parameters']['properties']['resource']['enum']:
+        raise ValueError('Неизвестный ресурс')
+    if type(amount) is not int or not 1 <= amount <= 1000000:
+        raise ValueError('Количество должно быть целым числом от 1 до 1000000')
+    response = await session.call_tool('admin_get_world', {'world_id': config['world_id']})
+    if response.isError:
+        raise ValueError('Не удалось прочитать мир')
+    world = response.structuredContent
+    player = next((p for p in world['players'] if p['user_id'] == config.get('player_id')), None)
+    if player is None:
+        raise ValueError('Пользователь ещё не появился в игровом мире')
+    balance = player['inventory'].get(resource, 0) + amount
+    if balance > 1000000:
+        raise ValueError('Баланс превысит 1000000')
+    return {'target': 'player', 'target_id': player['user_id'],
+            'resources': {resource: balance}, 'expected_version': world['version']}
 
 
 def select_tools(query, available):
@@ -79,6 +113,8 @@ async def run(messages, config, temperature):
                 query = next((str(item.get('content', '')) for item in reversed(messages)
                               if item.get('role') == 'user'), '')
                 tools = [ollama_tool(tool) for tool in select_tools(query, available)]
+                if 'admin_set_resources' in available and config.get('player_id'):
+                    tools.insert(0, GIVE_RESOURCE)
                 seen = set()
                 for _ in range(MAX_ROUNDS):
                     message = await asyncio.to_thread(
@@ -93,11 +129,15 @@ async def run(messages, config, temperature):
                     dialogue.append(message)
                     for call in calls:
                         name = call.get('function', {}).get('name')
-                        if name not in available:
+                        if name not in available and name != 'give_resource':
                             result = json.dumps({'isError': True, 'error': 'UNKNOWN_TOOL'}, ensure_ascii=False)
                         else:
                             try:
                                 values = arguments(call)
+                                backend_name = name
+                                if name == 'give_resource':
+                                    values = await resource_arguments(session, config, values)
+                                    backend_name = 'admin_set_resources'
                                 if name != 'admin_get_overview':
                                     values['world_id'] = config['world_id']
                                 if name not in READ_TOOLS and not re.fullmatch(
@@ -110,7 +150,7 @@ async def run(messages, config, temperature):
                                     dialogue.append({'role': 'tool', 'tool_name': name, 'content': result})
                                     continue
                                 seen.add(signature)
-                                response = await session.call_tool(name, values)
+                                response = await session.call_tool(backend_name, values)
                                 result = tool_result(response)
                                 if successful_mutation(name, response):
                                     dialogue.append({'role': 'tool', 'tool_name': name, 'content': result})

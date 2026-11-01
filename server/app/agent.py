@@ -170,6 +170,17 @@ def compress_memory(db, identity, agent_id, history_rows):
     return summary[:6000]
 
 def prompt_messages(db, identity, text, context, agent_id='expedition', character=None, history_rows=None):
+    if agent_id == 'boss':
+        rows = history_rows if history_rows is not None else history(db, identity, agent_id, limit=8)
+        return [{'role': 'system', 'content':
+                 'Ты Босс, администратор игры. Выполняй команды инструментами. '
+                 'give_resource добавляет ресурсы пользователю бесплатно: дай 100 железа → '
+                 'give_resource(resource="iron", amount=100). Запасы для выдачи не нужны. '
+                 'admin_set_resources устанавливает абсолютный баланс. '
+                 'Для остальных действий используй соответствующий admin-инструмент. '
+                 'Не выдумывай ID: прочитай мир. Сообщай только подтверждённый результат.'},
+                *[{'role': row['role'], 'content': row['text'][:1600]} for row in rows[-8:]],
+                {'role': 'user', 'content': text}]
     current_profile = profile(agent_id)
     system = character.get('prompt', current_profile['system']) if character else current_profile['system']
     system = system.rstrip() + '\n\n' + RESPONSE_POLICY
@@ -196,6 +207,7 @@ def complete(history_rows, text, context):
     temperature = character.get('temperature', .35) if character else .35
     messages = prompt_messages(db, identity, text, context, agent_id, character, history_rows)
     if agent_id == 'boss' and boss_mcp:
+        boss_mcp = {**boss_mcp, 'player_id': identity['user_id']}
         from .boss_agent import complete as boss_complete
         return boss_complete(messages, boss_mcp, temperature=temperature)[:12000]
     return model_request(messages, temperature=temperature)[:12000]
@@ -210,6 +222,7 @@ def stream_complete(history_rows, text, context):
     temperature = character.get('temperature', .35) if character else .35
     messages = prompt_messages(db, identity, text, context, agent_id, character, history_rows)
     if agent_id == 'boss' and boss_mcp:
+        boss_mcp = {**boss_mcp, 'player_id': identity['user_id']}
         from .boss_agent import stream as boss_stream
         yield from boss_stream(messages, boss_mcp, temperature=temperature)
         return

@@ -1,4 +1,5 @@
 import json
+import pytest
 from types import SimpleNamespace
 
 from app import boss_agent
@@ -10,7 +11,8 @@ def test_ollama_tool_uses_live_mcp_schema():
                            inputSchema={'type': 'object', 'required': ['world_id']})
     assert boss_agent.ollama_tool(tool) == {'type': 'function', 'function': {
         'name': 'admin_restart_world', 'description': 'Restart world',
-        'parameters': tool.inputSchema}}
+        'parameters': {'type': 'object', 'required': []}}}
+    assert tool.inputSchema['required'] == ['world_id']
 
 
 def test_tool_arguments_and_results_are_json():
@@ -21,7 +23,8 @@ def test_tool_arguments_and_results_are_json():
     assert json.loads(boss_agent.tool_result(response))['structuredContent']['ok'] is True
 
 
-def test_boss_executes_live_mcp_tool_without_keyword_match(client, monkeypatch):
+@pytest.mark.parametrize('give', [False, True])
+def test_boss_executes_live_mcp_tool_without_keyword_match(client, monkeypatch, give):
     import asyncio
     import httpx
     from app import main
@@ -30,6 +33,9 @@ def test_boss_executes_live_mcp_tool_without_keyword_match(client, monkeypatch):
     identity, _ = register(client, 'boss_loop')
     main.app.state.game.join(identity)
     world_id = identity['world_id']
+    from test_mcp_admin import edit
+    assert edit(client, 'admin_set_resources', world_id=world_id, target='player',
+                target_id=identity['user_id'], resources={'iron': 7})['ok']
     original_client = httpx.AsyncClient
 
     def local_client(**kwargs):
@@ -47,9 +53,13 @@ def test_boss_executes_live_mcp_tool_without_keyword_match(client, monkeypatch):
             assert 'admin_set_world' in names
             assert 'admin_set_player' in names
             assert 'admin_set_resources' in names
+            if give:
+                assert 'give_resource' in names
+                return {'role': 'assistant', 'tool_calls': [{'function': {
+                    'name': 'give_resource', 'arguments': {'resource': 'iron', 'amount': 100}}}]}
             return {'role': 'assistant', 'content': '', 'tool_calls': [
                 {'function': {'name': 'admin_get_world', 'arguments': {'world_id': world_id}}}]}
-        if len(rounds) == 2:
+        if len(rounds) == 2 and not give:
             assert dialogue[-1]['role'] == 'tool'
             assert not json.loads(dialogue[-1]['content'])['isError']
             return {'role': 'assistant', 'content': '', 'tool_calls': [
@@ -64,7 +74,22 @@ def test_boss_executes_live_mcp_tool_without_keyword_match(client, monkeypatch):
         {'role': 'system', 'content': 'Ты Босс.'},
         {'role': 'user', 'content': 'Freeze the simulation'}],
         {'url': ORIGIN + '/mcp/admin/', 'admin_key': main.app.state.admin_key,
-         'world_id': world_id}, .2))
+         'world_id': world_id, 'player_id': identity['user_id']}, .2))
     assert answer == 'Мир приостановлен.'
-    assert main.app.state.game.runtime(identity).state.admin_paused
-    assert len(rounds) == 3
+    if give:
+        assert main.app.state.game.runtime(identity).state.players[identity['user_id']].inventory['iron'] == 107
+        assert len(rounds) == 2
+    else:
+        assert main.app.state.game.runtime(identity).state.admin_paused
+        assert len(rounds) == 3
+
+
+def test_boss_prompt_skips_gameplay_references_and_memory(monkeypatch):
+    from app import agent
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Gameplay context must not be loaded for Boss')
+    monkeypatch.setattr(agent, 'retrieve', forbidden)
+    monkeypatch.setattr(agent, 'compress_memory', forbidden)
+    messages = agent.prompt_messages(None, {}, 'дай 100 железа', {}, 'boss', history_rows=[])
+    assert len(messages) == 2
+    assert 'give_resource' in messages[0]['content']
