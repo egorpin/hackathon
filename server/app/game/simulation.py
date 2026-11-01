@@ -4,7 +4,10 @@ import math
 from app.world.geometry import move_on_surface, surface_distance
 from app.world.terrain import ground_position, seed_from_world_id
 from .commands import authorize
-from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INPUT_TIMEOUT_TICKS,
+from .energy import energy_balance
+from .state import ENERGY_CONSUMPTION, SOLAR_ENERGY_OUTPUT, WIND_ENERGY_OUTPUT
+from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, CONSTRUCTION_TRAVEL_TICKS,
+                    INPUT_TIMEOUT_TICKS,
                     MOUNTAIN_RADIUS, OXYGEN_GOAL, PLAYER_RADIUS,
                     PRODUCTION_TICKS, REACH, RECIPES, SPEED, TICK_SECONDS,
                     INVENTORY_CAPACITY, STORAGE_CAPACITY, STARTING_ORE, MINABLE_RESOURCES,
@@ -47,13 +50,25 @@ def step(world, dt_seconds, planet):
             events.append({"type": "player.moved", "user_id": player.user_id})
     # Stable production order. Drills retain output until a player collects it.
     producers = sorted(world.buildings.values(), key=lambda b: b.building_id)
+    efficiency = energy_balance(world)["efficiency"]
     ready = []
     for building in producers:
+        if building.construction_status != "completed":
+            building.construction_progress = min(building.construction_required, building.construction_progress + 1)
+            if building.construction_progress < CONSTRUCTION_TRAVEL_TICKS:
+                building.construction_status = "planned"
+            elif building.construction_progress < building.construction_required:
+                building.construction_status = "building"
+            else:
+                building.construction_status = "completed"
+            events.append({"type": "building.updated", "building_id": building.building_id})
+            if building.construction_status != "completed":
+                continue
         if building.building_type not in ("drill", "oxygen_generator"):
             continue
-        building.production_ticks += 1
-        if building.production_ticks >= PRODUCTION_TICKS:
-            building.production_ticks = 0
+        building.production_ticks += efficiency
+        if building.production_ticks >= PRODUCTION_TICKS - 1e-9:
+            building.production_ticks = max(0.0, building.production_ticks - PRODUCTION_TICKS)
             ready.append(building)
     for building in ready:
         if building.building_type != "drill":
@@ -62,7 +77,7 @@ def step(world, dt_seconds, planet):
         if resource in MINABLE_RESOURCES and sum(building.stock.values()) < BUILDING_CAPACITY:
             building.stock[resource] += 1
             events.append({"type": "building.updated", "building_id": building.building_id})
-    warehouses = [b for b in producers if b.building_type == "warehouse"]
+    warehouses = [b for b in producers if b.building_type == "warehouse" and b.construction_status == "completed"]
     for building in ready:
         if building.building_type != "oxygen_generator" or world.oxygen_percent >= OXYGEN_GOAL:
             continue
@@ -106,15 +121,20 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                 "running": p.running and state.tick-p.input_tick < INPUT_TIMEOUT_TICKS,
                 "moving": any(p.move) and state.tick-p.input_tick < INPUT_TIMEOUT_TICKS}
                for p in state.players.values() if p.user_id == player.user_id or visible(p.position)]
+    energy = energy_balance(state)
     buildings = []
     for building in state.buildings.values():
         if not visible(planet.cells[building.cell_id].center):
             continue
         item = {"building_id": building.building_id, "cell_id": building.cell_id,
                 "building_type": building.building_type, "team_id": building.team_id,
+                "efficiency": 1.0 if building.building_type in ("solar_panel", "wind_turbine") else energy["efficiency"],
                 "color": state.players[building.creator_id].color,
-                "interaction_distance": building_interaction_distance(planet, planet.cells[building.cell_id])}
-        if building.team_id == player.team_id:
+                "interaction_distance": building_interaction_distance(planet, planet.cells[building.cell_id]),
+                "construction_status": building.construction_status,
+                "construction_progress": building.construction_progress,
+                "construction_required": building.construction_required}
+        if building.team_id == player.team_id and building.building_type not in ("solar_panel", "wind_turbine"):
             item["stock"] = building.stock if building.building_type != "warehouse" else state.team_storage[player.team_id]
         buildings.append(item)
     from .rover import coordinates, office_access, telemetry, COST, CAPACITY, MASSES, EMPTY_MASS
@@ -128,7 +148,7 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                         "office_access": office_access(state, planet, player),
                         "current_coordinates": coordinates(player.position) if player.position else None,
                         "last_input_seq": player.seq, "team_storage": state.team_storage[player.team_id],
-                        "oxygen": state.oxygen_percent, "oxygen_percent": state.oxygen_percent, "oxygen_goal": OXYGEN_GOAL,
+                        "energy": energy, "oxygen": state.oxygen_percent, "oxygen_percent": state.oxygen_percent, "oxygen_goal": OXYGEN_GOAL,
                         "landing_sites": planet.landing_sites, "landing_claims": state.landing_claims,
                         "mountains": state.mountains,
                         "config": {"rover": {"cost": COST, "capacity": CAPACITY, "empty_mass": EMPTY_MASS, "resource_masses": MASSES, "program_max_bytes": 512, "max_rovers": 4, "max_points": 12, "max_surveys": 16, "point_name_max_length": 24}, "radius": planet.radius, "tick_seconds": TICK_SECONDS, "speed": SPEED,
@@ -140,5 +160,7 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                                    "warehouse_capacity": STORAGE_CAPACITY, "starting_resources": dict(STARTING_RESOURCES),
                                    "starting_ore": STARTING_ORE, "oxygen_per_cycle": OXYGEN_PER_CYCLE,
                                    "drill_auto_transfer": False, "warehouse_supply": "neighbors",
+                                   "energy_output": {"solar_panel": SOLAR_ENERGY_OUTPUT, "wind_turbine": WIND_ENERGY_OUTPUT},
+                                   "energy_consumption": dict(ENERGY_CONSUMPTION),
                                    "oxygen_inputs": {"water": 1},
                                    "production_ticks": PRODUCTION_TICKS, "oxygen_enabled": True}}}

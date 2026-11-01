@@ -1,4 +1,6 @@
 export const PALETTES=['#e9a878','#8fcbbc','#9babdf','#d6a0c6','#c9c481','#91c7da'];
+// Server-approved player colors corresponding to the six avatar swatches.
+export const SUIT_COLORS=['#ff6b4a','#42d6a4','#687bff','#ff75b8','#ffbd4a','#42b8ff'];
 export function hash(value){let n=2166136261;for(const char of String(value)){n^=char.charCodeAt(0);n=Math.imul(n,16777619);}return n>>>0;}
 export function defaultProfile(id){return {callsign:'',bio:'',color:hash(id)%PALETTES.length,variant:0,reducedMotion:false};}
 export function normalizeProfile(value,id){
@@ -21,3 +23,4 @@ export function avatarURL(id,profile){
  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 100 100"><rect width="100" height="100" rx="25" fill="#20252b"/>${stars}<path d="M17 100V88c0-22 66-22 66 0v12" fill="${color}"/><rect x="24" y="19" width="52" height="58" rx="25" fill="#e8e4d9"/><rect x="28" y="29" width="44" height="33" rx="14" fill="#17252e"/>${pattern}<path d="M34 35q10-7 20-4" fill="none" stroke="white" opacity=".35" stroke-width="3" stroke-linecap="round"/><rect x="42" y="69" width="16" height="4" rx="2" fill="#647477"/><circle cx="71" cy="87" r="5" fill="#253239"/></svg>`;
  return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
 }
+export function suitColor(profile){return SUIT_COLORS[profile?.color]||SUIT_COLORS[0];}

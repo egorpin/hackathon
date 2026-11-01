@@ -7,6 +7,17 @@ const resources = {iron:'Железо', copper:'Медь', water:'Вода', sul
 const number = value => Number.isFinite(value) ? value.toLocaleString('ru-RU', {maximumFractionDigits:1}) : '—';
 const total = stock => Object.values(stock || {}).reduce((sum, amount) => sum + (Number.isFinite(amount) ? amount : 0), 0);
 
+const icon = name => {
+  const shapes = {
+    water:'<path d="M12 2C9 7 5 10 5 15a7 7 0 0 0 14 0c0-5-4-8-7-13Z"/><path d="M8 15a4 4 0 0 0 4 4"/>',
+    copper:'<path d="m3 15 4-7h10l4 7-4 5H7Z"/><path d="M3 15h18M7 8l3 7-3 5m10-12-3 7 3 5"/>',
+    iron:'<path d="M4 4h16v4h-5v8h5v4H4v-4h5V8H4Z"/>',
+    sulfur:'<path d="m12 2 7 6 2 10-9 4-9-4L5 8Z"/><path d="m12 2-3 11 3 9 4-10-4-10M3 18l6-5 7-1 5 6"/>',
+    backpack:'<rect x="5" y="6" width="14" height="16" rx="4"/><path d="M9 6V4a3 3 0 0 1 6 0v2M5 12h14M9 12v3m-1 3h8"/>'
+  };
+  return `<svg class="hud-icon icon-${name}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shapes[name]}</svg>`;
+};
+
 export class EconomyHUD {
   constructor({events, scene}) {
     Object.assign(this, {events, scene, connected:false, state:null, selectedId:null});
@@ -14,13 +25,13 @@ export class EconomyHUD {
     this.strip = document.createElement('section');
     this.strip.className = 'economy-hud';
     this.strip.hidden = true;
-    this.strip.setAttribute('aria-label', 'Общие ресурсы команды и кислород планеты');
+    this.strip.setAttribute('aria-label', 'Общие ресурсы команды, энергия и кислород планеты');
     this.strip.innerHTML = `
-      <div class="economy-resources">${Object.entries(resources).map(([key, label]) => `<span title="${label}: общий запас команды">${label} <strong data-resource="${key}">—</strong></span>`).join('')}</div>
-      <div class="economy-summary"><span id="planet-oxygen">O₂ —</span></div>
-      <div class="economy-inventory" aria-label="Личный инвентарь"><span id="inventory-capacity">Рюкзак —</span><span id="inventory-resources">пусто</span></div>
+      <div class="economy-resources">${Object.entries(resources).map(([key, label]) => `<span title="${label}: общий запас команды">${icon(key)} <strong data-resource="${key}">—</strong></span>`).join('')}</div>
+      <div class="economy-summary"><span id="global-energy"></span><span id="planet-oxygen">O₂ —</span></div>
+      <div class="economy-inventory" aria-label="Личный инвентарь">${icon("backpack")}<span id="inventory-capacity">—</span><span id="inventory-resources">пусто</span></div>
       <progress id="oxygen-progress" max="100" value="0" aria-label="Кислород планеты"></progress>`;
-    document.querySelector('header').insertBefore(this.strip, document.querySelector('.header-actions'));
+    document.querySelector('main').append(this.strip);
     this.panel = document.createElement('dialog');
     this.panel.className = 'building-panel';
     this.panel.setAttribute('aria-labelledby', 'building-panel-title');
@@ -112,13 +123,18 @@ export class EconomyHUD {
       }
       const inventoryUsed = total(state.inventory), inventoryCapacity = state.config?.inventory_capacity;
       const inventoryNode = this.strip.querySelector('#inventory-capacity');
-      inventoryNode.textContent = `Рюкзак ${number(inventoryUsed)} / ${number(inventoryCapacity)}`;
+      inventoryNode.textContent = `${number(inventoryUsed)} / ${number(inventoryCapacity)}`;
       inventoryNode.classList.toggle('is-full', Number.isFinite(inventoryCapacity) && inventoryUsed >= inventoryCapacity);
       const carried = Object.entries(state.inventory || {}).filter(([, amount]) => amount > 0);
       const inventoryResources = this.strip.querySelector('#inventory-resources');
       const symbols = {iron:'Fe', copper:'Cu', water:'H₂O', sulfur:'S', ore:'руды'};
       inventoryResources.textContent = carried.map(([resource, amount]) => `${number(amount)} ${symbols[resource] || resource}`).join(' · ') || 'пусто';
       inventoryResources.title = carried.map(([resource, amount]) => `${resources[resource] || resource}: ${number(amount)}`).join(', ') || 'В рюкзаке нет ресурсов';
+      const energy = state.energy;
+      const energyNode = this.strip.querySelector('#global-energy');
+      energyNode.textContent = energy ? `⚡ ${number(energy.production)} / ${number(energy.consumption)} · ${number(energy.efficiency * 100)}%` : '⚡ —';
+      energyNode.title = 'Глобальная энергия: производство / потребление · скорость построек. Избыток не накапливается.';
+      energyNode.classList.toggle('is-full', !!energy && energy.efficiency < 1);
       const oxygen = state.oxygen_percent ?? state.oxygen ?? 0;
       const goal = state.oxygen_goal > 0 ? state.oxygen_goal : 100;
       this.strip.querySelector('#planet-oxygen').textContent = `O₂ ${number(oxygen)}%`;
@@ -150,6 +166,8 @@ export class EconomyHUD {
     }
     if (type === 'warehouse') operation = `Добавляет ${number(config.warehouse_capacity)} единиц к общей вместимости команды. Сдавайте сюда ресурсы из рюкзака для строительства. Склад автоматически передаёт только нужные ресурсы постройкам вашей команды на соседних клетках: генератору — воду. Дальние постройки он не снабжает.`;
     if (type === 'dome_base') operation = 'Стартовый офис команды и терминал управления роверами. Здесь можно зарегистрировать координаты, купить ровер и запустить программу.';
+    if (type === 'solar_panel') operation = `Производит ${number(config.energy_output?.solar_panel)} ед. энергии в общую сеть мира. Энергия сразу доступна всем постройкам, без хранилищ и проводов. Избыток не накапливается.`;
+    if (type !== 'solar_panel') operation += ` Потребление: ${number(config.energy_consumption?.[type])} ед. энергии. Скорость производства: ${number((state.energy?.efficiency ?? 1) * 100)}%. При дефиците все производственные постройки замедляются пропорционально.`;
     if (building.team_id !== state.team_id) operation = 'Постройка другой команды.';
     this.panel.querySelector('#building-operation').textContent = operation;
     const stock = this.panel.querySelector('#building-stock');

@@ -1,8 +1,8 @@
 """Game state and an atomic publication boundary independent of transport.
 
-The optional persist callback must commit a complete draft atomically or raise.
-It runs before publication under the same world lock. The default is explicitly
-in-memory; the backend owns the durable adapter and session authentication.
+The optional persist callback must accept a detached draft or raise. It runs
+before publication under the same world lock. An adapter may commit immediately
+or enqueue for eventual persistence; the backend owns the durability policy.
 """
 from contextlib import contextmanager
 from copy import deepcopy
@@ -35,9 +35,17 @@ STARTING_ORE = 0
 STARTING_RESOURCES = {"iron": 40, "sulfur": 15, "water": 5}
 OXYGEN_PER_CYCLE = 0.1
 RECIPES = {"drill": {"iron": 5}, "warehouse": {"iron": 10, "sulfur": 5},
-           "oxygen_generator": {"iron": 15, "sulfur": 5}, "dome_base": {"iron": 10}}
+           "oxygen_generator": {"iron": 15, "sulfur": 5}, "dome_base": {"iron": 10},
+           "solar_panel": {"iron": 5, "sulfur": 2}, "wind_turbine": {"iron": 10, "copper": 6}}
+SOLAR_ENERGY_OUTPUT = 10
+WIND_ENERGY_OUTPUT = 10
+ENERGY_CONSUMPTION = {"drill": 2, "oxygen_generator": 3, "warehouse": 0, "dome_base": 0, "solar_panel": 0, "wind_turbine": 0}
 INPUT_TIMEOUT_TICKS = 5
 PRODUCTION_TICKS = 20
+# New construction uses an authoritative fixed schedule: 8 seconds for the
+# three cosmetic builders to travel, followed by 12 seconds of construction.
+CONSTRUCTION_TRAVEL_TICKS = 160
+CONSTRUCTION_BUILD_TICKS = 240
 OXYGEN_GOAL = 100
 
 # Public palette shared with the color picker. Accept only these exact values.
@@ -79,8 +87,11 @@ class Building:
     team_id: str
     creator_id: str
     stock: dict = field(default_factory=lambda: dict.fromkeys(RESOURCES, 0))
-    production_ticks: int = 0
+    production_ticks: float = 0.0
     paid_cost: dict = field(default_factory=dict)
+    construction_progress: int = 0
+    construction_required: int = CONSTRUCTION_TRAVEL_TICKS + CONSTRUCTION_BUILD_TICKS
+    construction_status: str = "completed"
 
 
 @dataclass
@@ -98,6 +109,10 @@ class WorldState:
     team_storage: dict[str, dict] = field(default_factory=dict)
     team_oxygen: dict[str, int] = field(default_factory=dict)  # Legacy saves only.
     oxygen_percent: float = 0.0
+    admin_paused: bool = False
+    admin_version: int = 0
+    admin_characters: list = field(default_factory=list)
+    admin_active_character: str = "expedition"
     economy_version: int = 2
     # Request keys are user_id + ':' + canonical UUID within this world.
     command_results: dict[str, dict] = field(default_factory=dict)
@@ -149,8 +164,8 @@ class WorldState:
 class UnitOfWork:
     """One instance per world, shared by all commands and tick callers.
 
-    No mutation is published if validation or persistence fails. Readers get
-    detached snapshots. Persistence must include command_results in its commit.
+    No mutation is published if validation or the persist callback fails. Readers
+    get detached snapshots. Durable batches must include command_results.
     Multiple processes need a backend transaction/locking adapter instead.
     """
     def __init__(self, planet: Planet, state: WorldState, persist=None):

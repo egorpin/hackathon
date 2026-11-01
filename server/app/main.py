@@ -18,10 +18,12 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .storage import Database
+from .storage.buffered import BufferedGameWriter
 from .transport import GameService, Stream
 from .lobby import Lobby
 from .game import step
-from . import agent
+from . import agent, admin
+import sys
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
 STATIC_DIR = Path(os.environ.get("STATIC_DIR", "client/dist"))
@@ -77,19 +79,27 @@ class Credentials(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.initialize()
-    app.state.game = GameService(db)
+    admin.initialize(app, db.path.parent)
+    game = GameService(db)
+    writer = BufferedGameWriter(db)
+    app.state.game_writer = writer
+    game.persist = writer.submit
+    app.state.game = game
     app.state.lobby = Lobby(app.state.game)
     task = asyncio.create_task(game_loop())
     try:
         yield
     finally:
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
-        for socket in list(connections):
-            with suppress(RuntimeError):
-                await socket.close(code=1001)
-        connections.clear()
+        try:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            for socket in list(connections):
+                with suppress(RuntimeError):
+                    await socket.close(code=1001)
+            connections.clear()
+        finally:
+            await asyncio.to_thread(writer.close)
 
 
 async def game_loop():
@@ -98,11 +108,13 @@ async def game_loop():
     while True:
         deadline += .05
         await asyncio.sleep(max(0, deadline - loop.time()))
-        for world_id, runtime in app.state.game.worlds.items():
-            if app.state.lobby.stage(world_id) != 'running':
+        tick_started = time.monotonic()
+        for world_id, runtime in list(app.state.game.worlds.items()):
+            if app.state.lobby.stage(world_id) != 'running' or runtime.state.admin_paused:
                 continue
             with runtime.transaction() as draft:
                 step(draft, .05, runtime.planet)
+        app.state.tick_ms = (time.monotonic() - tick_started) * 1000
         for socket in list(connections):
             stream = getattr(socket.state, 'stream', None)
             if stream is None:
@@ -126,7 +138,7 @@ agent_busy = set()
 
 class AgentQuestion(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
-    agent_id: str = Field(default='expedition', min_length=1, max_length=40, pattern=r'^[a-z0-9_-]+$')
+    agent_id: str | None = Field(default=None, min_length=1, max_length=40, pattern=r'^[a-z0-9_-]+$')
 
 
 def agent_identity(request):
@@ -136,17 +148,31 @@ def agent_identity(request):
     return identity
 
 
+def agent_character(identity, agent_id=None):
+    state = app.state.game.runtime(identity).state
+    characters = [item for item in admin.characters(state) if item['enabled']]
+    selected = next((item for item in characters if item['id'] == agent_id), None) if agent_id else admin.active_character(state)
+    if selected is None or not selected['enabled']:
+        raise HTTPException(status_code=503, detail='Персонаж отключён или недоступен.')
+    return selected
+
+
 @app.get('/api/agents')
 def agents(request: Request, response: Response):
-    agent_identity(request)
+    identity = agent_identity(request)
+    state = app.state.game.runtime(identity).state
     response.headers['Cache-Control'] = 'no-store'
-    return {'agents': agent.available_profiles()}
+    return {'agents': [{'id': item['id'], 'name': item['name']}
+                       for item in admin.characters(state) if item['enabled']]}
 
 
 @app.get('/api/agent/messages')
-def agent_messages(request: Request, response: Response, agent_id: str = 'expedition'):
+def agent_messages(request: Request, response: Response, agent_id: str | None = None):
     response.headers['Cache-Control'] = 'no-store'
-    return {'messages': agent.history(db, agent_identity(request), agent_id)}
+    identity = agent_identity(request)
+    character = agent_character(identity, agent_id)
+    return {'messages': agent.history(db, identity, character['id']),
+            'character': {'id': character['id'], 'name': character['name']}}
 
 
 @app.post('/api/agent/ask')
@@ -158,22 +184,24 @@ async def agent_ask(question: AgentQuestion, request: Request, response: Respons
         raise HTTPException(status_code=422, detail='Введите вопрос.')
     if agent_busy:
         raise HTTPException(status_code=429, detail='ИИ отвечает на другой вопрос. Попробуйте чуть позже.')
+    character = agent_character(identity, question.agent_id)
     agent_busy.add(identity['user_id'])
     response.headers['Cache-Control'] = 'no-store'
     try:
-        context = {'stage': app.state.lobby.stage(identity['world_id'])}
+        context = {'stage': app.state.lobby.stage(identity['world_id']), '_character': character,
+                   '_agent_db': db, '_agent_identity': identity, '_agent_id': character['id']}
         runtime = app.state.game.worlds.get(identity['world_id'])
         if runtime and identity['user_id'] in runtime.state.players:
             state = app.state.game.dto(identity)
-            context.update({key: state[key] for key in ('inventory', 'team_storage', 'oxygen_percent', 'oxygen_goal', 'config', 'stage') if key in state})
+            context.update({key: state[key] for key in ('inventory', 'team_storage', 'energy', 'oxygen_percent', 'oxygen_goal', 'config', 'stage') if key in state})
             context['team_buildings'] = [item['building_type'] for item in state.get('buildings', [])]
-        answer = await asyncio.to_thread(agent.complete, db, identity, text, context, question.agent_id)
+        answer = await asyncio.to_thread(agent.complete, agent.history(db, identity, character['id']), text, context)
         with db.connect() as connection:
             for role, message in [('user', text), ('assistant', answer)]:
                 connection.execute('INSERT INTO agent_messages VALUES (?,?,?,?,?,?,?)',
-                                   (str(uuid.uuid4()), identity['world_id'], identity['user_id'], question.agent_id,
+                                   (str(uuid.uuid4()), identity['world_id'], identity['user_id'], character['id'],
                                     role, message, int(time.time())))
-        return {'text': answer}
+        return {'text': answer, 'character': {'id': character['id'], 'name': character['name']}}
     except (OSError, ValueError, KeyError):
         raise HTTPException(status_code=503, detail='Модель сейчас недоступна. Попробуйте позже.') from None
     finally:
@@ -187,22 +215,24 @@ def agent_ask_stream(question: AgentQuestion, request: Request):
     text = question.text.strip()
     if not text:
         raise HTTPException(status_code=422, detail='Введите вопрос.')
-    busy_key = identity['user_id']
     if agent_busy:
         raise HTTPException(status_code=429, detail='ИИ отвечает на другой вопрос. Попробуйте чуть позже.')
+    character = agent_character(identity, question.agent_id)
+    busy_key = identity['user_id']
     agent_busy.add(busy_key)
-    context = {'stage': app.state.lobby.stage(identity['world_id'])}
+    context = {'stage': app.state.lobby.stage(identity['world_id']), '_character': character,
+               '_agent_db': db, '_agent_identity': identity, '_agent_id': character['id']}
     runtime = app.state.game.worlds.get(identity['world_id'])
     if runtime and identity['user_id'] in runtime.state.players:
         state = app.state.game.dto(identity)
-        context.update({key: state[key] for key in ('inventory', 'team_storage', 'oxygen_percent', 'oxygen_goal', 'config', 'stage') if key in state})
+        context.update({key: state[key] for key in ('inventory', 'team_storage', 'energy', 'oxygen_percent', 'oxygen_goal', 'config', 'stage') if key in state})
         context['team_buildings'] = [item['building_type'] for item in state.get('buildings', [])]
 
     def stream():
         chunks = []
         completed = False
         try:
-            for chunk in agent.stream_complete(db, identity, text, context, question.agent_id):
+            for chunk in agent.stream_complete(agent.history(db, identity, character['id']), text, context):
                 chunks.append(chunk)
                 yield json.dumps({'text': chunk}, ensure_ascii=False) + '\n'
             completed = True
@@ -216,13 +246,12 @@ def agent_ask_stream(question: AgentQuestion, request: Request):
                     with db.connect() as connection:
                         for role, message in [('user', text), ('assistant', answer)]:
                             connection.execute('INSERT INTO agent_messages VALUES (?,?,?,?,?,?,?)',
-                                               (str(uuid.uuid4()), identity['world_id'], identity['user_id'],
-                                                question.agent_id, role, message, int(time.time())))
+                                               (str(uuid.uuid4()), identity['world_id'], identity['user_id'], character['id'],
+                                                role, message, int(time.time())))
             agent_busy.discard(busy_key)
 
     return StreamingResponse(stream(), media_type='application/x-ndjson', headers={
-        'Cache-Control': 'no-store, no-transform',
-        'X-Accel-Buffering': 'no',
+        'Cache-Control': 'no-store, no-transform', 'X-Accel-Buffering': 'no',
     })
 
 
@@ -327,6 +356,8 @@ async def websocket_endpoint(socket: WebSocket):
         await socket.close(code=1008)
         return
     socket.state.session_token = token
+    socket.state.connection_id = str(uuid.uuid4())
+    socket.state.connected_at = time.monotonic()
     socket.state.send_lock = asyncio.Lock()
     await socket.accept()
     connections.add(socket)
@@ -351,6 +382,9 @@ async def websocket_endpoint(socket: WebSocket):
                 await socket.send_json({"type": "error", "payload": {"code": "INVALID_ARGUMENT"}})
                 continue
             kind = message.get('type')
+            if kind in ('telemetry.report', 'telemetry.pong'):
+                await admin.receive_telemetry(socket, kind, message.get('payload'))
+                continue
             if kind == 'world.subscribe':
                 if getattr(socket.state, 'stream', None) is None:
                     try:
@@ -458,7 +492,7 @@ async def websocket_endpoint(socket: WebSocket):
                 await socket.send_json({"type": "action.result", "request_id": request_id,
                                         "payload": {"ok": False, "code": "INVALID_ARGUMENT"}})
                 continue
-            result, event = db.send_chat(identity, request_id, text)
+            result, event = app.state.game.send_chat(identity, request_id, text)
             await socket.send_json(result)
             if event:
                 await send_team(identity["world_id"], identity["team_id"], event)
@@ -469,6 +503,9 @@ async def websocket_endpoint(socket: WebSocket):
         world_id = app.state.lobby.disconnect(socket)
         if world_id is not None:
             await broadcast_lobby(world_id)
+
+
+admin.install(app, sys.modules[__name__])
 
 
 if STATIC_DIR.is_dir():

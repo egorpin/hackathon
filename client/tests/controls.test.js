@@ -32,9 +32,9 @@ test('building shortcuts require active gameplay and ignore repeat and modifier 
   try {
     assert.equal(key('Digit1').defaultPrevented,true);
     assert.deepEqual(emitted.pop(),['build.choose','drill']);
-    key('Numpad4');assert.equal(emitted.length,0);
-    key('Digit5');key('Digit1',{repeat:true});key('Digit2',{ctrlKey:true});
-    assert.equal(emitted.length,0);
+    key('Numpad4');assert.deepEqual(emitted.pop(),['build.choose','solar_panel']);
+    key('Digit4');key('Digit5');key('Digit6');key('Digit1',{repeat:true});key('Digit2',{ctrlKey:true});
+    assert.deepEqual(emitted.splice(0),[['build.choose','solar_panel'],['build.choose','wind_turbine']]);
     controls.suspended=true;key('Digit3');key('KeyB');key('Escape');assert.equal(emitted.length,0);
     controls.suspended=false;key('KeyB');assert.equal(emitted.length,0);
     key('Escape');assert.deepEqual(emitted.pop(),['build.cancel']);

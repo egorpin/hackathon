@@ -12,6 +12,7 @@ DEFAULT_SYSTEM = """Ты — Марсик, ИИ-помощник экспеди�
 весь контекст без необходимости. Ты только советуешь и не управляешь игроком. Игровые факты бери
 из текущего состояния и найденных справочных примеров. Если данных нет, честно скажи об этом.
 Не принимай старые ответы ассистента за доказательство игровых механик."""
+SYSTEM = DEFAULT_SYSTEM
 
 def content_root():
     configured = os.environ.get('MARS_CONTENT_DIR')
@@ -153,12 +154,13 @@ def compress_memory(db, identity, agent_id, history_rows):
                 {'summary': summary[:6000], 'summarized_count': memory['total'] - 8})
     return summary[:6000]
 
-def prompt_messages(db, identity, text, context, agent_id='expedition'):
+def prompt_messages(db, identity, text, context, agent_id='expedition', character=None, history_rows=None):
     current_profile = profile(agent_id)
-    rows = history(db, identity, agent_id, limit=32)
+    system = character.get('prompt', current_profile['system']) if character else current_profile['system']
+    rows = history_rows if history_rows is not None else history(db, identity, agent_id, limit=32)
     memory = compress_memory(db, identity, agent_id, rows)
     references = retrieve(text, current_profile['knowledge'])
-    messages = [{'role': 'system', 'content': current_profile['system']},
+    messages = [{'role': 'system', 'content': system},
                 {'role': 'system', 'content': 'Сжатая личная память: ' + (memory or 'пока пуста')},
                 {'role': 'system', 'content': 'Текущее состояние игры: ' + json.dumps(context, ensure_ascii=False)},
                 {'role': 'system', 'content': 'Похожие проверенные примеры из локальной базы: ' +
@@ -168,12 +170,26 @@ def prompt_messages(db, identity, text, context, agent_id='expedition'):
     messages.append({'role': 'user', 'content': text})
     return messages
 
-def complete(db, identity, text, context, agent_id='expedition'):
-    return model_request(prompt_messages(db, identity, text, context, agent_id))[:12000]
+def complete(history_rows, text, context):
+    context = dict(context)
+    db = context.pop('_agent_db')
+    identity = context.pop('_agent_identity')
+    agent_id = context.pop('_agent_id', 'expedition')
+    character = context.pop('_character', None)
+    temperature = character.get('temperature', .35) if character else .35
+    return model_request(prompt_messages(db, identity, text, context, agent_id, character, history_rows),
+                         temperature=temperature)[:12000]
 
-def stream_complete(db, identity, text, context, agent_id='expedition'):
+def stream_complete(history_rows, text, context):
+    context = dict(context)
+    db = context.pop('_agent_db')
+    identity = context.pop('_agent_identity')
+    agent_id = context.pop('_agent_id', 'expedition')
+    character = context.pop('_character', None)
+    temperature = character.get('temperature', .35) if character else .35
     total = 0
-    for chunk in model_stream(prompt_messages(db, identity, text, context, agent_id)):
+    for chunk in model_stream(prompt_messages(db, identity, text, context, agent_id, character, history_rows),
+                              temperature=temperature):
         if total >= 12000:
             break
         chunk = chunk[:12000 - total]

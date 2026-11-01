@@ -107,6 +107,33 @@ class Database:
                 db.execute('INSERT OR IGNORE INTO command_results VALUES (?, ?, ?, ?, ?)',
                            (state.world_id, user_id, request_id, entry['fingerprint'], json.dumps(entry['result'])))
 
+    def save_game_batch(self, connection, states, known_commands):
+        """Commit world snapshots and only new command receipts together.
+
+        known_commands is private to the single writer, and advances only after
+        a successful commit so a rollback can retry the entire batch.
+        """
+        # Serialize before taking SQLite's write lock, especially for batches
+        # containing multiple worlds. All serialization stays in the writer.
+        prepared = [(state, json.dumps(state.to_dict(), allow_nan=False)) for state in states]
+        additions = {}
+        with connection:
+            for state, encoded in prepared:
+                if state.world_id not in known_commands:
+                    rows = connection.execute(
+                        'SELECT user_id, request_id FROM command_results WHERE world_id=?', (state.world_id,))
+                    known_commands[state.world_id] = {user_id + ':' + request_id for user_id, request_id in rows}
+                new_keys = state.command_results.keys() - known_commands[state.world_id]
+                connection.execute('INSERT INTO game_states VALUES (?, ?) '
+                                   'ON CONFLICT(world_id) DO UPDATE SET state=excluded.state',
+                                   (state.world_id, encoded))
+                connection.executemany('INSERT OR IGNORE INTO command_results VALUES (?, ?, ?, ?, ?)',
+                    ((state.world_id, *key.split(':', 1), state.command_results[key]['fingerprint'],
+                      json.dumps(state.command_results[key]['result'])) for key in new_keys))
+                additions[state.world_id] = new_keys
+        for world_id, keys in additions.items():
+            known_commands[world_id].update(keys)
+
     def command_result(self, identity, message):
         request_id = message.get('request_id')
         if not isinstance(request_id, str):

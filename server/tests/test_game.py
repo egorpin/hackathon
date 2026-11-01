@@ -134,10 +134,25 @@ class GameTests(unittest.TestCase):
             for _ in range(ticks):
                 step(state, TICK_SECONDS, self.planet)
 
-    def build(self, building_type="drill", cell_id=None):
+    def build(self, building_type="drill", cell_id=None, complete=True):
         if cell_id is None:
             cell_id = self.planet.cells[self.planet.landing_sites[0]].neighbors[0]
-        return self.ok(self.act("building.place", cell_id=cell_id, building_type=building_type))["building_id"]
+        building_id = self.ok(self.act("building.place", cell_id=cell_id, building_type=building_type))["building_id"]
+        # Most tests exercise completed-building behavior. Construction tests
+        # opt out so they can assert the complete timeline independently.
+        if complete:
+            with self.world.transaction() as state:
+                building = state.buildings[building_id]
+                building.construction_progress = building.construction_required
+                building.construction_status = "completed"
+        return building_id
+
+    def supply_energy(self):
+        # Production fixtures have a remote panel; balances under test stay intact.
+        cell = next(c for c in self.planet.cells if c not in self.planet.landing_sites
+                    and c not in self.planet.cells[self.planet.landing_sites[0]].neighbors)
+        with self.world.transaction() as state:
+            state.buildings['test-solar'] = Building('test-solar', cell, 'solar_panel', 'team-a', 'alice')
 
     def move_near(self, building_id):
         cell = self.planet.cells[self.world.state.buildings[building_id].cell_id]
@@ -206,6 +221,7 @@ class GameTests(unittest.TestCase):
 
     def test_complete_resource_loop_and_balance(self):
         self.start()
+        self.supply_energy()
         neighbors = self.planet.cells[self.planet.landing_sites[0]].neighbors
         drill = self.build("drill", neighbors[0])
         warehouse = self.build("warehouse", neighbors[1])
@@ -242,6 +258,7 @@ class GameTests(unittest.TestCase):
 
     def test_each_deposit_produces_and_transfers_its_resource(self):
         self.start()
+        self.supply_energy()
         for resource in ("iron", "water", "sulfur", "copper"):
             cell = next(c for c in self.planet.cells.values() if c.resource == resource)
             with self.world.transaction() as state:
@@ -289,9 +306,12 @@ class GameTests(unittest.TestCase):
         saved = []
         self.world._persist = lambda state: saved.append(json.dumps(state.to_dict()))
         self.start()
+        self.supply_energy()
         request = command("building.place", cell_id=self.planet.cells[self.planet.landing_sites[0]].neighbors[0], building_type="drill")
         response = apply_command(self.context, request, self.world)
-        self.advance(40)
+        # All placed buildings spend 400 ticks in construction before their
+        # normal simulation starts; the following 40 ticks produce two units.
+        self.advance(440)
         restored = UnitOfWork(self.planet, WorldState.from_dict(json.loads(saved[-1])))
         self.assertEqual(json.loads(json.dumps(restored.state.to_dict())), json.loads(saved[-1]))
         self.assertEqual(apply_command(self.context, request, restored), response)
@@ -353,6 +373,7 @@ class GameTests(unittest.TestCase):
 
     def test_invalid_amounts_and_capacities(self):
         self.start()
+        self.supply_energy()
         drill = self.build()
         self.advance(2000)
         self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 35)

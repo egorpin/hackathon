@@ -19,7 +19,7 @@ root.innerHTML = `
   <header><div class="brand" id="connection" role="status" data-connected="false" aria-label="ОЖИДАНИЕ СЕТИ"><div class="brand-title"><span class="network-dot" aria-hidden="true"></span>MARS</div><span class="brand-subtitle">COLONY / ЭКСПЕДИЦИЯ 01</span><span id="network-wait">ОЖИДАНИЕ СЕТИ</span></div><div class="header-actions"></div></header>
   <aside id="telemetry" aria-label="Показатели производительности" hidden><p id="performance" hidden>FPS: —</p><p id="performance-detail" hidden>Кадр p95: — · Треугольники: — · Вызовы: —</p><p id="cache" hidden>Данные мира: ожидание манифеста</p></aside>
   <section class="build-dock" aria-label="Строительство">
-    <div id="build-hotbar" role="group" aria-label="Выбор постройки, клавиши 1–3">${BUILDINGS.map((building,index)=>`<button type="button" class="build-slot" data-building="${building.type}" aria-pressed="false" aria-label="${index+1} · ${building.name}" title="${building.description}"><kbd>${index+1}</kbd><span class="build-icon" aria-hidden="true">${building.icon}</span><span class="build-name">${building.name}</span><span class="build-cost">—</span></button>`).join('')}<button type="button" id="build-rover" class="build-slot" title="Покупка ровера в офисе"><span class="build-icon" aria-hidden="true">▣</span><span class="build-name">Ровер</span><span class="build-cost">Офис</span></button></div>
+    <div id="build-hotbar" role="group" aria-label="Выбор постройки, клавиши 1–4">${BUILDINGS.map((building,index)=>`<button type="button" class="build-slot" data-building="${building.type}" aria-pressed="false" aria-label="${index+1} · ${building.name}" title="${building.description}"><kbd>${index+1}</kbd><span class="build-icon" aria-hidden="true">${building.icon}</span><span class="build-name">${building.name}</span><span class="build-cost">—</span></button>`).join('')}<button type="button" id="build-rover" class="build-slot" title="Покупка ровера в офисе"><span class="build-icon" aria-hidden="true">▣</span><span class="build-name">Ровер</span><span class="build-cost">Офис</span></button></div>
     <div id="build-context" hidden><p id="build-info" hidden>Выберите постройку</p><div class="build-actions"><button id="build">Построить</button><button id="build-cancel" aria-label="Отменить выбор постройки">Отмена · Esc</button></div></div>
   </section>
   <div id="crosshair" aria-hidden="true">+</div><div id="crosshair-hint" aria-live="off"></div>
@@ -59,7 +59,7 @@ function updateBuildInfo(){
   }
   const type=selectedBuilding, cost=costFor(type);
   document.getElementById('build-context').hidden=!type;
-  if(!type){show('build-info','Выберите постройку: 1–3');return;}
+  if(!type){show('build-info','Выберите постройку: 1–5');return;}
   if(!cost||!gameState?.team_storage){show('build-info',`Стоимость ${buildingNames[type]||'постройки'}: ожидание состояния`);return;}
   let detail=`${buildingNames[type]||'Постройка'}: ${formatResources(cost)} из общего запаса`;
   const missing=missingResources(gameState,type);
@@ -136,7 +136,7 @@ function setConnection(status){
   updateSelection();
 }
 events.on('connection.status',setConnection);
-events.on('cache.stats', s=>show('cache',`Чанки: ${s.chunks} / ${totalChunks || '—'} · данные: ${s.percent.toFixed(2)}% · предел: 10% · очередь: ${s.queuedBytes} Б`));
+events.on('cache.stats', s=>show('cache',`Чанки: ${s.chunks} / ${totalChunks || '—'} · данные: ${s.percent.toFixed(2)}% · предел: 10% · очередь: ${s.queuedBytes}\u00a0Б`));
 events.on('world.ready', ({totalChunks:count})=>{ totalChunks=count; });
 events.on('performance', s=>{
   show('performance',`FPS: ${Math.round(s.fps)}`);
