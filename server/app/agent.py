@@ -11,8 +11,14 @@ DEFAULT_SYSTEM = """Ты — Марсик, ИИ-помощник экспеди�
 и давай уместные игровые подсказки. Сам формулируй ответ по вопросу пользователя. Не перечисляй
 весь контекст без необходимости. Ты только советуешь и не управляешь игроком. Игровые факты бери
 из текущего состояния и найденных справочных примеров. Если данных нет, честно скажи об этом.
-Не принимай старые ответы ассистента за доказательство игровых механик."""
+Не принимай старые ответы ассистента за доказательство игровых механик.
+По умолчанию отвечай кратко: 2–4 предложения и обычно не более 70 слов. Не пересказывай управление,
+состояние мира и найденные ресурсы, если вопрос не о них. Развёрнутый структурированный ответ давай
+только на сложный составной вопрос или явную просьбу объяснить подробно, составить план либо перечислить варианты."""
 SYSTEM = DEFAULT_SYSTEM
+RESPONSE_POLICY = """Правило длины ответа: на обычную реплику отвечай прямо и кратко — 2–4 предложения,
+обычно до 70 слов. Не добавляй справку, которую не просили. Пиши подробно только если запрос явно
+просит подробности, план, сравнение, несколько вариантов или сам содержит несколько связанных задач."""
 
 def content_root():
     configured = os.environ.get('MARS_CONTENT_DIR')
@@ -157,6 +163,7 @@ def compress_memory(db, identity, agent_id, history_rows):
 def prompt_messages(db, identity, text, context, agent_id='expedition', character=None, history_rows=None):
     current_profile = profile(agent_id)
     system = character.get('prompt', current_profile['system']) if character else current_profile['system']
+    system = system.rstrip() + '\n\n' + RESPONSE_POLICY
     rows = history_rows if history_rows is not None else history(db, identity, agent_id, limit=32)
     memory = compress_memory(db, identity, agent_id, rows)
     references = retrieve(text, current_profile['knowledge'])

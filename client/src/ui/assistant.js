@@ -18,7 +18,7 @@ export class Assistant {
     this.dialog.setAttribute('aria-labelledby','assistant-title');
     this.dialog.innerHTML=`<div class="assistant-heading assistant-activity" data-state="idle">
         ${agentMascot}
-        <div class="assistant-agent-identity"><h2 id="assistant-title" class="assistant-agent-name">Марсик</h2><span class="activity-label" role="status" aria-live="polite">Готов к вопросу</span></div>
+        <div class="assistant-agent-identity"><h2 id="assistant-title" class="assistant-agent-name">Марсик</h2><span class="assistant-agent-role">Помощник по экспедиции</span><span class="activity-label" role="status" aria-live="polite">Готов к вопросу</span></div>
         <select class="assistant-agent" aria-label="Выбрать ИИ-агента"></select>
         <button type="button" class="assistant-close" aria-label="Закрыть окно агента">✕</button>
       </div>

@@ -15,7 +15,7 @@
 .assistant-activity{display:flex;align-items:center;gap:10px;flex-shrink:0;min-height:72px;margin:0 0 12px;padding:8px 10px;background:#32252e;border:1px solid #e2a07133;border-radius:10px}
 .assistant-activity[hidden],.assistant-button-activity[hidden],.assistant-button-label[hidden]{display:none}
 .agent-mascot{display:block;width:48px;height:48px;flex:0 0 auto;overflow:visible}
-.assistant-agent-identity{min-width:0}.assistant-agent-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f4bb87}.assistant-activity .activity-label{display:block;margin-top:4px;color:#d8bca9;font-size:12px;white-space:nowrap}
+.assistant-agent-identity{min-width:0}.assistant-agent-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f4bb87}.assistant-agent-role{display:block;margin-top:2px;color:#e0c7b5;font-size:10px;white-space:nowrap}.assistant-activity .activity-label{display:block;margin-top:3px;color:#8fe7cd;font-size:11px;white-space:nowrap}
 .assistant-button-activity{display:flex;align-items:center;justify-content:center;gap:6px;min-width:82px;height:18px}.assistant-button-activity .agent-mascot{width:27px;height:27px}.assistant-button-activity .activity-label{font-size:11px}
 .activity-dots{display:flex;gap:4px;margin-left:auto}.activity-dots i{width:4px;height:4px;background:#e5aa78;border-radius:50%;animation:mascot-dot 1.2s ease-in-out infinite}.activity-dots i:nth-child(2){animation-delay:.16s}.activity-dots i:nth-child(3){animation-delay:.32s}
 .mascot-eyes,.mascot-mouth{transform-box:fill-box;transform-origin:center}.mascot-body{transform-origin:24px 40px}.mascot-thought,.mascot-keyboard,.mascot-voice{display:none}
