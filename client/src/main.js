@@ -10,6 +10,7 @@ import { Settings } from './ui/settings.js';
 import { RoverUI } from './ui/rover.js';
 import { EconomyHUD } from './ui/economy-hud.js';
 import { AimResources } from './ui/aim-resources.js';
+import { Soundscape } from './audio/soundscape.js';
 import { inInteractionRange } from './ui/interaction.js';
 import { recipeFor, formatResources, missingResources, canAfford, MINABLE_RESOURCES } from './ui/economy.js';
 
@@ -167,6 +168,7 @@ document.getElementById('build-rover').onclick=()=>{if(!gameState?.office_access
 document.getElementById('build-cancel').onclick=()=>{events.emit('build.choose',null);document.querySelector('#build-hotbar button').focus();};
 try {
   const scene=new WorldScene(document.getElementById('viewport'),events);
+  const sound=new Soundscape({events});
   const settings=new Settings({events,scene});
   const economy=new EconomyHUD({events,scene});
   const rover=new RoverUI({events,scene});
@@ -184,8 +186,8 @@ try {
   window.marsClient={events,command:(type,payload)=>runtime.command(type,payload),toggleCamera:()=>events.emit('camera.toggle'),dispose:()=>runtime.dispose()};
   if (import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) { lobby.setIdentity({user_id:'preview-explorer',username:'Explorer',world_id:'Марс / просмотр'}); transport.connect(); }
   else authenticate(transport,lobby);
-  window.addEventListener('pagehide',()=>{assistant.dispose();pickup.dispose();rover.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();},{once:true});
-  if(import.meta.hot) import.meta.hot.dispose(()=>{assistant.dispose();pickup.dispose();rover.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();});
+  window.addEventListener('pagehide',()=>{sound.dispose();assistant.dispose();pickup.dispose();rover.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();},{once:true});
+  if(import.meta.hot) import.meta.hot.dispose(()=>{sound.dispose();assistant.dispose();pickup.dispose();rover.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();});
 } catch(error) { show('notice',`Не удалось запустить 3D: ${error.message}`); }
 
 async function authenticate(transport,lobby) {
