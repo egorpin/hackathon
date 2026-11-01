@@ -38,6 +38,21 @@ def test_parser_and_physics():
     xyz=position(14.1234,-62.5678,30)
     assert coordinates(xyz)=={'latitude':14.1234,'longitude':-62.5678}
 
+def test_program_coordinates_are_validated_and_used_without_registry():
+    import pytest
+    instructions = parse('# маршрут\nBASE = (58.4960, 176.0201)\nmove_to(BASE)')
+    assert instructions == [{'op':'move_to','value':'BASE','line':3,
+                             'point':{'latitude':58.496,'longitude':176.0201}}]
+    for declaration in ('P = (91, 0)', 'P = (0, 180)', 'P = (90, 1)',
+                        'P = (nan, 0)', 'P = (0, inf)', 'P = (0, 0)\nP = (1, 1)',
+                        'wait(1)\nP = (0, 0)'):
+        with pytest.raises(ValueError): parse(declaration + '\nmove_to(P)')
+    p,c,w=setup(); rid=next(iter(w.state.rovers))
+    program='BASE = (58.4960, 176.0201)\nmove_to(BASE)'
+    assert cmd(w,c,'rover.program',rover_id=rid,program=program,expected_revision=0)['ok']
+    assert cmd(w,c,'rover.start',rover_id=rid,expected_revision=1)['ok']
+    assert w.state.rovers[rid]['targets']['BASE'] == {'latitude':58.496,'longitude':176.0201}
+
 def test_load_unload_and_restart_state():
     p,c,w=setup(); rid=next(iter(w.state.rovers)); cells=p.cells[p.landing_sites[0]].neighbors
     source=next(x for x in cells if p.cells[x].resource=='iron'); dest=next(x for x in cells if x!=source)

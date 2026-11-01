@@ -1,176 +1,74 @@
 import "./rover.css";
-const fmt = (n) => Number.isFinite(n) ? n.toFixed(4) : "—";
-const labels = { iron: "Железо", copper: "Медь", water: "Вода", sulfur: "Сера" };
-const errors = { AMBIGUOUS_DIRECTION: "Невозможно выбрать направление", SLOPE_TOO_STEEP: "Слишком крутой склон", PATH_BLOCKED: "Путь перекрыт", AMBIGUOUS_BUILDING: "Рядом несколько подходящих построек", BUILDING_NOT_FOUND: "Подходящая постройка не найдена", CARGO_FULL_OR_LIMIT_TOO_SMALL: "Отсек заполнен или лимит меньше массы единицы", DRILL_EMPTY: "Бур пуст; ожидание добычи", STORAGE_FULL: "Склад заполнен; ожидание места" };
-const statuses = { idle: "остановлен", running: "выполняет программу", waiting: "ожидание", error: "ошибка" };
+
+const fmt = n => Number.isFinite(n) ? n.toFixed(4) : "—";
+const statuses = { idle: "готов", running: "в пути", waiting: "ожидает", error: "ошибка" };
+const esc = s => (s || "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"})[c]);
+
 class RoverUI {
   constructor({ events, scene }) {
-    Object.assign(this, { events, scene, state: null, selected: null, dirty: false, revision: null });
-    this.abort = new AbortController();
-    this.pendingCommands = new Map();
-    this.button = document.createElement("button");
-    this.button.className = "rover-toggle";
-    this.button.textContent = "Блокнот / роверы";
-    this.button.hidden = true;
+    Object.assign(this, { events, scene, state:null, selected:null, dirty:false, revision:null, view:"camera" });
+    this.abort = new AbortController(); this.pendingCommands = new Map();
+    this.button = document.createElement("button"); this.button.className="rover-toggle"; this.button.textContent="Блокнот / роверы"; this.button.hidden=true;
     document.querySelector(".header-actions").append(this.button);
-    this.panel = document.createElement("dialog");
-    this.panel.className = "rover-panel";
-    this.panel.setAttribute("aria-labelledby", "rover-panel-title");
-    this.panel.innerHTML = `<div class="rover-head"><h2 id="rover-panel-title">Блокнот и роверы</h2><button data-close aria-label="Закрыть">✕</button></div><section><h3>Полевой блокнот</h3><p data-coords></p><button data-survey>Записать точку</button><p data-surveys></p></section><section><h3>Терминал офиса</h3><p data-access></p><div class="rover-row"><label>Имя константы<input data-name placeholder="DRILL" maxlength="24"></label><label>Широта<input data-lat type="number" step="any"></label><label>Долгота<input data-lon type="number" step="any"></label><button data-register>Зарегистрировать</button></div><p data-points></p><div class="rover-row"><label>Машина<select data-select></select></label><button data-purchase>Купить ровер</button><button data-stop>Остановить</button></div><p data-status></p><p>После остановки груз остаётся на борту. Повторный запуск начинает программу с первой строки.</p><label>Программа<textarea data-program spellcheck="false" rows="9" placeholder="move_to(DRILL)&#10;load(20)&#10;move_to(STORAGE)&#10;unload()"></textarea></label><p data-line></p><div class="rover-row"><button data-save>Сохранить</button><button data-run>Запустить</button></div><details><summary>Справка</summary><p><code>move_to(NAME)</code> — к константе; <code>load(20)</code> — взять до 20 кг у бура; <code>unload()</code> — выгрузить на складе; <code>wait(1)</code> — ждать секунду. Для повторения: <code>while true do</code> … <code>end</code>. Ресурс определяется буром.</p></details></section>`;
-    this.panel.querySelector('[data-access]').insertAdjacentHTML('afterend', '<p data-feedback role="status" aria-live="polite"></p>');
-    this.panel.querySelector('[data-save]').insertAdjacentHTML('afterend', '<button data-reload type="button">Загрузить сохранённую</button>');
-    document.body.append(this.panel);
-    const on = (q, event, fn) => this.q(q).addEventListener(event, fn, { signal: this.abort.signal });
-    this.button.addEventListener("click", () => this.open(), { signal: this.abort.signal });
-    on("[data-close]", "click", () => this.panel.close());
-    this.panel.addEventListener("keydown", (e) => e.stopPropagation(), { signal: this.abort.signal });
-    this.panel.addEventListener("close", () => this.resume(), { signal: this.abort.signal });
-    on("[data-survey]", "click", () => this.command("rover.survey", {}));
-    on("[data-register]", "click", () => {
-      const lat = this.q("[data-lat]").value, lon = this.q("[data-lon]").value;
-      if (lat !== "" && lon !== "") this.command("rover.point.register", { name: this.q("[data-name]").value.trim(), latitude: Number(lat), longitude: Number(lon) });
-    });
-    on("[data-purchase]", "click", () => this.command("rover.purchase", {}));
-    on("[data-stop]", "click", () => this.command("rover.stop", { rover_id: this.selected }));
-    on("[data-save]", "click", () => this.command("rover.program", { rover_id: this.selected, program: this.q("[data-program]").value, expected_revision: this.revision }));
-    on("[data-run]", "click", () => this.command("rover.start", { rover_id: this.selected, expected_revision: this.revision }));
-    on("[data-reload]", "click", () => {
-      this.dirty = false;
-      this.revision = null;
-      this.render();
-      this.q('[data-feedback]').textContent = 'Загружена сохранённая программа.';
-    });
-    on("[data-program]", "input", () => {
-      this.dirty = true;
-      this.render();
-    });
-    on("[data-select]", "change", (e) => {
-      this.selected = e.target.value;
-      this.dirty = false;
-      this.revision = null;
-      this.render();
-    });
-    this.unsubs = [events.on('rover.command.sent', ({requestId, type}) => this.pendingCommands.set(requestId, type)),
-    events.on('command.result', message => this.commandResult(message)),
-    events.on("world.state", (s) => {
-      this.state = s;
-      this.render();
-    }), events.on("rover.open", () => this.open()), events.on("connection.status", (s) => {
-      if (s !== "connected") {
-        this.state = null;
-        if (this.panel.open) this.panel.close();
-        this.render();
-      }
-    }), events.on("expedition.lobby", () => {
-      if (this.panel.open) this.panel.close();
-    })];
+    this.panel=document.createElement("dialog"); this.panel.className="rover-panel"; this.panel.innerHTML=`
+      <header class="rv-head"><div class="rv-brand"><b>◈</b><span><small>ЭКСПЕДИЦИЯ / СИСТЕМА УПРАВЛЕНИЯ</small><strong>БОРТОВОЙ БЛОКНОТ</strong></span></div><div class="rv-online"><i></i> СВЯЗЬ С КОЛОНИЕЙ <button data-close>✕</button></div></header>
+      <main class="rv-grid"><aside class="rv-left">
+        <section class="rv-points"><div class="rv-title"><span><small>01 / НАВИГАЦИЯ</small><b>ТОЧКИ ЭКСПЕДИЦИИ</b></span><button data-survey>＋</button></div><div class="rv-position"><small>ВАШЕ ПОЛОЖЕНИЕ</small><b data-coords>—</b><em>LIVE</em></div><div class="rv-point-list" data-surveys></div><div class="rv-register"><input data-name placeholder="НАЗВАНИЕ"><input data-lat type="number" step="any" placeholder="ШИРОТА"><input data-lon type="number" step="any" placeholder="ДОЛГОТА"><button data-register>СОХРАНИТЬ</button></div><p data-access></p><p data-feedback></p><div data-points hidden></div></section>
+        <section class="rv-fleet"><div class="rv-title"><span><small>02 / ТЕХНИКА</small><b>РОВЕРЫ</b></span><button data-purchase>＋ НОВЫЙ</button></div><select data-select></select><div class="rv-cards" data-cards></div><div class="rv-stats" data-status></div></section>
+        <section class="rv-vision"><div class="rv-tabs"><button class="active" data-view="camera">◉ КАМЕРА</button><button data-view="map">⌖ КАРТА <kbd>TAB</kbd></button></div><div class="rv-camera" data-camera><div class="rv-sun"></div><div class="rv-mountain a"></div><div class="rv-mountain b"></div><div class="rv-ground"></div><div class="rv-cam-meta"><span>REC ●</span><span>CAM-01 / 24 FPS</span><span data-camera-coords>—</span></div><div class="rv-reticle">＋</div></div><div class="rv-map" data-map hidden><div class="rv-map-grid"></div><div class="rv-route"></div><div class="rv-map-rover">▲<small>ROVER</small></div><div class="rv-pin one">◆<small>БАЗА</small></div><div class="rv-pin two">◆<small>ТОЧКА</small></div><b data-map-coords>—</b></div></section>
+      </aside><section class="rv-code"><div class="rv-code-head"><label>⌁ <input data-filename value="mission_rover.py"></label><div><input data-file type="file" accept=".py,.txt" hidden><button data-import>⇧ ИМПОРТ</button><button data-reload>↻ ВЕРНУТЬ</button><button data-stop>■ СТОП</button><button class="run" data-run>▶ ЗАПУСТИТЬ</button></div></div><div class="rv-meta"><span>PYTHON / ROVER API</span><span>UTF-8 · ПРОБЕЛЫ: 4</span></div><div class="rv-editor"><div data-lines></div><pre data-highlight></pre><textarea data-program spellcheck="false"></textarea></div><footer><div class="rv-log-title"><span>⌄ ЖУРНАЛ ВЫПОЛНЕНИЯ</span><span data-bytes></span></div><p data-line>Ровер готов к выполнению программы.</p><div class="rv-footer"><span>ROVER API 1.0</span><button data-save>СОХРАНИТЬ ФАЙЛ</button></div></footer></section></main>`;
+    this.q('.rv-vision').innerHTML=`<div class="rv-tabs"><button class="active" data-view="camera">◉ КАМЕРА</button><button data-view="map">⌖ КАРТА <kbd>TAB</kbd></button></div><div class="rv-live-view"><canvas data-preview tabindex="0" aria-label="Вид ровера: Tab переключает камеру и планету"></canvas><div data-no-signal>NO SIGNAL<small>Выберите доступный ровер</small></div><div class="rv-live-hud"><span data-preview-label>КАМЕРА РОВЕРА</span><span data-camera-coords></span><span data-map-coords hidden></span></div></div>`;
+    this.q('.rv-meta span').textContent='ROVER SCRIPT / move_to · load · unload · wait';
+    this.q('.rv-register').remove();
+    this.q('[data-points]').remove();
+    this.q('.rv-code-head').insertAdjacentHTML('afterend','<nav class="rv-files"><select data-folder aria-label="Папка"></select><select data-local-file aria-label="Файл"></select><button data-new-folder>＋ ПАПКА</button><button data-new-file>＋ ФАЙЛ</button><button data-local-save>СОХРАНИТЬ ЛОКАЛЬНО</button></nav>');
+    try{this.localFiles=JSON.parse(localStorage.getItem('mars.rover.files.v1'))}catch{}
+    if(!this.localFiles?.files?.length)this.localFiles={folders:['Программы'],files:[{id:'main',folder:'Программы',name:'mission_rover.txt',code:''}],selected:'main'};
+    this.localSelected=this.localFiles.selected||this.localFiles.files[0].id;
+    this.localFolder=this.localFiles.files.find(f=>f.id===this.localSelected)?.folder||'Программы';
+    this.q('[data-save]').textContent='ПЕРЕДАТЬ РОВЕРУ';
+    this.q('[data-filename]').value='mission_rover.txt';
+    this.q('[data-import]').title='Импорт Rover Script. Python и функции пока не поддерживаются.';
+    document.body.append(this.panel); const on=(q,e,f)=>this.q(q).addEventListener(e,f,{signal:this.abort.signal});
+    this.button.addEventListener("click",()=>this.open(),{signal:this.abort.signal}); on("[data-close]","click",()=>this.panel.close()); this.panel.addEventListener("close",()=>this.resume(),{signal:this.abort.signal});
+    this.panel.addEventListener("keydown",e=>{if(e.key==="Tab"&&e.target===this.q("[data-preview]")&&!e.shiftKey){e.preventDefault();this.setView(this.view==="camera"?"map":"camera")}e.stopPropagation()},{signal:this.abort.signal});
+    on("[data-survey]","click",()=>this.command("rover.survey",{}));
+    on("[data-purchase]","click",()=>this.command("rover.purchase",{})); on("[data-stop]","click",()=>this.command("rover.stop",{rover_id:this.selected})); on("[data-save]","click",()=>this.command("rover.program",{rover_id:this.selected,program:this.q("[data-program]").value,expected_revision:this.revision})); on("[data-run]","click",()=>this.command("rover.start",{rover_id:this.selected,expected_revision:this.revision}));
+    on("[data-reload]","click",()=>{this.dirty=false;this.revision=null;this.render()}); on("[data-program]","input",()=>{this.dirty=true;this.paint();this.render()}); on("[data-program]","scroll",e=>{this.q("[data-highlight]").scrollTop=e.target.scrollTop;this.q("[data-lines]").scrollTop=e.target.scrollTop});
+    on("[data-select]","change",e=>{this.selected=e.target.value;this.dirty=false;this.revision=null;this.render()}); on("[data-import]","click",()=>this.q("[data-file]").click()); on("[data-file]","change",async e=>{let f=e.target.files[0];if(f){this.persistLocal();const imported={id:crypto.randomUUID(),folder:this.localFolder,name:f.name,code:await f.text()};this.localFiles.files.push(imported);this.openLocal(imported.id);this.render();e.target.value=''}});
+    on('[data-local-save]','click',()=>{this.persistLocal();this.q('[data-feedback]').textContent='Файл сохранён в браузере.'});
+    on('[data-folder]','change',e=>{this.persistLocal();this.localFolder=e.target.value;const f=this.localFiles.files.find(f=>f.folder===this.localFolder);if(f)this.openLocal(f.id);this.renderFiles()});
+    on('[data-local-file]','change',e=>this.openLocal(e.target.value));
+    on('[data-new-folder]','click',()=>{const name=prompt('Название папки');if(name?.trim()){const folder=name.trim();if(!this.localFiles.folders.includes(folder))this.localFiles.folders.push(folder);this.localFolder=folder;this.persistLocal();this.renderFiles()}});
+    on('[data-new-file]','click',()=>{const name=prompt('Название файла','program.txt');if(name?.trim()){this.persistLocal();const f={id:crypto.randomUUID(),folder:this.localFolder,name:name.trim(),code:''};this.localFiles.files.push(f);this.openLocal(f.id)}});
+    on('[data-filename]','change',()=>{this.persistLocal();this.renderFiles()});
+    on('[data-reload]','click',()=>{const r=this.state?.rover_fleet?.find(r=>r.rover_id===this.selected);if(r){this.q('[data-program]').value=r.program||'';this.persistLocal();this.paint()}});
+    on('[data-program]','input',()=>this.persistLocal());
+    this.q('[data-surveys]').addEventListener('click',async event=>{const button=event.target.closest('[data-copy]');if(!button)return;const p=this.state?.rover_surveys?.[Number(button.dataset.copy)];if(!p)return;const text=`POINT_${Number(button.dataset.copy)+1} = (${fmt(p.latitude)}, ${fmt(p.longitude)})`;try{await navigator.clipboard.writeText(text)}catch{const input=document.createElement('textarea');input.value=text;this.panel.append(input);input.select();document.execCommand('copy');input.remove()}this.q('[data-feedback]').textContent='Константа скопирована. Вставьте её в программу.'},{signal:this.abort.signal});
+    this.openLocal(this.localSelected);
+    this.panel.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>this.setView(b.dataset.view));
+    this.unsubs=[events.on('rover.preview.available',available=>{this.q('[data-no-signal]').hidden=!!available}),events.on("rover.command.sent",({requestId,type})=>this.pendingCommands.set(requestId,type)),events.on("command.result",m=>this.result(m)),events.on("world.state",s=>{this.state=s;this.render()}),events.on("rover.open",()=>this.open()),events.on("connection.status",s=>{if(s!=="connected"){this.state=null;if(this.panel.open)this.panel.close();this.render()}}),events.on("expedition.lobby",()=>{if(this.panel.open)this.panel.close()})];
   }
-  q(s) {
-    return this.panel.querySelector(s);
-  }
-  command(type, payload) {
-    this.events.emit("command", { type, payload });
-  }
-  commandResult(message) {
-    const type = this.pendingCommands.get(message.request_id);
-    if (!type) return;
-    this.pendingCommands.delete(message.request_id);
-    if (!this.panel.open) return;
-    const result = message.payload || {};
-    const success = {'rover.survey':'Точка записана.', 'rover.point.register':'Константа зарегистрирована.', 'rover.purchase':'Ровер куплен.', 'rover.program':'Программа сохранена.', 'rover.start':'Программа запущена.', 'rover.stop':'Ровер остановлен.'};
-    const failures = {OFFICE_REQUIRED:'Подойдите к офису в куполе.', SURVEY_LIMIT:'Блокнот заполнен.', SURVEY_REQUIRED:'Сначала запишите координаты в поле.', POINT_EXISTS:'Константа с таким именем уже существует.', POINT_LIMIT:'Реестр точек заполнен.', ROVER_LIMIT:'Достигнут предел количества роверов.', ROVER_RUNNING:'Сначала остановите ровер.', REVISION_CONFLICT:'Программа изменилась у другого игрока. Нажмите «Загрузить сохранённую».', PROGRAM_TOO_LONG:'Программа превышает допустимый размер.', INVALID_PROGRAM:'Ошибка в программе. Проверьте команды и структуру цикла.', UNKNOWN_POINT:'В программе указана неизвестная константа.', INVALID_ARGUMENT:'Проверьте введённые значения.', INSUFFICIENT_RESOURCES:'Не хватает ресурсов.', FORBIDDEN:'Действие недоступно вашей команде.'};
-    const feedback = result.ok ? success[type] : (failures[result.code] || `Действие отклонено: ${result.code || 'неизвестная ошибка'}.`);
-    this.q('[data-feedback]').textContent = feedback + (Number.isInteger(result.line) ? ` Строка ${result.line}.` : '');
-  }
-  open() {
-    if (!this.state || this.state.stage !== "running" || this.panel.open) return;
-    this.scene.controls.suspended = true;
-    this.scene.controls.clear();
-    if (document.pointerLockElement) document.exitPointerLock();
-    this.events.emit("ui.overlay", true);
-    this.panel.showModal();
-    this.render();
-  }
-  resume() {
-    if (this.panel.open) return;
-    const suspended = !!document.querySelector("dialog[open]");
-    this.scene.controls.suspended = suspended;
-    this.scene.controls.clear();
-    this.events.emit("ui.overlay", suspended);
-  }
-  render() {
-    const s = this.state;
-    this.button.hidden = !s || s.stage !== "running";
-    if (!s || !this.panel.open) return;
-    const c = s.current_coordinates || {};
-    this.q("[data-coords]").textContent = `Ваши координаты: ${fmt(c.latitude)}, ${fmt(c.longitude)}`;
-    this.q("[data-surveys]").textContent = (s.rover_surveys || []).map((p, i) => `${i + 1}. ${fmt(p.latitude)}, ${fmt(p.longitude)}`).join(" · ") || "Дойдите до нужной точки и запишите координаты.";
-    this.q("[data-points]").textContent = (s.rover_points || []).map((p) => `${p.name}: ${fmt(p.latitude)}, ${fmt(p.longitude)}`).join(" · ") || "Общий реестр пуст.";
-    const office = !!s.office_access;
-    this.q("[data-access]").textContent = office ? "Введите координаты из блокнота вручную." : "Подойдите к офису в куполе для регистрации, покупки, сохранения и запуска.";
-    const fleet = s.rover_fleet || [];
-    if (!fleet.some((r2) => r2.rover_id === this.selected)) {
-      this.selected = fleet[0]?.rover_id || null;
-      this.dirty = false;
-      this.revision = null;
-    }
-    const select = this.q("[data-select]");
-    const ids = fleet.map((r2) => r2.rover_id).join("|");
-    if (select.dataset.ids !== ids) {
-      select.replaceChildren(...fleet.map((r2, i) => {
-        const o = document.createElement("option");
-        o.value = r2.rover_id;
-        o.textContent = `Ровер ${i + 1} · ${r2.rover_id.slice(0, 6)}`;
-        return o;
-      }));
-      select.dataset.ids = ids;
-      select.value = this.selected || "";
-    }
-    const r = fleet.find((x) => x.rover_id === this.selected), editor = this.q("[data-program]");
-    if (r && !this.dirty && (this.revision !== r.program_revision || editor.dataset.rover !== this.selected)) {
-      editor.value = r.program || "";
-      this.revision = r.program_revision;
-      editor.dataset.rover = this.selected;
-    }
-    if (r && this.dirty && r.program === editor.value && r.program_revision !== this.revision) {
-      this.dirty = false;
-      this.revision = r.program_revision;
-    }
-    if (!r) {
-      editor.value = "";
-      editor.dataset.rover = "";
-      this.revision = null;
-      this.dirty = false;
-    }
-    const cargo = Object.entries(r?.cargo || {}).filter(([, v]) => v).map(([k, v]) => `${labels[k] || k}: ${v}`).join(", ") || "пусто";
-    this.q("[data-status]").textContent = r ? `Состояние: ${statuses[r.status] || r.status} · груз: ${cargo} · ${r.cargo_mass ?? "—"} / ${r.capacity ?? "—"} кг · скорость ${r.speed ?? "—"} м/с · уклон ${((r.grade || 0) * 100).toFixed(1)}%${r.error ? " · " + (errors[r.error] || r.error) : ""}` : "Машин пока нет.";
-    const line = r?.line && !this.dirty ? r.line : 0;
-    const top = 8 + (line - 1) * 19.5;
-    editor.style.backgroundImage = line ? `linear-gradient(to bottom, transparent ${top}px, #355a50 ${top}px, #355a50 ${top + 19.5}px, transparent ${top + 19.5}px)` : "none";
-    this.q("[data-line]").textContent = r?.line ? `▶ Строка ${r.line}: ${(r.program || "").split("\n")[r.line - 1] || ""}` : "Текущая строка: —";
-    for (const k of ["name", "lat", "lon", "register", "purchase", "program", "save", "run"]) this.q(`[data-${k}]`).disabled = !office || ["program", "save", "run"].includes(k) && !r;
-    const bytes = new TextEncoder().encode(editor.value).length, max = s.config?.rover?.program_max_bytes || 512;
-    this.q("[data-line]").textContent += ` · ${bytes} / ${max} байт`;
-    const active = r && ["running", "waiting"].includes(r.status);
-    editor.disabled = !office || !r || active;
-    this.q("[data-save]").disabled = !office || !r || active || bytes > max;
-    this.q("[data-run]").disabled = !office || !r || this.dirty || active;
-    this.q("[data-stop]").disabled = !r;
-    this.q('[data-reload]').disabled = !r;
-    const cost = s.config?.rover?.cost;
-    this.q("[data-purchase]").textContent = cost ? `Купить ровер (${Object.entries(cost).map(([k, v]) => `${labels[k] || k}: ${v}`).join(", ")})` : "Купить ровер";
-  }
-  dispose() {
-    if (this.panel.open) {
-      this.panel.close();
-      this.resume();
-    }
-    this.unsubs.forEach((fn) => fn());
-    this.abort.abort();
-    this.button.remove();
-    this.panel.remove();
-  }
+  q(s){return this.panel.querySelector(s)} command(type,payload){this.events.emit("command",{type,payload})}
+  persistLocal(){const f=this.localFiles.files.find(f=>f.id===this.localSelected);if(f){f.code=this.q('[data-program]').value;f.name=this.q('[data-filename]').value||'program.txt'}this.localFiles.selected=this.localSelected;try{localStorage.setItem('mars.rover.files.v1',JSON.stringify(this.localFiles))}catch{this.q('[data-feedback]').textContent='Не удалось сохранить локальный файл.'}}
+  openLocal(id){const f=this.localFiles.files.find(f=>f.id===id);if(!f)return;this.localSelected=id;this.localFolder=f.folder;this.q('[data-program]').value=f.code;this.q('[data-filename]').value=f.name;this.dirty=true;this.persistLocal();this.renderFiles();this.paint()}
+  renderFiles(){const folder=this.q('[data-folder]'),file=this.q('[data-local-file]');folder.replaceChildren(...this.localFiles.folders.map(name=>new Option(name,name)));folder.value=this.localFolder;file.replaceChildren(...this.localFiles.files.filter(f=>f.folder===this.localFolder).map(f=>new Option(f.name,f.id)));file.value=this.localSelected}
+  setView(v){this.view=v;this.panel.querySelectorAll("[data-view]").forEach(b=>b.classList.toggle("active",b.dataset.view===v));this.updatePreview()}
+  updatePreview(){const canvas=this.q('[data-preview]');if(!canvas)return;this.scene.setRoverPreview?.({canvas,roverId:this.selected,mode:this.view});this.q('[data-preview-label]').textContent=this.view==='map'?'ОБЗОР ПЛАНЕТЫ':'КАМЕРА РОВЕРА';const p=this.state?.rover_fleet?.find(r=>r.rover_id===this.selected)?.position;if(p&&p.length===3){const radius=Math.hypot(...p),lat=Math.asin(Math.max(-1,Math.min(1,p[1]/radius)))*180/Math.PI;let lon=Math.atan2(p[2],p[0])*180/Math.PI;if(lon>=180)lon=-180;this.q('[data-camera-coords]').textContent=`${fmt(lat)}° / ${fmt(lon)}°`;this.q('[data-map-coords]').textContent=`LAT ${fmt(lat)} · LON ${fmt(lon)}`}else{this.q('[data-camera-coords]').textContent='—';this.q('[data-map-coords]').textContent='—'}}
+  paint(){let e=this.q("[data-program]"),h=esc(e.value).replace(/(#.*)$/gm,'<i>$1</i>').replace(/\b(while|true|do|end)\b/gi,'<b>$1</b>').replace(/\b(move_to|load|unload|wait)\b/g,'<strong>$1</strong>').replace(/\b(\d+(?:\.\d+)?)\b/g,'<em>$1</em>');this.q("[data-highlight]").innerHTML=h+"\n";this.q("[data-lines]").innerHTML=e.value.split("\n").map((_,i)=>`<span>${i+1}</span>`).join("");this.updatePreview()}
+  result(m){let type=this.pendingCommands.get(m.request_id);if(!type)return;this.pendingCommands.delete(m.request_id);if(!this.panel.open)return;let r=m.payload||{},ok={"rover.survey":"Точка записана.","rover.point.register":"Точка сохранена.","rover.purchase":"Ровер куплен.","rover.program":"Файл сохранён.","rover.start":"Программа запущена.","rover.stop":"Ровер остановлен."},fail={INVALID_PROGRAM:'Ошибка в программе. Проверьте команды и структуру цикла.',OFFICE_REQUIRED:'Подойдите к офису в куполе.',UNKNOWN_POINT:'В программе указана неизвестная точка.',REVISION_CONFLICT:'Программа изменена другим игроком. Нажмите «Вернуть».',INSUFFICIENT_RESOURCES:'Не хватает ресурсов.'};this.q("[data-feedback]").textContent=(r.ok?ok[type]:fail[r.code]||`Ошибка: ${r.code||"неизвестная"}`)+(Number.isInteger(r.line)?` Строка ${r.line}.`:'')}
+  open(){if(!this.state||this.state.stage!=="running"||this.panel.open)return;this.scene.controls.suspended=true;this.scene.controls.clear();if(document.pointerLockElement)document.exitPointerLock();this.events.emit("ui.overlay",true);this.panel.showModal();this.render()}
+  resume(){if(this.panel.open)return;this.scene.clearRoverPreview?.();let s=!!document.querySelector("dialog[open]");this.scene.controls.suspended=s;this.scene.controls.clear();this.events.emit("ui.overlay",s)}
+  render(){let s=this.state;this.button.hidden=!s||s.stage!=="running";if(!s||!this.panel.open)return;let c=s.current_coordinates||{},coords=`${fmt(c.latitude)}° / ${fmt(c.longitude)}°`;this.q("[data-coords]").textContent=this.q("[data-camera-coords]").textContent=coords;this.q("[data-map-coords]").textContent=`LAT ${fmt(c.latitude)} · LON ${fmt(c.longitude)}`;
+    let surveys=s.rover_surveys||[];this.q("[data-surveys]").innerHTML=surveys.length?surveys.map((p,i)=>`<article><b>${String(i+1).padStart(2,"0")}</b><span>ПОЛЕВАЯ ТОЧКА ${i+1}<small>${fmt(p.latitude)} / ${fmt(p.longitude)}</small></span></article>`).join(""):'<div class="rv-empty">Пока нет записей<br><small>Добавьте текущую позицию кнопкой ＋</small></div>';
+    let office=!!s.office_access;this.q("[data-access]").textContent=office?"Офис на связи — изменение доступно.":"Вне зоны офиса: доступен только просмотр.";let fleet=s.rover_fleet||[];if(!fleet.some(r=>r.rover_id===this.selected)){this.selected=fleet[0]?.rover_id||null;this.dirty=false;this.revision=null}let select=this.q("[data-select]");select.replaceChildren(...fleet.map((r,i)=>{let o=document.createElement("option");o.value=r.rover_id;o.textContent=`РОВЕР-${String(i+1).padStart(2,"0")}`;return o}));select.value=this.selected||"";
+    this.q("[data-cards]").innerHTML=fleet.length?fleet.map((r,i)=>`<button class="${r.rover_id===this.selected?"active":""}" data-id="${r.rover_id}"><b>▰</b><span>РОВЕР-${String(i+1).padStart(2,"0")}<small>● ${statuses[r.status]||r.status}</small></span></button>`).join(""):'<div class="rv-empty">Нет активных роверов</div>';this.panel.querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>{this.selected=b.dataset.id;this.dirty=false;this.revision=null;this.render()});
+    let r=fleet.find(x=>x.rover_id===this.selected),e=this.q("[data-program]");this.revision=r?.program_revision??null;this.dirty=!!r&&r.program!==e.value;
+    if(r && this.dirty && r.program===e.value && r.program_revision!==this.revision){this.dirty=false;this.revision=r.program_revision}
+    this.q("[data-status]").innerHTML=r?`<span><small>СТАТУС</small><b>${statuses[r.status]||r.status}</b></span><span><small>ГРУЗ</small><b>${r.cargo_mass??0}/${r.capacity??"—"} КГ</b></span><span><small>СКОРОСТЬ</small><b>${r.speed??0} М/С</b></span>`:"Выберите ровер";let bytes=new TextEncoder().encode(e.value).length,max=s.config?.rover?.program_max_bytes||512;this.q("[data-bytes]").textContent=`${bytes} / ${max} БАЙТ`;this.q("[data-line]").textContent=r?.line&&!this.dirty?`▶ Строка ${r.line}: ${(r.program||"").split("\n")[r.line-1]||""}`:"Команды: move_to(NAME), load(20), unload(), wait(1). Цикл: while true do … end.";
+    this.q('[data-access]').textContent=office?'Программы сохраняются локально. Офис доступен для передачи и запуска.':'Редактирование и локальные файлы доступны. Для передачи и запуска подойдите к офису.';
+    this.q('[data-surveys]').querySelectorAll('article').forEach((article,index)=>{const button=document.createElement('button');button.textContent='КОПИРОВАТЬ';button.dataset.copy=index;article.append(button)});
+    this.q('[data-purchase]').disabled=!office;let active=r&&["running","waiting"].includes(r.status);e.disabled=false;this.q("[data-save]").disabled=!office||!r||active||bytes>max;this.q("[data-run]").disabled=!office||!r||this.dirty||active;this.q("[data-stop]").disabled=!r;this.q("[data-reload]").disabled=!r;this.paint()}
+  dispose(){if(this.panel.open){this.panel.close();this.resume()}this.unsubs.forEach(f=>f());this.abort.abort();this.button.remove();this.panel.remove()}
 }
-export {
-  RoverUI
-};
+export { RoverUI };
