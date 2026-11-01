@@ -315,7 +315,7 @@ def test_real_uvicorn_websocket(tmp_path):
                     if message['type'] == 'world.offer':
                         ws.send(json.dumps({'type': 'world.accept', 'payload': {}}))
                     elif message['type'] == 'chunk.offer':
-                        ws.send(json.dumps({'type': 'chunk.request', 'payload': {'chunk_id': message['payload']['chunk_id']}}))
+                        ws.send(json.dumps({'type': 'chunk.request', 'payload': message['payload']}))
                     elif message['type'] == 'chunk.load':
                         assert message['payload']['cells']
                         got_chunk = True

@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { ResourceLabelTextures } from '../src/scene/resource-label-textures.js';
+import { ResourceLabelTextures, RESOURCE_LABELS } from '../src/scene/resource-label-textures.js';
 import { disposeObject, WorldScene } from '../src/scene/world-scene.js';
 
 test('labels reuse bounded scene textures across chunk disposal and release them with the scene',()=>{
+ assert.equal(RESOURCE_LABELS.water,'Л');
+ assert.equal(RESOURCE_LABELS.ice,'Л');
  let canvases=0;
  const textures=new ResourceLabelTextures(()=>{canvases++;return {getContext:()=>({strokeText(){},fillText(){}})};});
  const water=textures.get('water'); let textureDisposals=0, materialDisposals=0;

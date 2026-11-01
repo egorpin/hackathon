@@ -19,6 +19,7 @@ class EconomyTests(unittest.TestCase):
     start = helpers.GameTests.start
     advance = helpers.GameTests.advance
     build = helpers.GameTests.build
+    _ensure_builder_clearance = helpers.GameTests._ensure_builder_clearance
     move_near = helpers.GameTests.move_near
     interact = helpers.GameTests.interact
     def test_starter_grant_once_and_team_pool(self):

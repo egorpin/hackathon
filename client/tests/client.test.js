@@ -13,6 +13,23 @@ test('UTF-8 bytes, reservations and duplicate keys',()=>{
  assert.equal(c.reserve('chunk:a',bytes),false); assert.ok(c.commit('chunk:a',value));
  assert.equal(c.stats().queuedBytes,0); assert.equal(c.used,bytes);
 });
+test('predicted movement sweeps building collision discs on the sphere',()=>{
+ const start=vector([0,30,0]), heading=vector([1,0,0]);
+ const obstacle=advance(start,heading,{forward:1,right:0},1,1,30).position;
+ const blocked=advance(start,heading,{forward:1,right:0},2,1,30,[[obstacle.toArray(),.2]]);
+ assert.deepEqual(blocked.position.toArray(),start.toArray());
+ const clear=advance(start,heading,{forward:1,right:0},1,1,30,[[vector([0,0,30]).toArray(),.2]]);
+ assert.ok(clear.position.distanceTo(start)>0);
+});
+test('predicted movement can recover from an existing obstacle overlap',()=>{
+ const center=vector([0,30,0]);
+ const start=advance(center,vector([1,0,0]),{forward:1,right:0},1.4,1,30).position;
+ const obstacle=[[center.toArray(),1.55]];
+ const toward=advance(start,vector([-1,0,0]),{forward:1,right:0},.1,1,30,obstacle);
+ assert.deepEqual(toward.position.toArray(),start.toArray());
+ const away=advance(start,vector([1,0,0]),{forward:1,right:0},.1,1,30,obstacle);
+ assert.ok(away.position.distanceTo(center)>start.distanceTo(center));
+});
 test('evicts loaded chunks only when needed for the hard limit; pending queue cannot be evicted',()=>{
  const c=new WorldCache(); c.reset(1000);
  c.put('chunk:a','a'.repeat(28)); c.reserve('chunk:b',30);
@@ -74,7 +91,7 @@ test('snapshot gate, input sequence and revision gap resync',()=>{
  const c=new GameClient({url:'ws://test/ws',WebSocketClass:Socket});c.connect();c.input({axes:{}});
  assert.equal(c.socket.sent.length,0);
  c.receive({type:'world.snapshot',revision:5,payload:{last_input_seq:10}});
- c.input({move:[0,0,-1]});assert.deepEqual(c.socket.sent[0].payload,{seq:11,move:[0,0,-1]});
+ c.input({move:[0,0,-1],flashlight:true,pitch:.4});assert.deepEqual(c.socket.sent[0].payload,{seq:11,move:[0,0,-1],flashlight:true,pitch:.4});
  c.receive({type:'world.delta',revision:7,payload:{players:[]}}); assert.equal(c.ready,false);assert.equal(c.socket.closed,true);c.close();
 });
 test('authenticated session opens the existing server transport',()=>{

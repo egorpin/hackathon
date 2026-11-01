@@ -60,7 +60,9 @@ def move_on_surface(position, direction, distance, radius, obstacles=()):
     """Project intent to the tangent plane, advance, and sweep against discs.
 
     Obstacles are (surface centre, combined collision radius) pairs. A blocked
-    move stays in place. This has no special Y axis and works at both poles.
+    move stays in place. If already overlapping, movement that increases the
+    clearance is allowed so players can recover from stale/legacy positions.
+    This has no special Y axis and works at both poles.
     """
     normal = unit(position)
     tangent = add(direction, scale(normal, -dot(direction, normal)))
@@ -68,8 +70,12 @@ def move_on_surface(position, direction, distance, radius, obstacles=()):
     if magnitude < 1e-12:
         return tuple(position)
     candidate = scale(unit(add(scale(normal, radius), scale(unit(tangent), distance * min(1, magnitude)))), radius)
-    if any(arc_distance(center, position, candidate, radius) < size for center, size in obstacles):
-        return tuple(position)
+    for center, size in obstacles:
+        if arc_distance(center, position, candidate, radius) < size:
+            start_clearance = surface_distance(center, position, radius)
+            end_clearance = surface_distance(center, candidate, radius)
+            if start_clearance >= size or end_clearance <= start_clearance:
+                return tuple(position)
     return candidate
 
 

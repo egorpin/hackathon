@@ -35,7 +35,7 @@ export class Runtime {
       events.on('build.request', () => {
         if (!this.buildType) { events.emit('notice','Выберите постройку: 1–5 или кнопка внизу экрана.'); return; }
         if (scene.selected && this.buildType === 'drill' && !MINABLE_RESOURCES.includes(scene.selected.resource)) {
-          events.emit('notice','Бур можно построить только на месторождении воды, железа, меди или серы.'); return;
+          events.emit('notice','Бур можно построить только на месторождении льда, железа, меди или серы.'); return;
         }
         if (scene.selected) this.command('building.place',{cell_id:scene.selected.cell_id,building_type:this.buildType});
       }),

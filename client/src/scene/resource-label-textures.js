@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export const RESOURCE_LABELS = Object.freeze({ water: 'В', iron: 'Ж', sulfur: 'С', copper: 'М' });
+export const RESOURCE_LABELS = Object.freeze({ water: 'Л', ice: 'Л', iron: 'Ж', sulfur: 'С', copper: 'М' });
 
 // One canvas and GPU texture per resource type for the life of a scene.
 export class ResourceLabelTextures {

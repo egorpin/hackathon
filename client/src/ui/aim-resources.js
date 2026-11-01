@@ -33,10 +33,10 @@ export class AimResources {
     const count=this.plan(building).items.reduce((sum,item)=>sum+item.amount,0);
     this.button.disabled=!count;
     const type=building.building_type;
-    const label=type==='drill'?'Забрать ресурсы':type==='warehouse'?'Разгрузить ресурсы':'Разгрузить воду';
+    const label=type==='drill'?'Забрать ресурсы':type==='warehouse'?'Разгрузить ресурсы':'Разгрузить ЛЕД';
     const hasSource=type==='drill'?Object.values(building.stock || {}).some(amount=>amount>0):
       type==='oxygen_generator'?this.state.inventory?.water>0:Object.values(this.state.inventory || {}).some(amount=>amount>0);
-    const empty=type==='drill'?'Бур накапливает ресурсы…':type==='oxygen_generator'?'В рюкзаке нет воды':'Рюкзак пуст';
+    const empty=type==='drill'?'Бур накапливает ресурсы…':type==='oxygen_generator'?'В рюкзаке нет льда':'Рюкзак пуст';
     const full=type==='drill'?'Рюкзак заполнен':type==='warehouse'?'Склад заполнен':'Генератор заполнен';
     this.button.textContent=count ? `${label} (${count}) · ЛКМ` : hasSource?full:empty;
   }

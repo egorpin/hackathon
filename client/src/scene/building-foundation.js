@@ -19,15 +19,15 @@ export function withFoundation(building) {
   return root;
 }
 
-export function fitFoundation(root,position,radius,terrain) {
+export function fitFoundation(root,position,radius,terrain,orientation=null) {
   const foundation = root.userData.foundation;
   if(!foundation)return;
-  const key = `${position.x},${position.y},${position.z},${radius},${terrain}`;
+  const rotation=orientation?.clone() || new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),position.clone().normalize());
+  const key = `${position.x},${position.y},${position.z},${radius},${terrain},${rotation.x},${rotation.y},${rotation.z},${rotation.w}`;
   if(foundation.key===key)return;
   foundation.key=key;
   const {slab,building,bottom}=foundation;
-  const up=position.clone().normalize();
-  const rotation=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),up);
+  const up=new THREE.Vector3(0,1,0).applyQuaternion(rotation).normalize();
   let low=Infinity,high=-Infinity;
   // Sample corners, edge midpoints and center in the building's tangent plane.
   for(const x of [-.5,0,.5])for(const z of [-.5,0,.5]) {
