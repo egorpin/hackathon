@@ -150,6 +150,15 @@ class AgentQuestion(BaseModel):
     building_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
 
 
+class RoverAgentQuestion(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+    rover_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
+    program: str = Field(default='', max_length=2000)
+    event: str | None = Field(default=None, pattern=r'^(notebook_open|program_error)$')
+    error_code: str | None = Field(default=None, max_length=64, pattern=r'^[A-Z0-9_]+$')
+    error_line: int | None = Field(default=None, ge=1, le=10000)
+
+
 def agent_identity(request):
     identity = db.identity(request.cookies.get(COOKIE))
     if not identity:
@@ -188,6 +197,40 @@ def building_tutorial(identity, building_id):
               'Кратко поздравь игрока, объясни назначение объекта и следующие действия. '
               'Не выдумывай механики и упомяни, что запомнил эту постройку.')
     return {'event': event, 'prompt': prompt, 'type': building_type, 'name': name}
+
+
+def rover_agent_context(identity, question):
+    runtime = app.state.game.runtime(identity)
+    state = app.state.game.dto(identity)
+    rover = next((item for item in state.get('rover_fleet', [])
+                  if item.get('rover_id') == question.rover_id), None)
+    if question.rover_id and rover is None:
+        raise HTTPException(status_code=404, detail='Выбранный ровер недоступен.')
+    return {
+        'stage': app.state.lobby.stage(identity['world_id']),
+        'selected_rover': rover,
+        'editor_program': question.program,
+        'program_bytes': len(question.program.encode('utf-8')),
+        'rover_config': state.get('config', {}).get('rover', {}),
+        'office_access': state.get('office_access', False),
+        'registered_points': state.get('rover_points', []),
+        'team_buildings': [item.get('building_type') for item in state.get('buildings', [])],
+        'available_rovers': len(state.get('rover_fleet', [])),
+        'world_tick': getattr(runtime.state, 'tick', None),
+    }
+
+
+def rover_agent_prompt(question):
+    if question.event == 'notebook_open':
+        return ('Игрок впервые открыл бортовой блокнот. Представься как Кодяш и проведи первый шаг: '
+                'попроси выбрать ровер, открыть или создать программу, проверить связь командой wait(1) '
+                'и нажать «Запустить». Уложись в 4 коротких предложения.')
+    if question.event == 'program_error':
+        line = f' на строке {question.error_line}' if question.error_line else ''
+        return (f'Сервер отклонил программу с ошибкой {question.error_code or "UNKNOWN"}{line}. '
+                'Объясни причину простыми словами и предложи минимальное исправление текущего кода. '
+                'Не переписывай всю программу.')
+    return question.text.strip()
 
 
 @app.get('/api/agents')
@@ -285,6 +328,59 @@ def agent_ask_stream(question: AgentQuestion, request: Request):
                             connection.execute('INSERT INTO agent_messages VALUES (?,?,?,?,?,?,?)',
                                                (str(uuid.uuid4()), identity['world_id'], identity['user_id'], character['id'],
                                                 role, message, int(time.time())))
+            agent_busy.discard(busy_key)
+
+    return StreamingResponse(stream(), media_type='application/x-ndjson', headers={
+        'Cache-Control': 'no-store, no-transform', 'X-Accel-Buffering': 'no',
+    })
+
+
+@app.get('/api/rover-agent/messages')
+def rover_agent_messages(request: Request, response: Response):
+    identity = agent_identity(request)
+    response.headers['Cache-Control'] = 'no-store'
+    messages = [item for item in agent.history(db, identity, 'kodyash') if item['role'] != 'system']
+    return {'agent': {'id': 'kodyash', 'name': 'Кодяш'}, 'messages': messages}
+
+
+@app.post('/api/rover-agent/ask/stream')
+def rover_agent_ask_stream(question: RoverAgentQuestion, request: Request):
+    require_origin(request)
+    identity = agent_identity(request)
+    if agent_busy:
+        raise HTTPException(status_code=429, detail='Другой ИИ-агент уже отвечает. Попробуйте чуть позже.')
+    text = rover_agent_prompt(question)
+    current_profile = agent.profile('kodyash')
+    character = {'id': 'kodyash', 'name': 'Кодяш', 'prompt': current_profile['system'], 'temperature': .2}
+    context = rover_agent_context(identity, question)
+    context.update({'_character': character, '_agent_db': db,
+                    '_agent_identity': identity, '_agent_id': 'kodyash'})
+    busy_key = identity['user_id']
+    agent_busy.add(busy_key)
+
+    def stream():
+        chunks = []
+        completed = False
+        try:
+            rows = agent.history(db, identity, 'kodyash')
+            for chunk in agent.stream_complete(rows, text, context):
+                chunks.append(chunk)
+                yield json.dumps({'text': chunk}, ensure_ascii=False) + '\n'
+            completed = True
+            yield json.dumps({'done': True}, ensure_ascii=False) + '\n'
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            yield json.dumps({'error': 'Кодяш сейчас недоступен. Попробуйте позже.'}, ensure_ascii=False) + '\n'
+        finally:
+            if completed:
+                answer = ''.join(chunks).strip()
+                if answer:
+                    source_role = 'system' if question.event else 'user'
+                    source_text = f'[rover:{question.event}] {text}' if question.event else question.text.strip()
+                    with db.connect() as connection:
+                        for role, message in [(source_role, source_text), ('assistant', answer)]:
+                            connection.execute('INSERT INTO agent_messages VALUES (?,?,?,?,?,?,?)',
+                                               (str(uuid.uuid4()), identity['world_id'], identity['user_id'],
+                                                'kodyash', role, message, int(time.time())))
             agent_busy.discard(busy_key)
 
     return StreamingResponse(stream(), media_type='application/x-ndjson', headers={
