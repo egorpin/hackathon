@@ -2,6 +2,7 @@ import './assistant.css';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { agentMascot } from './agent-mascot.js';
+import { BUILDINGS } from './buildings.js';
 
 export class Assistant {
   constructor({scene, events}) {
@@ -50,6 +51,10 @@ export class Assistant {
     });
     on(this.form,'submit',event=>{event.preventDefault();this.ask();});
     on(this.agentSelect,'change',()=>this.selectAgent());
+    this.unsubs=[
+      events.on('world.state',state=>{this.playerId=state?.self_id||this.playerId;}),
+      events.on('command.result',result=>this.commandResult(result)),
+    ];
   }
   updateActivity() {
     const state=this.speech?.started?'speaking':this.requestPhase||'idle';
@@ -68,13 +73,13 @@ export class Assistant {
     });
     for(const link of body.querySelectorAll('a')){link.target='_blank';link.rel='noopener noreferrer';}
   }
-  async streamReply(item,text) {
+  async streamReply(item,text,{buildingId}={}) {
     const body=item.querySelector('.assistant-markdown');
     const reduced=document.documentElement.classList.contains('game-reduced-motion')||window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const token={cancelled:false};this.replyAnimation=token;
     body.setAttribute('aria-hidden','true');
     const response=await fetch('/api/agent/ask/stream',{method:'POST',credentials:'same-origin',cache:'no-store',signal:this.controller.signal,
-      headers:{'Content-Type':'application/json'},body:JSON.stringify({text,agent_id:this.agentId})});
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({text,agent_id:this.agentId,building_id:buildingId})});
     if(!response.ok){
       const data=await response.json().catch(()=>({}));
       throw Error(response.status===401?'Сначала войди в игру.':data.detail||'Не удалось отправить вопрос.');
@@ -121,13 +126,14 @@ export class Assistant {
     return data;
   }
   message(role,text,{typing=false}={}) {
-    const item=document.createElement('div');item.className='assistant-message '+(role==='user'?'user':'reply');
-    const label=document.createElement('strong');label.textContent=role==='user'?'Ты':this.agentName;
+    const event=role==='system'||role==='event',user=role==='user';
+    const item=document.createElement('div');item.className=`assistant-message ${user?'user':event?'event':'reply'}`;
+    const label=document.createElement('strong');label.textContent=user?'Ты':event?'Событие мира':this.agentName;
     const body=document.createElement('div');body.className='assistant-markdown';
-    if(role==='user')body.textContent=text;
+    if(user||event)body.textContent=event?text.replace(/^\[tutorial:building:[a-z0-9_-]+\]\s*/,''):text;
     else if(!typing)this.renderReply(body,text);
     item.append(label,body);this.log.append(item);this.log.scrollTop=this.log.scrollHeight;
-    if(role!=='user') {
+    if(!user&&!event) {
       const actions=document.createElement('div');actions.className='assistant-speech';
       const speak=document.createElement('button');speak.type='button';speak.textContent='Озвучить';
       speak.disabled=typing;
@@ -140,6 +146,41 @@ export class Assistant {
       item.speakButton=speak;
     }
     return item;
+  }
+  commandResult(result) {
+    const command=result?.command;
+    if(!result?.payload?.ok||command?.type!=='building.place')return;
+    const buildingId=result.payload.building_id,type=command.payload?.building_type;
+    const building=BUILDINGS.find(item=>item.type===type);
+    if(!buildingId||!building)return;
+    const key=`mars-agent-tutorial:${this.playerId||'player'}:${type}`;
+    if(localStorage.getItem(key)||this.tutorialPending?.has(type))return;
+    (this.tutorialPending ||= new Set()).add(type);
+    (this.tutorialQueue ||= []).push({buildingId,building,key,type});
+    this.runNextTutorial();
+  }
+  async runNextTutorial() {
+    if(this.busy||this.tutorialRunning||!this.tutorialQueue?.length)return;
+    this.tutorialRunning=true;
+    const tutorial=this.tutorialQueue.shift();
+    let eventItem,reply;
+    try {
+      await this.open();
+      this.busy=true;this.send.disabled=true;this.input.disabled=true;this.agentSelect.disabled=true;
+      this.requestPhase='thinking';this.updateActivity();this.status.textContent='';
+      eventItem=this.message('event',`Мир изменился: началось строительство объекта «${tutorial.building.name}». Марсик запомнит это действие.`);
+      reply=this.message('assistant','',{typing:true});
+      await this.streamReply(reply,'Объясни мне новую постройку и что делать дальше.',{buildingId:tutorial.buildingId});
+      localStorage.setItem(tutorial.key,'shown');
+    }catch(error){
+      eventItem?.remove();reply?.remove();
+      if(!this.controller.signal.aborted&&error.message!=='Подсказка для этой постройки уже показана.')this.status.textContent=error.message;
+      if(error.message==='Подсказка для этой постройки уже показана.')localStorage.setItem(tutorial.key,'shown');
+    }finally{
+      this.tutorialPending.delete(tutorial.type);this.requestPhase=null;this.updateActivity();
+      this.busy=false;this.send.disabled=false;this.input.disabled=false;this.agentSelect.disabled=false;this.tutorialRunning=false;
+      if(this.tutorialQueue.length)queueMicrotask(()=>this.runNextTutorial());
+    }
   }
   speak(body,controls) {
     this.stopSpeech();
@@ -252,7 +293,7 @@ export class Assistant {
     try {
       await this.streamReply(reply,text);this.status.textContent='';
     }catch(error){if(!this.controller.signal.aborted){reply.remove();this.status.textContent=error.message;this.input.value=text;}}
-    finally{this.requestPhase=null;this.updateActivity();this.busy=false;this.send.disabled=false;this.input.disabled=false;this.agentSelect.disabled=false;}
+    finally{this.requestPhase=null;this.updateActivity();this.busy=false;this.send.disabled=false;this.input.disabled=false;this.agentSelect.disabled=false;this.runNextTutorial();}
   }
-  dispose(){this.stopSpeech();this.finishTyping();this.controller.abort();if(this.replyAnimation)this.replyAnimation.cancelled=true;this.dialog.remove();this.button.remove();}
+  dispose(){this.stopSpeech();this.finishTyping();this.controller.abort();this.unsubs.forEach(unsub=>unsub());if(this.replyAnimation)this.replyAnimation.cancelled=true;this.dialog.remove();this.button.remove();}
 }

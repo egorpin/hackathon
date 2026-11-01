@@ -134,11 +134,19 @@ async def game_loop():
 
 app = FastAPI(title="Mars Colony", lifespan=lifespan)
 agent_busy = set()
+BUILDING_TUTORIALS = {
+    'drill': ('Бур', 'Три строительных робота завершают его примерно за 20 секунд. После завершения он потребляет 2 единицы энергии, добывает ресурс месторождения и копит его внутри. Подойди к буру и забери добычу в рюкзак, затем отнеси её на склад.'),
+    'oxygen_generator': ('Генератор O₂', 'Три робота строят его примерно 20 секунд. После завершения он потребляет 3 единицы энергии. Загружай в него воду: генератор расходует её и повышает общий уровень кислорода экспедиции.'),
+    'warehouse': ('Склад', 'После примерно 20 секунд строительства склад расширяет общий запас команды. Подойди к нему и перенеси ресурсы из рюкзака в командное хранилище.'),
+    'solar_panel': ('Солнечная панель', 'После примерно 20 секунд строительства она добавляет 10 единиц мощности в общую энергосеть. Энергия не накапливается: важен текущий баланс производства и потребления.'),
+    'wind_turbine': ('Ветрогенератор', 'После примерно 20 секунд строительства он добавляет 10 единиц мощности в общую энергосеть. Вместе с солнечными панелями он питает буры и генераторы кислорода.'),
+}
 
 
 class AgentQuestion(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
     agent_id: str | None = Field(default=None, min_length=1, max_length=40, pattern=r'^[a-z0-9_-]+$')
+    building_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
 
 
 def agent_identity(request):
@@ -155,6 +163,30 @@ def agent_character(identity, agent_id=None):
     if selected is None or not selected['enabled']:
         raise HTTPException(status_code=503, detail='Персонаж отключён или недоступен.')
     return selected
+
+
+def building_tutorial(identity, building_id):
+    if not building_id:
+        return None
+    state = app.state.game.runtime(identity).state
+    building = state.buildings.get(building_id)
+    if (building is None or building.creator_id != identity['user_id']
+            or building.team_id != identity['team_id'] or building.building_type not in BUILDING_TUTORIALS):
+        raise HTTPException(status_code=404, detail='Постройка для подсказки не найдена.')
+    building_type = building.building_type
+    name, facts = BUILDING_TUTORIALS[building_type]
+    marker = f'[tutorial:building:{building_type}]'
+    with db.connect() as connection:
+        shown = connection.execute(
+            'SELECT 1 FROM agent_messages WHERE world_id=? AND user_id=? AND role=? AND text LIKE ? LIMIT 1',
+            (identity['world_id'], identity['user_id'], 'system', marker + '%')).fetchone()
+    if shown:
+        raise HTTPException(status_code=409, detail='Подсказка для этой постройки уже показана.')
+    event = f'{marker} Мир изменился: игрок впервые начал строительство объекта «{name}».'
+    prompt = (f'{event}\nПроверенные правила объекта: {facts}\n'
+              'Кратко поздравь игрока, объясни назначение объекта и следующие действия. '
+              'Не выдумывай механики и упомяни, что запомнил эту постройку.')
+    return {'event': event, 'prompt': prompt, 'type': building_type, 'name': name}
 
 
 @app.get('/api/agents')
@@ -218,6 +250,9 @@ def agent_ask_stream(question: AgentQuestion, request: Request):
     if agent_busy:
         raise HTTPException(status_code=429, detail='ИИ отвечает на другой вопрос. Попробуйте чуть позже.')
     character = agent_character(identity, question.agent_id)
+    tutorial = building_tutorial(identity, question.building_id)
+    if tutorial:
+        text = tutorial['prompt']
     busy_key = identity['user_id']
     agent_busy.add(busy_key)
     context = {'stage': app.state.lobby.stage(identity['world_id']), '_character': character,
@@ -244,7 +279,8 @@ def agent_ask_stream(question: AgentQuestion, request: Request):
                 answer = ''.join(chunks).strip()
                 if answer:
                     with db.connect() as connection:
-                        for role, message in [('user', text), ('assistant', answer)]:
+                        source = ('system', tutorial['event']) if tutorial else ('user', text)
+                        for role, message in [source, ('assistant', answer)]:
                             connection.execute('INSERT INTO agent_messages VALUES (?,?,?,?,?,?,?)',
                                                (str(uuid.uuid4()), identity['world_id'], identity['user_id'], character['id'],
                                                 role, message, int(time.time())))
