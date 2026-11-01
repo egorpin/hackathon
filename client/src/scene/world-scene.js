@@ -59,7 +59,7 @@ export class WorldScene {
     this.resourceLabelTextures = new ResourceLabelTextures();
     this.models.load(name=>this.modelLoaded(name)).catch(()=>this.events.emit('notice','Модели недоступны; используются временные формы.'));
     this.frameTimes=[]; this.cameraBob=true;
-    this.chunks = new Map(); this.players = new Map(); this.buildings = new Map();
+    this.chunks = new Map(); this.players = new Map(); this.buildings = new Map(); this.rovers = new Map();
     this.position = new THREE.Vector3(0,100,0); this.heading = new THREE.Vector3(0,0,-1);
     this.radius = 100; this.speed = 4; this.viewRadius = 24; this.buildDistance = 6;
     this.raycaster = new THREE.Raycaster(); this.pointer = new THREE.Vector2();
@@ -105,6 +105,12 @@ export class WorldScene {
       for(const entry of this.players.values()) {
         disposeObject(entry.mesh); entry.mesh=this.models.create(name,entry.data?.color); entry.mesh.scale.multiply(new THREE.Vector3(CHARACTER_SCALE, CHARACTER_HEIGHT_SCALE, CHARACTER_SCALE));this.scene.add(entry.mesh);
       }
+    } else if(name==='rover') {
+      for(const entry of this.rovers.values()) {
+        const replacement=this.roverModel(entry.data?.color);
+        replacement.position.copy(entry.mesh.position);replacement.quaternion.copy(entry.mesh.quaternion);
+        disposeObject(entry.mesh);entry.mesh=replacement;this.scene.add(replacement);
+      }
     } else {
       for(const entry of this.buildings.values()) if((entry.data.building_type==='warehouse'?'storage':entry.data.building_type)===name) {
         disposeObject(entry.mesh);entry.mesh=this.buildingModel(entry.data.building_type,entry.data.color);
@@ -120,7 +126,8 @@ export class WorldScene {
     for (const id of [...this.chunks.keys()]) this.unload(id);
     for (const entry of this.players.values()) disposeObject(entry.mesh);
     for (const entry of this.buildings.values()) disposeObject(entry.mesh);
-    this.players.clear(); this.buildings.clear(); this.select(null);
+    for (const entry of this.rovers.values()) disposeObject(entry.mesh);
+    this.rovers.clear(); this.players.clear(); this.buildings.clear(); this.select(null);
     this.targetBuilding(null);
     if (this.shell) disposeObject(this.shell);
     this.shell = null;
@@ -152,6 +159,19 @@ export class WorldScene {
     }
     for (const id of state.removed_buildings || []) {
       const entry = this.buildings.get(id); if (entry) disposeObject(entry.mesh); this.buildings.delete(id);
+    }
+    if (state.rovers) {
+      const ids = new Set(state.rovers.map(r => r.rover_id));
+      for (const [id, entry] of this.rovers) if (!ids.has(id)) { disposeObject(entry.mesh); this.rovers.delete(id); }
+      for (const rover of state.rovers) {
+        if (!Array.isArray(rover.position)) continue;
+        let entry = this.rovers.get(rover.rover_id);
+        if (!entry) {
+          const group = this.roverModel(rover.color);this.scene.add(group);
+          entry = {mesh:group,track:new PlayerTrack()}; this.rovers.set(rover.rover_id,entry);
+        }
+        entry.data=rover;recolor(entry.mesh,rover.color);entry.track.push(rover,now);
+      }
     }
     for (const player of state.players || []) {
       if (player.player_id === this.selfId) {
@@ -193,6 +213,14 @@ export class WorldScene {
       }
       this.buildings.set(building.building_id,{ mesh: model, data: building });
     }
+  }
+  roverModel(color) {
+    const loaded=this.models.create('rover',color);
+    if(loaded) {loaded.scale.multiplyScalar(.375);return loaded;}
+    const group=new THREE.Group();
+    const body=mesh(new THREE.BoxGeometry(.4,.4,.4),color || 0xe3b862);body.position.y=.23;
+    const front=mesh(new THREE.BoxGeometry(.18,.10,.02),0x66ead0);front.position.set(0,.25,-.21);
+    group.add(body,front);return group;
   }
   buildingModel(type,color) {
     const loaded=this.models.create(type==='warehouse'?'storage':type,color); if(loaded)return type==='drill'?loaded:withFoundation(loaded);
@@ -426,6 +454,15 @@ export class WorldScene {
           entry.mesh.visible = surfaceDistance(origin,sample.position,this.radius) <= this.viewRadius;
           if(this.visualOptions.animations)this.models.animate(entry.mesh,entry.data?.altitude>.05?'jump':entry.data?.moving?(entry.data.running?'run':'walk'):'idle',dt);
         }
+      }
+      for (const entry of this.rovers.values()) {
+        const sample = entry.track.sample(now-100,this.radius);
+        if (!sample) continue;
+        projectTerrain(sample.position,this.radius,0,this.terrain);
+        entry.mesh.position.copy(sample.position);
+        const basis=tangent(sample.position,sample.heading);
+        entry.mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(basis.right,basis.up,basis.forward.clone().negate()));
+        entry.mesh.visible=surfaceDistance(origin,sample.position,this.radius)<=this.viewRadius;
       }
       const loadedCells = new Set([...this.chunks.values()].flatMap(c => c.cells.map(t => t.userData.cell.cell_id)));
       for (const entry of this.buildings.values()) {
