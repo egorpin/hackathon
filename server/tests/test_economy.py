@@ -19,6 +19,8 @@ class EconomyTests(unittest.TestCase):
     start = helpers.GameTests.start
     advance = helpers.GameTests.advance
     build = helpers.GameTests.build
+    move_near = helpers.GameTests.move_near
+    interact = helpers.GameTests.interact
     def test_starter_grant_once_and_team_pool(self):
         view = snapshot(self.context, self.world)
         view["payload"]["config"]["recipes"]["drill"]["iron"] = 999
@@ -37,6 +39,7 @@ class EconomyTests(unittest.TestCase):
             building_id = self.build(kind)
             with self.world.transaction() as state:
                 state.buildings[building_id].stock['copper'] = 3
+            self.move_near(building_id)
             request = command('building.remove', building_id=building_id)
             with ThreadPoolExecutor(max_workers=4) as pool:
                 results = list(pool.map(lambda _: apply_command(self.context, request, self.world), range(4)))
@@ -57,7 +60,7 @@ class EconomyTests(unittest.TestCase):
             pool['iron'] += 500 - sum(pool.values())
         self.advance(20)
         self.assertEqual(sum(self.world.state.team_storage['team-a'].values()), 500)
-        self.ok(self.act('building.remove', building_id=warehouse))
+        self.ok(self.interact('building.remove', building_id=warehouse))
         self.assertEqual(storage_capacity(self.world.state, 'team-a'), 300)
         self.assertEqual(sum(self.world.state.team_storage['team-a'].values()), 515)
         self.advance(40)
@@ -79,19 +82,19 @@ class EconomyTests(unittest.TestCase):
         self.advance(1)
         self.assertEqual(self.world.state.oxygen_percent, 0)
         self.assertEqual(self.world.state.buildings[drill].stock['water'], 1)
-        self.ok(self.act('resource.pickup', building_id=drill, resource='water', amount=1))
-        self.ok(self.act('resource.deposit', building_id=generator, resource='water', amount=1))
+        self.ok(self.interact('resource.pickup', building_id=drill, resource='water', amount=1))
+        self.ok(self.interact('resource.deposit', building_id=generator, resource='water', amount=1))
         self.advance(20)
         self.assertEqual(self.world.state.oxygen_percent, .1)
         self.assertEqual(self.world.state.team_storage['team-a']['water'], 0)
-        self.ok(self.act('resource.pickup', building_id=drill, resource='water', amount=1))
-        self.ok(self.act('resource.deposit', building_id=generator, resource='water', amount=1))
+        self.ok(self.interact('resource.pickup', building_id=drill, resource='water', amount=1))
+        self.ok(self.interact('resource.deposit', building_id=generator, resource='water', amount=1))
         with self.world.transaction() as state:
             state.oxygen_percent = 99.95
         self.advance(20)
         self.assertEqual(self.world.state.oxygen_percent, 100)
-        self.ok(self.act('resource.pickup', building_id=drill, resource='water', amount=1))
-        self.ok(self.act('resource.deposit', building_id=generator, resource='water', amount=1))
+        self.ok(self.interact('resource.pickup', building_id=drill, resource='water', amount=1))
+        self.ok(self.interact('resource.deposit', building_id=generator, resource='water', amount=1))
         self.advance(20)
         self.assertEqual(self.world.state.buildings[generator].stock['water'], 1)
         self.assertEqual(self.world.state.team_storage['team-a']['water'], 0)
@@ -100,7 +103,7 @@ class EconomyTests(unittest.TestCase):
         self.start()
         base = self.build('dome_base')
         self.assertEqual(self.ok(self.act('player.respawn'))['building_id'], base)
-        self.ok(self.act('building.remove', building_id=base))
+        self.ok(self.interact('building.remove', building_id=base))
         response = self.ok(self.act('player.respawn'))
         self.assertIsNone(response['building_id'])
         self.assertEqual(response['cell_id'], self.planet.landing_sites[0])
@@ -119,8 +122,8 @@ class EconomyTests(unittest.TestCase):
             state.team_storage['team-a']['water'] = 0
         self.advance(20)
         self.assertEqual(self.world.state.oxygen_percent, 0)
-        self.ok(self.act('resource.pickup', building_id=drill, resource='water', amount=1))
-        self.ok(self.act('resource.deposit', building_id=warehouse, resource='water', amount=1))
+        self.ok(self.interact('resource.pickup', building_id=drill, resource='water', amount=1))
+        self.ok(self.interact('resource.deposit', building_id=warehouse, resource='water', amount=1))
         self.advance(20)
         self.assertEqual(self.world.state.oxygen_percent, .1)
         self.assertEqual(self.world.state.team_storage['team-a']['water'], 0)
@@ -168,6 +171,7 @@ class EconomyTests(unittest.TestCase):
         self.assertEqual(self.act('building.remove', building_id=building)['payload']['code'], 'OUT_OF_RANGE')
         with self.world.transaction() as state:
             state.players['alice'].position = self.planet.cells[self.planet.landing_sites[0]].center
+        self.move_near(building)
         before = self.world.state
         def fail(_):
             raise OSError('disk failure')
@@ -203,7 +207,7 @@ class EconomyTests(unittest.TestCase):
         restored = WorldState.from_dict(legacy)
         self.world = UnitOfWork(self.planet, restored)
         before = restored.team_storage['team-a']['iron']
-        self.ok(self.act('building.remove', building_id=building))
+        self.ok(self.interact('building.remove', building_id=building))
         self.assertEqual(self.world.state.team_storage['team-a']['iron'], before + 8)
 
     def test_legacy_building_ore_migrates_before_delivery_or_refund(self):
@@ -219,6 +223,6 @@ class EconomyTests(unittest.TestCase):
         self.assertEqual(WorldState.from_dict(restored.to_dict()), restored)
         self.world = UnitOfWork(self.planet, restored)
         before = restored.team_storage['team-a']['iron']
-        self.ok(self.act('building.remove', building_id=building))
+        self.ok(self.interact('building.remove', building_id=building))
         self.assertEqual(self.world.state.team_storage['team-a']['iron'], before + 15)
         self.assertEqual(self.world.state.team_storage['team-a']['ore'], 0)

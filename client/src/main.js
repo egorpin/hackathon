@@ -9,6 +9,7 @@ import { BUILDINGS } from './ui/buildings.js';
 import { Settings } from './ui/settings.js';
 import { EconomyHUD } from './ui/economy-hud.js';
 import { AimResources } from './ui/aim-resources.js';
+import { inInteractionRange } from './ui/interaction.js';
 import { recipeFor, formatResources, missingResources, canAfford, MINABLE_RESOURCES } from './ui/economy.js';
 
 const root = document.querySelector('main');
@@ -44,7 +45,7 @@ const show = (id,text) => {
 };
 let totalChunks=0;
 let gameState=null, selection=null, cameraMode='first', connected=false;
-let selectedBuilding=null;
+let selectedBuilding=null, aimedId=null;
 let selectionHelp='';
 const buildingNames=Object.fromEntries(BUILDINGS.map(({type,name})=>[type,name]));
 const costFor=type=>recipeFor(gameState,type);
@@ -87,7 +88,7 @@ function updateCrosshairHint(){
   const hint=document.getElementById('crosshair-hint'); hint.hidden=cameraMode!=='first';
   if(hint.hidden)return;
   if(gameState?.stage!=='running'){hint.textContent='Ожидайте начала экспедиции';return;}
-  if(!selectedBuilding){hint.textContent='E · постройка рядом';return;}
+  if(!selectedBuilding){const building=gameState?.buildings?.find(item=>item.building_id===aimedId);hint.textContent=connected && building && inInteractionRange(gameState,building)?'E · постройка':'';return;}
   if(!selection?.cell){hint.textContent='Наведитесь на клетку для установки';return;}
   hint.textContent=selectionHelp;
 }
@@ -135,6 +136,7 @@ events.on('performance', s=>{
   show('performance-detail',`Кадр p95: ${p95} · Треугольники: ${triangles} · Вызовы: ${s.drawCalls}`);
 });
 events.on('world.state',state=>{gameState=state;updateBuildInfo();updateSelection();});
+events.on('building.targeted', building=>{aimedId=building?.building_id;updateCrosshairHint();});
 events.on('cell.selected', value=>{selection=value;updateSelection();});
 events.on('camera.changed', mode=>{cameraMode=mode;document.getElementById('crosshair').hidden=mode!=='first';updateCrosshairHint();});
 events.on('action.result', result=>show('notice',explainAction(result)));
@@ -156,7 +158,7 @@ try {
   const scene=new WorldScene(document.getElementById('viewport'),events);
   const settings=new Settings({events,scene});
   const economy=new EconomyHUD({events,scene});
-  const pickup=new AimResources({events});
+  const pickup=new AimResources({events,scene});
   let transport;
   if(import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) {
     const {createFixture}=await import('./scene/fixture.js'); transport=createFixture();

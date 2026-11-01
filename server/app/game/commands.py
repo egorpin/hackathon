@@ -8,7 +8,7 @@ from app.world.geometry import surface_distance
 from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INVENTORY_CAPACITY,
                     PLAYER_RADIUS, REACH, RECIPES, MINABLE_RESOURCES, RESOURCES, STARTING_RESOURCES,
                     Building, Context, Player, UnitOfWork)
-from .state import PLAYER_COLORS, MOUNTAIN_RADIUS, storage_capacity
+from .state import PLAYER_COLORS, MOUNTAIN_RADIUS, building_interaction_distance, storage_capacity
 
 
 class Rejected(Exception):
@@ -30,9 +30,14 @@ def identifier(value):
     return value
 
 
-def in_reach(planet, player, position):
-    require(player.position is not None and surface_distance(player.position, position, planet.radius) <= REACH,
+def in_reach(planet, player, position, distance=REACH):
+    require(player.position is not None and surface_distance(player.position, position, planet.radius) <= distance,
             "OUT_OF_RANGE")
+
+
+def in_building_reach(planet, player, building):
+    cell = planet.cells[building.cell_id]
+    in_reach(planet, player, cell.center, building_interaction_distance(planet, cell))
 
 
 def authorize(context, state):
@@ -131,7 +136,7 @@ def dispatch(context, kind, payload, state, planet):
         building = state.buildings.get(identifier(payload["building_id"]))
         require(building is not None)
         require(building.team_id == player.team_id, "FORBIDDEN")
-        in_reach(planet, player, planet.cells[building.cell_id].center)
+        in_building_reach(planet, player, building)
         pool = state.team_storage[player.team_id]
         # Refunds can exceed capacity: never destroy resources during demolition.
         for stock in (building.paid_cost, building.stock):
@@ -184,7 +189,7 @@ def dispatch(context, kind, payload, state, planet):
             building = state.buildings.get(target_id)
             require(building is not None)
             require(building.team_id == player.team_id, "FORBIDDEN")
-            in_reach(planet, player, planet.cells[building.cell_id].center)
+            in_building_reach(planet, player, building)
             stock = state.team_storage[player.team_id] if building.building_type == "warehouse" else building.stock
             if kind == "resource.pickup":
                 source, destination, capacity = stock, player.inventory, INVENTORY_CAPACITY

@@ -9,7 +9,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from threading import RLock
 
-from app.world.geometry import Planet
+from app.world.geometry import Planet, surface_distance
 
 TICK_SECONDS = .05
 SPEED = 4.0
@@ -17,6 +17,14 @@ REACH = 4.5
 PLAYER_RADIUS = .3 / 1.5
 BUILDING_RADIUS = .8
 MOUNTAIN_RADIUS = 1.5
+
+
+def building_interaction_distance(planet, cell):
+    """Reach the building from roughly half a cell, outside its collision disc."""
+    cell_radius = sum(surface_distance(cell.center, v, planet.radius) for v in cell.vertices) / len(cell.vertices)
+    return max(cell_radius, BUILDING_RADIUS + PLAYER_RADIUS + .05)
+
+
 INVENTORY_CAPACITY = 50
 BUILDING_CAPACITY = 50
 STORAGE_CAPACITY = 200

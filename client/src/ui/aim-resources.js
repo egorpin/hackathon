@@ -1,8 +1,9 @@
 import { buildingTransfer } from './economy.js';
-import { surfaceDistance, vector } from '../scene/motion.js';
+import { aimedBuilding } from './interaction.js';
 
 export class AimResources {
-  constructor({events}) {
+  constructor({events,scene}) {
+    this.scene = scene;
     this.events = events;
     this.button = document.createElement('button');
     this.button.id = 'resource-transfer';
@@ -18,13 +19,11 @@ export class AimResources {
       events.on('ui.overlay',open=>{this.overlay=open;this.render();}),
     ];
   }
-  target() { return this.state?.buildings?.find(b=>b.building_id===this.targetId && ['drill','warehouse','oxygen_generator'].includes(b.building_type)); }
+  target(refresh=false) { const b=aimedBuilding(this.scene,this.state,refresh); return b && ['drill','warehouse','oxygen_generator'].includes(b.building_type) ? b : null; }
   available(building) {
     const state=this.state;
     if (!building || !this.connected || this.overlay || state.stage!=='running' || building.team_id!==state.team_id) return false;
-    const player=state.players?.find(p=>p.player_id===state.self_id);
-    return !!player?.position && !!building.position && Number.isFinite(state.config?.interaction_distance)
-      && surfaceDistance(vector(player.position),vector(building.position),state.world.radius)<=state.config.interaction_distance;
+    return true;
   }
   plan(building) { return buildingTransfer(this.state,building); }
   render() {
@@ -42,7 +41,7 @@ export class AimResources {
     this.button.textContent=count ? `${label} (${count}) · ЛКМ` : hasSource?full:empty;
   }
   pickup() {
-    const building=this.target();
+    const building=this.target(true);
     if (!this.available(building))return;
     const {type,items}=this.plan(building);
     for(const item of items)this.events.emit('command',{type,payload:{building_id:building.building_id,...item}});

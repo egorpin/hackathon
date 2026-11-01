@@ -18,6 +18,7 @@ from websockets.sync.client import connect
 from app import main
 from app.storage import Database
 from app.game.state import Building, STARTING_RESOURCES
+from app.world.geometry import cross, move_on_surface, unit
 
 ORIGIN = "http://localhost:8000"
 
@@ -345,18 +346,23 @@ def test_build_remove_and_respawn_commands_over_websocket(client):
             if message['type'] == 'lobby.state' and message['payload']['stage'] == 'running':
                 break
         runtime = main.app.state.game.runtime(identity)
-        def action(kind, **payload):
+        def action(kind, expected_ok=True, **payload):
             request_id = str(uuid.uuid4())
             ws.send_json({'type': kind, 'request_id': request_id, 'payload': payload})
             for _ in range(100):
                 message = ws.receive_json()
                 if message['type'] == 'action.result' and message.get('request_id') == request_id:
-                    assert message['payload']['ok'], message
+                    assert message['payload']['ok'] is expected_ok, message
                     return message['payload']
             raise AssertionError('No action result')
         site = next(cell for cell, user in runtime.state.landing_claims.items() if user == identity['user_id'])
         cell = runtime.planet.cells[site].neighbors[0]
         building = action('building.place', cell_id=cell, building_type='dome_base')['building_id']
         assert action('player.respawn')['building_id'] == building
+        assert action('building.remove', expected_ok=False, building_id=building)['code'] == 'OUT_OF_RANGE'
+        target = runtime.planet.cells[cell]
+        direction = unit(cross(target.center, target.vertices[0]))
+        with runtime.transaction() as state:
+            state.players[identity['user_id']].position = move_on_surface(target.center, direction, 1.1, runtime.planet.radius)
         assert action('building.remove', building_id=building)['refunded'] == {'iron': 10}
         assert action('player.respawn')['building_id'] is None

@@ -345,10 +345,6 @@ export class WorldScene {
     this.select(null); this.events.emit('camera.changed',this.mode);
     this.targetBuilding(null);
   }
-  nearestBuilding() {
-    return [...this.buildings.values()].filter(e => e.mesh.visible)
-      .sort((a,b) => vector(a.data.interaction_point || a.data.position).distanceTo(this.position)-vector(b.data.interaction_point || b.data.position).distanceTo(this.position))[0]?.data || null;
-  }
   frame(now) {
     this.frameTimes.push(now-this.previous);
     const dt = Math.min(.05,Math.max(0,(now-this.previous)/1000)); this.previous = now;

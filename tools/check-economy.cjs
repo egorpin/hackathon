@@ -88,7 +88,7 @@ async function waitForServer(address){
         const player=state.players.find(p=>p.player_id===state.self_id),r=state.world.radius;
         const distance=c=>r*Math.acos(Math.min(1,Math.max(-1,c.center.reduce((sum,v,i)=>sum+v*player.position[i],0)/(Math.hypot(...c.center)*Math.hypot(...player.position)))));
         const adjacentCell=adjacentTo&&cells[state.buildings.find(b=>b.building_id===adjacentTo).cell_id];
-        const cell=Object.values(cells).filter(c=>c.buildable&&(!resource||c.resource===resource)&&(!adjacentCell||adjacentCell.neighbors.includes(c.cell_id))&&!state.buildings.some(b=>b.cell_id===c.cell_id)&&distance(c)<=state.world.build_distance&&distance(c)>=2).sort((a,b)=>distance(a)-distance(b))[0];
+        const cell=Object.values(cells).filter(c=>c.buildable&&(!resource||c.resource===resource)&&(!adjacentCell||adjacentCell.neighbors.includes(c.cell_id))&&!state.buildings.some(b=>b.cell_id===c.cell_id)&&distance(c)<=state.world.build_distance&&distance(c)>=2).sort((a,b)=>distance(b)-distance(a))[0];
         if(!cell)throw Error(`No reachable free cell for ${type}/${resource}`);
         window.marsClient.events.emit('build.cancel');
         window.marsClient.events.emit('build.choose',type);
@@ -106,7 +106,8 @@ async function waitForServer(address){
         const state=window.qa.state,b=state.buildings.find(b=>b.building_id===id);
         return {pool:state.team_storage,cost:state.config.recipes[b.building_type],stock:b.building_type==='warehouse'?{}:b.stock};
       },id);
-      await page.evaluate(id=>window.marsClient.events.emit('building.selected',window.qa.state.buildings.find(b=>b.building_id===id)),id);
+      await aim(id);
+      await page.keyboard.press('KeyE');
       await page.locator('.building-panel').waitFor();
       assert.equal(await page.evaluate(()=>window.qa.scene.controls.suspended),true);
       await page.locator('#building-remove').click();
@@ -115,7 +116,7 @@ async function waitForServer(address){
       const after=await page.evaluate(()=>window.qa.state.team_storage);
       for(const resource of ['iron','sulfur'])assert.equal(after[resource],before.pool[resource]+(before.cost[resource]||0)+(before.stock[resource]||0),'paid building costs must be refunded');
     };
-    const aim=async id=>{
+    const orient=async id=>{
       await page.evaluate(async id=>{
         const {Vector3,Box3}=await import('/node_modules/three/build/three.module.js');
         const {EYE_HEIGHT}=await import('/src/scene/character-scale.js');
@@ -127,6 +128,31 @@ async function waitForServer(address){
         scene.heading.copy(horizontal.normalize());scene.controls.pitch=Math.asin(vertical);
         window.marsClient.events.emit('build.cancel');
       },id);
+    };
+    const distance=async id=>page.evaluate(id=>{
+      const {state}=window.qa,b=state.buildings.find(b=>b.building_id===id);
+      const p=state.players.find(p=>p.player_id===state.self_id).position;
+      const dot=p.reduce((sum,v,i)=>sum+v*b.position[i],0)/(Math.hypot(...p)*Math.hypot(...b.position));
+      return {distance:state.world.radius*Math.acos(Math.max(-1,Math.min(1,dot))),reach:b.interaction_distance};
+    },id);
+    const approach=async id=>{
+      const before=await distance(id);
+      if(before.distance>before.reach-.02){
+        await orient(id);
+        await page.keyboard.down('KeyW');
+        try{
+          await page.waitForFunction(id=>{
+            const {state}=window.qa,b=state.buildings.find(b=>b.building_id===id);
+            const p=state.players.find(p=>p.player_id===state.self_id).position;
+            const dot=p.reduce((sum,v,i)=>sum+v*b.position[i],0)/(Math.hypot(...p)*Math.hypot(...b.position));
+            return state.world.radius*Math.acos(Math.max(-1,Math.min(1,dot)))<=b.interaction_distance-.02;
+          },id,{timeout:8000});
+        }finally{await page.keyboard.up('KeyW');}
+      }
+    };
+    const aim=async id=>{
+      await approach(id);
+      await orient(id);
       await page.waitForFunction(id=>window.qa.scene.targetedBuilding?.building_id===id,id);
       await page.locator('#resource-transfer:not([hidden])').waitFor();
     };
@@ -150,6 +176,19 @@ async function waitForServer(address){
     const water=await build('drill','water');
     await page.waitForFunction(id=>window.qa.state.buildings.find(b=>b.building_id===id)?.stock.water>=3,water);
     assert.equal(await page.evaluate(()=>window.qa.state.team_storage.water),5,'drill must keep water locally');
+    const initialDistance=await distance(water);
+    assert.ok(initialDistance.distance>initialDistance.reach,`test needs a distant drill: ${JSON.stringify(initialDistance)}`);
+    await orient(water);
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(250);
+    assert.equal(await page.locator('.building-panel').isVisible(),false,'E must not open a distant building');
+    await approach(water);
+    await orient(water);
+    await page.evaluate(()=>{window.qa.scene.heading.negate();window.qa.scene.controls.pitch=0;});
+    await page.waitForTimeout(100);
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(250);
+    assert.equal(await page.locator('.building-panel').isVisible(),false,'E must not open a nearby building while looking away');
     await aim(water);
     await page.keyboard.press('KeyE');
     await page.locator('.building-panel').waitFor();

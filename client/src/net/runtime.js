@@ -1,5 +1,6 @@
 import { WorldCache } from './world-cache.js';
 import { MINABLE_RESOURCES } from '../ui/economy.js';
+import { aimedBuilding } from '../ui/interaction.js';
 export class Runtime {
   constructor(transport, scene, events) {
     this.transport = transport; this.scene = scene; this.events = events; this.cache = new WorldCache();
@@ -38,7 +39,7 @@ export class Runtime {
         if (scene.selected) this.command('building.place',{cell_id:scene.selected.cell_id,building_type:this.buildType});
       }),
       events.on('build.type', type => { this.buildType = type; scene.buildType = type; scene.select(scene.selected); }),
-      events.on('interact.request', () => events.emit('building.selected',scene.targetedBuilding || scene.nearestBuilding())),
+      events.on('interact.request', () => events.emit('building.selected',aimedBuilding(scene,this.state,true))),
     ];
   }
   fail(message) {

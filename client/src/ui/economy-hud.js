@@ -1,7 +1,7 @@
 import './economy-hud.css';
 import { BUILDINGS } from './buildings.js';
 import { transferPlan } from './economy.js';
-import { surfaceDistance, vector } from '../scene/motion.js';
+import { aimedBuilding, inInteractionRange } from './interaction.js';
 
 const resources = {iron:'Железо', copper:'Медь', water:'Вода', sulfur:'Сера'};
 const number = value => Number.isFinite(value) ? value.toLocaleString('ru-RU', {maximumFractionDigits:1}) : '—';
@@ -74,11 +74,7 @@ export class EconomyHUD {
   accessReason(building) {
     if (!this.playable()) return 'Дождитесь начала экспедиции и подключения к серверу.';
     if (building.team_id !== this.state.team_id) return 'Постройка другой команды: взаимодействие недоступно.';
-    const player = this.state.players?.find(item => item.player_id === this.state.self_id);
-    const radius = this.state.world?.radius ?? this.state.config?.radius;
-    const reach = this.state.config?.interaction_distance;
-    if (!player?.position || !building.position || !Number.isFinite(radius) || !Number.isFinite(reach)) return 'Ожидание положения игрока и постройки.';
-    if (surfaceDistance(vector(player.position), vector(building.position), radius) > reach) return 'Подойдите ближе к постройке для взаимодействия.';
+    if (!inInteractionRange(this.state, building)) return 'Подойдите ближе к постройке для взаимодействия.';
     return '';
   }
 
@@ -182,8 +178,9 @@ export class EconomyHUD {
   }
 
   open(building) {
-    if (!building) { this.events.emit('notice', 'Рядом нет построек. Подойдите к постройке и нажмите E.'); return; }
-    this.selectedId = building.building_id;
+    const target = aimedBuilding(this.scene, this.state);
+    if (!building || target?.building_id !== building.building_id) return;
+    this.selectedId = target.building_id;
     const current = this.selected();
     if (!current || !this.playable()) return;
     this.renderBuilding(current);

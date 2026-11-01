@@ -8,7 +8,7 @@ from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INPUT_TIMEOUT_TICKS,
                     MOUNTAIN_RADIUS, OXYGEN_GOAL, PLAYER_RADIUS,
                     PRODUCTION_TICKS, REACH, RECIPES, SPEED, TICK_SECONDS,
                     INVENTORY_CAPACITY, STORAGE_CAPACITY, STARTING_ORE, MINABLE_RESOURCES,
-                    STARTING_RESOURCES, OXYGEN_PER_CYCLE, storage_capacity)
+                    STARTING_RESOURCES, OXYGEN_PER_CYCLE, building_interaction_distance, storage_capacity)
 
 
 def step(world, dt_seconds, planet):
@@ -110,7 +110,8 @@ def snapshot(context, unit_of_work, view_radius=12.0):
             continue
         item = {"building_id": building.building_id, "cell_id": building.cell_id,
                 "building_type": building.building_type, "team_id": building.team_id,
-                "color": state.players[building.creator_id].color}
+                "color": state.players[building.creator_id].color,
+                "interaction_distance": building_interaction_distance(planet, planet.cells[building.cell_id])}
         if building.team_id == player.team_id:
             item["stock"] = building.stock if building.building_type != "warehouse" else state.team_storage[player.team_id]
         buildings.append(item)

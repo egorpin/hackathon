@@ -9,7 +9,8 @@ import unittest
 import uuid
 
 from app.game import Context, UnitOfWork, WorldState, apply_command, snapshot, step
-from app.game.state import BUILDING_CAPACITY, INVENTORY_CAPACITY, TICK_SECONDS, Building, PLAYER_COLORS
+from app.game.state import (BUILDING_CAPACITY, INVENTORY_CAPACITY, TICK_SECONDS, Building, PLAYER_COLORS,
+                            BUILDING_RADIUS, PLAYER_RADIUS, building_interaction_distance)
 from app.world import generate_planet, move_on_surface, surface_distance
 from app.world.export import export_planet
 from app.world.geometry import angle, cross, dot, unit
@@ -138,6 +139,44 @@ class GameTests(unittest.TestCase):
             cell_id = self.planet.cells[self.planet.landing_sites[0]].neighbors[0]
         return self.ok(self.act("building.place", cell_id=cell_id, building_type=building_type))["building_id"]
 
+    def move_near(self, building_id):
+        cell = self.planet.cells[self.world.state.buildings[building_id].cell_id]
+        direction = unit(cross(cell.center, cell.vertices[0]))
+        with self.world.transaction() as state:
+            state.players['alice'].position = move_on_surface(cell.center, direction, 1.1, self.planet.radius)
+
+    def interact(self, kind, building_id, **payload):
+        self.move_near(building_id)
+        return self.act(kind, building_id=building_id, **payload)
+
+    def test_building_interaction_range_is_short_and_matches_snapshot(self):
+        self.start()
+        cell = self.planet.cells[self.planet.cells[self.planet.landing_sites[0]].neighbors[0]]
+        direction = unit(cross(cell.center, cell.vertices[0]))
+        with self.world.transaction() as state:
+            state.players['alice'].position = move_on_surface(cell.center, direction, 3.5, self.planet.radius)
+        building = self.build(cell_id=cell.cell_id)  # Placement retains its 4.5 m range.
+        published = next(b for b in snapshot(self.context, self.world)['payload']['buildings']
+                         if b['building_id'] == building)['interaction_distance']
+        mean = sum(surface_distance(cell.center, v, self.planet.radius) for v in cell.vertices) / len(cell.vertices)
+        self.assertAlmostEqual(published, max(mean, BUILDING_RADIUS + PLAYER_RADIUS + .05))
+        self.assertLess(published, 3.5)
+        with self.world.transaction() as state:
+            state.buildings[building].stock['iron'] = 2
+            state.players['alice'].inventory['iron'] = 2
+        for kind in ('resource.pickup', 'resource.deposit', 'building.remove'):
+            payload = {} if kind == 'building.remove' else {'resource': 'iron', 'amount': 1}
+            self.assertEqual(self.act(kind, building_id=building, **payload)['payload']['code'], 'OUT_OF_RANGE')
+        self.move_near(building)
+        for kind in ('resource.pickup', 'resource.deposit', 'building.remove'):
+            payload = {} if kind == 'building.remove' else {'resource': 'iron', 'amount': 1}
+            self.ok(self.act(kind, building_id=building, **payload))
+
+    def test_interaction_range_remains_outside_collision_on_small_planet(self):
+        planet = generate_planet(radius=1)
+        cell = next(iter(planet.cells.values()))
+        self.assertGreater(building_interaction_distance(planet, cell), BUILDING_RADIUS + PLAYER_RADIUS)
+
     def test_lobby_claims_capacity_and_mountains(self):
         self.assertEqual(self.act("world.start")["payload"]["code"], "LANDING_REQUIRED")
         others = [Context("world-a", f"user-{n}", "team-a") for n in range(3)]
@@ -184,9 +223,9 @@ class GameTests(unittest.TestCase):
         self.advance(60)
         self.assertEqual(self.world.state.oxygen_percent, 0.5)
         self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 10)
-        self.ok(self.act("resource.pickup", building_id=drill, resource="iron", amount=8))
+        self.ok(self.interact("resource.pickup", building_id=drill, resource="iron", amount=8))
         self.assertEqual(self.world.state.players["alice"].inventory["iron"], 8)
-        self.ok(self.act("resource.deposit", building_id=warehouse, resource="iron", amount=8))
+        self.ok(self.interact("resource.deposit", building_id=warehouse, resource="iron", amount=8))
         self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 18)
 
     def test_drill_requires_resource_without_spending(self):
@@ -324,6 +363,7 @@ class GameTests(unittest.TestCase):
             state.players["alice"].inventory["ore"] = INVENTORY_CAPACITY - 1
             state.players["alice"].inventory["iron"] = 1
             state.buildings[drill].stock["iron"] = BUILDING_CAPACITY
+        self.move_near(drill)
         self.assertEqual(self.act("resource.pickup", building_id=drill, resource="iron", amount=1)["payload"]["code"], "INVENTORY_FULL")
         self.assertEqual(self.act("resource.deposit", building_id=drill, resource="iron", amount=1)["payload"]["code"], "INVENTORY_FULL")
 

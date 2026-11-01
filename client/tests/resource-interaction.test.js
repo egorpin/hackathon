@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { WorldScene } from '../src/scene/world-scene.js';
 import { AimResources } from '../src/ui/aim-resources.js';
 import { Events } from '../src/net/events.js';
+import { Runtime } from '../src/net/runtime.js';
 
 test('aim targets model children, clears when looking away, and respects nearer terrain',()=>{
   const camera=new THREE.PerspectiveCamera(70,1,.05,100);
@@ -33,12 +34,14 @@ test('contextual transfer uses aimed building, reach, ownership and actual inven
   globalThis.document={createElement:()=>({remove(){}}),querySelector:()=>({append(){}})};
   const events=new Events(),commands=[];
   events.on('command',value=>commands.push(value));
-  const ui=new AimResources({events});
+  const scene={enabled:true,mode:'first',controls:{},pick(){}};
+  const ui=new AimResources({events,scene});
   try {
     events.emit('connection.status','connected');
-    const drill={building_id:'drill',building_type:'drill',team_id:'team',position:[0,30,0],stock:{water:8}};
+    const drill={building_id:'drill',building_type:'drill',team_id:'team',position:[0,30,0],interaction_distance:1,stock:{water:8}};
     const state={stage:'running',self_id:'me',team_id:'team',world:{radius:30},players:[{player_id:'me',position:[0,30,0]}],
       buildings:[drill],inventory:{iron:46},team_storage:{},config:{interaction_distance:4.5,inventory_capacity:50,storage_capacity:300,building_capacity:50}};
+    scene.targetedBuilding=drill;
     events.emit('world.state',state);events.emit('building.targeted',drill);
     assert.equal(ui.button.hidden,false);assert.equal(ui.button.disabled,false);
     events.emit('pickup.request');
@@ -46,6 +49,9 @@ test('contextual transfer uses aimed building, reach, ownership and actual inven
     events.emit('ui.overlay',true);assert.equal(ui.button.hidden,true);
     events.emit('pickup.request');assert.equal(commands.length,1);
     events.emit('ui.overlay',false);
+    scene.pick=()=>{scene.targetedBuilding=null;};
+    events.emit('pickup.request');assert.equal(commands.length,1,'pickup refreshes the aim');
+    scene.pick=()=>{};scene.targetedBuilding=drill;
     events.emit('world.state',{...state,inventory:{iron:50}});
     assert.equal(ui.button.disabled,true);assert.match(ui.button.textContent,/Рюкзак заполнен/);
     events.emit('world.state',{...state,buildings:[{...drill,team_id:'other'}]});
@@ -55,4 +61,23 @@ test('contextual transfer uses aimed building, reach, ownership and actual inven
     events.emit('connection.status','reconnecting');events.emit('connection.status','connected');
     assert.equal(ui.button.hidden,true,'stale snapshot cannot enable transfer after reconnect');
   } finally {ui.dispose();globalThis.document=previous;}
+});
+
+test('interaction refreshes first-person aim and uses the current building and its reach',()=>{
+  const events=new Events(), selected=[];
+  const transport={on(){return ()=>{};}};
+  const building={building_id:'b',position:[0,30,0],interaction_distance:1};
+  const scene={enabled:true,mode:'first',controls:{},targetedBuilding:building,pick(){this.targetedBuilding=null;}};
+  const runtime=new Runtime(transport,scene,events);
+  runtime.state={stage:'running',self_id:'me',world:{radius:30},players:[{player_id:'me',position:[0,30,0]}],buildings:[building]};
+  events.on('building.selected',item=>selected.push(item));
+  events.emit('interact.request');assert.equal(selected.at(-1),null,'looking away clears an old target');
+  scene.pick=()=>{scene.targetedBuilding=building;};
+  events.emit('interact.request');assert.equal(selected.at(-1),building);
+  runtime.state={...runtime.state,players:[{player_id:'me',position:[2,29.93,0]}]};
+  events.emit('interact.request');assert.equal(selected.at(-1),null,'outside this building’s reach');
+  runtime.state={...runtime.state,players:[{player_id:'me',position:[0,30,0]}]};
+  scene.mode='top';events.emit('interact.request');assert.equal(selected.at(-1),null,'top view cannot interact');
+  scene.mode='first';scene.controls.suspended=true;events.emit('interact.request');assert.equal(selected.at(-1),null,'overlay blocks a new target');
+  runtime.unsubs.forEach(fn=>fn());
 });
