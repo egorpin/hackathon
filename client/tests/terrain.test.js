@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { terrainHeight, projectTerrain } from '../src/scene/terrain.js';
+import * as THREE from 'three';
+import { terrainHeight, projectTerrain, terrainNormal } from '../src/scene/terrain.js';
 
 test('terrain relief matches server reference samples', () => {
   const samples = [
@@ -32,4 +33,23 @@ test('terrain projection preserves radial offset and disabled mode', () => {
   assert.equal(projectTerrain(point, 30, .25).x, 30.25 + terrainHeight(1,0,0));
   const flat = {x: 1, y: 0, z: 0, normalize() { return this; }, multiplyScalar(s) { this.x*=s; this.y*=s; this.z*=s; return this; }};
   assert.equal(projectTerrain(flat, 30, .25, false).x, 30.25);
+});
+
+test('terrain normal is radial on flat terrain and follows relief slopes',()=>{
+  const radial=new THREE.Vector3(1,0,0);
+  const flat=terrainNormal(radial,30,false);
+  assert.ok(flat.distanceTo(radial)<1e-12);
+  const normal=terrainNormal(radial,30,true);
+  assert.ok(Math.abs(normal.length()-1)<1e-12);
+  assert.ok(normal.dot(radial)>0,'normal must point outward');
+  assert.ok(normal.distanceTo(radial)>.05,'sampled relief should tilt the normal');
+});
+
+test('terrain normal remains finite and outward at both poles',()=>{
+  for(const y of [1,-1]){
+    const radial=new THREE.Vector3(0,y,0),normal=terrainNormal(radial,30,true);
+    assert.ok(normal.toArray().every(Number.isFinite));
+    assert.ok(Math.abs(normal.length()-1)<1e-12);
+    assert.ok(normal.dot(radial)>.98,'pole normal should face away from the planet center');
+  }
 });

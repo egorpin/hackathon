@@ -14,9 +14,13 @@ from app.world.geometry import Planet, surface_distance
 TICK_SECONDS = .05
 SPEED = 4.0
 REACH = 4.5
-PLAYER_RADIUS = .3 / 1.5
-BUILDING_RADIUS = .8
+PLAYER_RADIUS = .2
+# Square concrete foundations are 1.9 m wide; their corners reach 1.34 m.
+BUILDING_RADIUS = 1.35
 MOUNTAIN_RADIUS = 1.5
+JUMP_SPEED = 4.8
+GRAVITY = 5.5
+
 
 
 def building_interaction_distance(planet, cell):
@@ -77,6 +81,11 @@ class Player:
     jump_held: bool = False
     jump_pending: bool = False
     running: bool = False
+    flashlight: bool = False
+    pitch: float = 0.
+    roof_building_id: str | None = None
+    support_building_id: str | None = None
+    support_surface_id: str | None = None
 
 
 @dataclass

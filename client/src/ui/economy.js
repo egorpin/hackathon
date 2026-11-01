@@ -1,5 +1,5 @@
-export const RESOURCE_NAMES = Object.freeze({iron:'железа', copper:'меди', water:'воды', sulfur:'серы'});
-export const RESOURCE_SYMBOLS = Object.freeze({iron:'Fe', copper:'Cu', water:'H₂O', sulfur:'S'});
+export const RESOURCE_NAMES = Object.freeze({iron:'железа', copper:'меди', water:'льда', sulfur:'серы'});
+export const RESOURCE_SYMBOLS = Object.freeze({iron:'Fe', copper:'Cu', water:'ЛЕД', sulfur:'S'});
 export const MINABLE_RESOURCES = Object.freeze(Object.keys(RESOURCE_NAMES));
 
 export function recipeFor(state, type) {

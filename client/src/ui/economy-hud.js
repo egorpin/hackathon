@@ -1,9 +1,10 @@
 import './economy-hud.css';
+import { restorePointerLock } from './pointer-lock.js';
 import { BUILDINGS } from './buildings.js';
 import { transferPlan } from './economy.js';
 import { aimedBuilding, inInteractionRange } from './interaction.js';
 
-const resources = {iron:'Железо', copper:'Медь', water:'Вода', sulfur:'Сера'};
+const resources = {iron:'Железо', copper:'Медь', water:'ЛЕД', sulfur:'Сера'};
 const number = value => Number.isFinite(value) ? value.toLocaleString('ru-RU', {maximumFractionDigits:1}) : '—';
 const total = stock => Object.values(stock || {}).reduce((sum, amount) => sum + (Number.isFinite(amount) ? amount : 0), 0);
 
@@ -44,7 +45,8 @@ export class EconomyHUD {
       <div class="building-panel-actions"><button type="button" id="office-open" hidden>Терминал роверов</button><button type="button" id="building-remove">Снести постройку</button><button type="button" class="building-panel-done">Закрыть</button></div>`;
     document.body.append(this.panel);
     const on = (element, event, callback) => element.addEventListener(event, callback, {signal:this.abort.signal});
-    for (const button of this.panel.querySelectorAll('.building-panel-close,.building-panel-done')) on(button, 'click', () => this.panel.close());
+    for (const button of this.panel.querySelectorAll('.building-panel-close,.building-panel-done')) on(button, 'click', () => this.closeAndResume());
+    on(this.panel, 'cancel', event => { event.preventDefault(); this.closeAndResume(); });
     on(this.panel, 'keydown', event => {
       event.stopPropagation();
       if (event.code !== 'KeyE' || event.repeat || event.isComposing || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.target?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) return;
@@ -61,7 +63,7 @@ export class EconomyHUD {
       const building = this.selected();
       if (!building || this.accessReason(building)) return;
       events.emit('command', {type:'building.remove', payload:{building_id:building.building_id}});
-      this.panel.close();
+      this.closeAndResume();
     });
     this.unsubs = [
       events.on('world.state', state => { this.state = state; this.render(); }),
@@ -108,7 +110,7 @@ export class EconomyHUD {
     // Each message uses the existing server command contract; the room budget
     // is shared across all resources in this pickup/deposit action.
     for (const payload of plan) this.events.emit('command', {type:command, payload});
-    this.panel.close();
+    this.closeAndResume();
   }
 
   render() {
@@ -127,7 +129,7 @@ export class EconomyHUD {
       inventoryNode.classList.toggle('is-full', Number.isFinite(inventoryCapacity) && inventoryUsed >= inventoryCapacity);
       const carried = Object.entries(state.inventory || {}).filter(([, amount]) => amount > 0);
       const inventoryResources = this.strip.querySelector('#inventory-resources');
-      const symbols = {iron:'Fe', copper:'Cu', water:'H₂O', sulfur:'S', ore:'руды'};
+      const symbols = {iron:'Fe', copper:'Cu', water:'ЛЕД', sulfur:'S', ore:'руды'};
       inventoryResources.textContent = carried.map(([resource, amount]) => `${number(amount)} ${symbols[resource] || resource}`).join(' · ') || 'пусто';
       inventoryResources.title = carried.map(([resource, amount]) => `${resources[resource] || resource}: ${number(amount)}`).join(', ') || 'В рюкзаке нет ресурсов';
       const energy = state.energy;
@@ -161,10 +163,10 @@ export class EconomyHUD {
       : `Добывает 1 ресурс месторождения ${period} и хранит его внутри (до ${number(config.building_capacity)}). Заберите ресурсы в рюкзак и отнесите их на склад.`;
     if (type === 'oxygen_generator') {
       operation = (state.oxygen_percent ?? state.oxygen) >= (state.oxygen_goal || 100)
-        ? 'Цель по кислороду достигнута. Генератор больше не расходует воду.'
-        : `Для работы: 1 вода из внутреннего запаса ${period}, +${number(config.oxygen_per_cycle)} процентного пункта O₂. Разгрузите воду из рюкзака прямо в генератор или сдайте её на склад вашей команды на соседней клетке — он автоматически подаёт нужную воду из общего запаса.`;
+        ? 'Цель по кислороду достигнута. Генератор больше не расходует лёд.'
+        : `Для работы: 1 ед. льда из внутреннего запаса ${period}, +${number(config.oxygen_per_cycle)} процентного пункта O₂. Разгрузите лёд из рюкзака прямо в генератор или сдайте его на склад вашей команды на соседней клетке — он автоматически подаёт нужный ресурс из общего запаса.`;
     }
-    if (type === 'warehouse') operation = `Добавляет ${number(config.warehouse_capacity)} единиц к общей вместимости команды. Сдавайте сюда ресурсы из рюкзака для строительства. Склад автоматически передаёт только нужные ресурсы постройкам вашей команды на соседних клетках: генератору — воду. Дальние постройки он не снабжает.`;
+    if (type === 'warehouse') operation = `Добавляет ${number(config.warehouse_capacity)} единиц к общей вместимости команды. Сдавайте сюда ресурсы из рюкзака для строительства. Склад автоматически передаёт только нужные ресурсы постройкам вашей команды на соседних клетках: генератору — лёд. Дальние постройки он не снабжает.`;
     if (type === 'dome_base') operation = 'Стартовый офис команды и терминал управления роверами. Здесь можно зарегистрировать координаты, купить ровер и запустить программу.';
     if (type === 'solar_panel') operation = `Производит ${number(config.energy_output?.solar_panel)} ед. энергии в общую сеть мира. Энергия сразу доступна всем постройкам, без хранилищ и проводов. Избыток не накапливается.`;
     if (type !== 'solar_panel') operation += ` Потребление: ${number(config.energy_consumption?.[type])} ед. энергии. Скорость производства: ${number((state.energy?.efficiency ?? 1) * 100)}%. При дефиците все производственные постройки замедляются пропорционально.`;
@@ -183,7 +185,7 @@ export class EconomyHUD {
     const pickup = this.panel.querySelector('#building-pickup'), deposit = this.panel.querySelector('#building-deposit');
     pickup.hidden = type !== 'drill';
     deposit.hidden = !['warehouse', 'oxygen_generator'].includes(type);
-    deposit.textContent = type === 'oxygen_generator' ? 'Разгрузить воду · E' : 'Сдать ресурсы на склад · E';
+    deposit.textContent = type === 'oxygen_generator' ? 'Разгрузить ЛЕД · E' : 'Сдать ресурсы на склад · E';
     const plan = this.transferPlan(building, type === 'drill' ? 'resource.pickup' : 'resource.deposit');
     pickup.disabled = deposit.disabled = !plan.length;
     let transferHint = '';
@@ -194,8 +196,8 @@ export class EconomyHUD {
       ? `В общий запас: ${number(plan.reduce((sum, payload) => sum + payload.amount, 0))} ед.`
       : total(pool) >= config.storage_capacity ? 'Общий запас заполнен.' : 'В рюкзаке нет ресурсов для сдачи.';
     if (!reason && type === 'oxygen_generator') transferHint = plan.length
-      ? `В генератор: ${number(plan.reduce((sum, payload) => sum + payload.amount, 0))} воды. Остальные ресурсы останутся в рюкзаке.`
-      : total(building.stock) >= config.building_capacity ? 'Внутренний запас генератора заполнен.' : 'В рюкзаке нет воды. Генератор принимает только воду.';
+      ? `В генератор: ${number(plan.reduce((sum, payload) => sum + payload.amount, 0))} ед. льда. Остальные ресурсы останутся в рюкзаке.`
+      : total(building.stock) >= config.building_capacity ? 'Внутренний запас генератора заполнен.' : 'В рюкзаке нет льда. Генератор принимает только лёд.';
     this.panel.querySelector('#building-transfer-hint').textContent = transferHint;
   }
 
@@ -216,6 +218,11 @@ export class EconomyHUD {
     this.panel.querySelector('.building-panel-close').focus();
   }
 
+  closeAndResume() {
+    this.panel.close();
+    this.resume();
+  }
+
   resume() {
     // close events are queued: a newly opened dialog may already have replaced
     // the one that caused this event. Keep its selection and input suspension.
@@ -225,15 +232,12 @@ export class EconomyHUD {
     this.scene.controls.suspended = suspended;
     this.scene.controls.clear();
     this.events.emit('ui.overlay', suspended);
-    // Closing the drill panel is a user gesture. Restore first-person look only
-    // when this panel had released an existing pointer lock.
-    if (!suspended && this.wasPointerLocked && this.scene.controls.mode === 'first') {
-      this.scene.controls.canvas.requestPointerLock?.().catch(() => {});
-    }
+    if (!suspended && !this.disposing && this.playable()) restorePointerLock(this.scene);
     this.wasPointerLocked = false;
   }
 
   dispose() {
+    this.disposing = true;
     if (this.panel.open) { this.panel.close(); this.resume(); }
     this.unsubs.forEach(unsubscribe => unsubscribe());
     this.abort.abort();

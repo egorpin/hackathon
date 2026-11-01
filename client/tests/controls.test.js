@@ -13,7 +13,7 @@ test('planet drag, wheel and arrows orbit without changing player heading; overl
     assert.deepEqual(emitted.pop(),['camera.zoom',.5]);
     fire(canvas,'mousedown',{button:0,clientX:100,clientY:100});
     fire(document,'mousemove',{clientX:200,clientY:150});
-    assert.deepEqual(emitted.pop(),['camera.orbit',{x:.8,y:.4}]);
+    assert.deepEqual(emitted.pop(),['camera.orbit',{x:-.8,y:-.4}]);
     fire(document,'mouseup');fire(canvas,'click');assert.equal(emitted.length,0);
     controls.keys.add('ArrowRight');controls.axes(1);
     assert.deepEqual(emitted.pop(),['camera.orbit',{x:3,y:0}]);assert.equal(controls.yaw,0);

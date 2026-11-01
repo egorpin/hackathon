@@ -3,7 +3,7 @@ import { polygonGeometry, shellModel } from './polygon-geometry.js';
 import { smoothSurface, sphericalCellGeometry, sphericalOutline } from './mars-surface.js';
 import { Controls } from './controls.js';
 import { advance, tangent, vector, PlayerTrack, surfaceDistance } from './motion.js';
-import { configureTerrain, projectTerrain } from './terrain.js';
+import { configureTerrain, projectTerrain, terrainNormal } from './terrain.js';
 import { Atmosphere } from './atmosphere.js';
 import { FirstPersonHands } from './first-person-hands.js';
 import { ModelLibrary, recolor } from './model-library.js';
@@ -18,6 +18,8 @@ import { BaseRobots } from './base-robots.js';
 import { isPlan, setPlanVisual } from './construction-visual.js';
 import { ProductionParticles } from './production-particles.js';
 import { updateRoverWheels } from './rover-wheels.js';
+import { createBaseMarker, updateBaseMarker } from './base-marker.js';
+import { createPlayerFlashlight, updatePlayerFlashlight } from './player-flashlight.js';
 
 export function disposeObject(root) {
   const geometries = new Set(), materials = new Set(), textures = new Set();
@@ -49,6 +51,7 @@ export class WorldScene {
     this.events = events; this.host = host; this.mode = 'first'; this.enabled = false;
     this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0x170f15);
     this.camera = new THREE.PerspectiveCamera(70,1,.05,2000);
+    this.firstPersonFov = 70;
     this.orbitRotation = new THREE.Quaternion(); this.orbitZoom = 1;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1));
@@ -64,6 +67,7 @@ export class WorldScene {
     this.modelRequests = new Map(); this.modelRetryAt = new Map();
     this.frameTimes=[]; this.cameraBob=true;
     this.cellsById = new Map(); this.chunks = new Map(); this.players = new Map(); this.buildings = new Map(); this.rovers = new Map();
+    this.baseMarkers = new Map();
     this.position = new THREE.Vector3(0,100,0); this.heading = new THREE.Vector3(0,0,-1);
     this.radius = 100; this.speed = 4; this.viewRadius = 24; this.buildDistance = 6;
     this.raycaster = new THREE.Raycaster(); this.pointer = new THREE.Vector2();
@@ -85,6 +89,7 @@ export class WorldScene {
         this.orbitRotation.premultiply(turn).normalize();
       }),
       events.on('scene.click', e => {
+        if(!this.buildType && this.interactRobot(e))return;
         if (this.mode === 'top') {
           this.pick(e);
           if (this.buildType) this.events.emit('build.request');
@@ -96,6 +101,11 @@ export class WorldScene {
       events.on('scene.pointer',e=>{if(this.mode==='top')this.pick(e);}),
       events.on('graphics.quality', level => this.setQuality(level)),
       events.on('graphics.bob', enabled => { this.cameraBob=enabled; }),
+      events.on('graphics.fov', value => {
+        if(!Number.isFinite(value))return;
+        this.firstPersonFov=THREE.MathUtils.clamp(value,50,110);
+        if(this.mode==='first'){this.camera.fov=this.firstPersonFov;this.camera.updateProjectionMatrix();}
+      }),
       events.on('graphics.effects', options => this.setVisualOptions(options)),
     ];
     this.resizeObserver = new ResizeObserver(() => this.resize()); this.resizeObserver.observe(host);
@@ -111,7 +121,7 @@ export class WorldScene {
       renderer.setPixelRatio(Math.min(devicePixelRatio, 1));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       const markers=new THREE.Group();markers.visible=false;this.scene.add(markers);
-      this.roverPreview = {canvas, renderer, camera:new THREE.PerspectiveCamera(70,1,.05,Math.max(1200,this.radius*8)), available:null, mapYaw:0, mapPitch:0, mapZoom:1, markers, pointsKey:null};
+      this.roverPreview = {canvas, renderer, camera:new THREE.PerspectiveCamera(70,1,.05,Math.max(1200,this.radius*8)), available:null, mapRotation:new THREE.Quaternion(), mapZoom:1, markers, pointsKey:null};
     }
     this.roverPreview.roverId = roverId;
     this.roverPreview.mode = mode;
@@ -147,7 +157,11 @@ export class WorldScene {
   }
   orbitRoverPreview({x=0,y=0}={}) {
     const p=this.roverPreview;if(!p)return;
-    p.mapYaw-=x;p.mapPitch=THREE.MathUtils.clamp(p.mapPitch-y,-1.2,1.2);
+    const screenUp=new THREE.Vector3(0,1,0).applyQuaternion(p.camera.quaternion);
+    const screenRight=new THREE.Vector3(1,0,0).applyQuaternion(p.camera.quaternion);
+    const turn=new THREE.Quaternion().setFromAxisAngle(screenUp,-x);
+    turn.multiply(new THREE.Quaternion().setFromAxisAngle(screenRight,-y));
+    (p.mapRotation ||= new THREE.Quaternion()).premultiply(turn).normalize();
   }
   zoomRoverPreview(delta) {
     const p=this.roverPreview;if(!p)return;
@@ -205,12 +219,11 @@ export class WorldScene {
       preview.markers.visible=true;
       if(this.selectedRoverMarker)this.selectedRoverMarker.visible=!!entry;
       const {up, forward} = tangent(this.position,this.heading);
-      const direction = up.clone().applyQuaternion(this.orbitRotation);
+      const rotation=(preview.mapRotation || new THREE.Quaternion()).clone().multiply(this.orbitRotation);
+      const direction = up.clone().applyQuaternion(rotation);
       const distance = this.radius + Math.max(this.radius*.28,this.viewRadius*.65)*this.orbitZoom*preview.mapZoom;
-      const right=forward.clone().cross(direction).normalize();
-      direction.applyAxisAngle(forward,preview.mapYaw).applyAxisAngle(right,preview.mapPitch);
       camera.position.copy(direction).multiplyScalar(distance);
-      camera.up.copy(forward).applyQuaternion(this.orbitRotation); camera.lookAt(0,0,0);
+      camera.up.copy(forward).applyQuaternion(rotation); camera.lookAt(0,0,0);
       this.mode = 'top'; this.syncSurface();
       for (const chunk of this.chunks.values()) for (const tile of chunk.cells) {
         for (const object of [tile.userData.outline,tile.userData.decoration].filter(Boolean)) {
@@ -239,6 +252,10 @@ export class WorldScene {
       // The onboard camera sits just ahead of the rover, so hide its own body.
       entry.mesh.visible = false;
       this.atmosphere.dust.visible = false;
+    }
+    for(const {marker,data} of this.baseMarkers?.values() || []) {
+      mapVisibility.push([marker,marker.visible]);
+      updateBaseMarker(marker,data,data.position,mode==='map'?'top':'first',this.radius,this.terrain);
     }
     try {
       renderer.render(this.scene,camera);
@@ -289,6 +306,7 @@ export class WorldScene {
       this.hands=new FirstPersonHands(this.camera,{astronaut:this.models.assets.get(name).scene,animations:this.models.assets.get(name).animations});
       for(const entry of this.players.values()) {
         disposeObject(entry.mesh); entry.mesh=this.models.create(name,entry.data?.color); entry.mesh.scale.multiply(new THREE.Vector3(CHARACTER_SCALE, CHARACTER_HEIGHT_SCALE, CHARACTER_SCALE));this.scene.add(entry.mesh);
+        entry.flashlight=createPlayerFlashlight(entry.mesh);
       }
     } else if(name==='rover') {
       for(const entry of this.rovers.values()) {
@@ -298,8 +316,8 @@ export class WorldScene {
       }
     } else {
       for(const entry of this.buildings.values()) if((entry.data.building_type==='warehouse'?'storage':entry.data.building_type)===name) {
-        disposeObject(entry.mesh);entry.mesh=this.buildingModel(entry.data.building_type,entry.data.color);
-        this.place(entry.mesh,vector(entry.data.position));this.scene.add(entry.mesh);
+        disposeObject(entry.mesh);entry.effects=null;entry.mesh=this.buildingModel(entry.data.building_type,entry.data.color);
+        this.place(entry.mesh,vector(entry.data.position),true);this.scene.add(entry.mesh);
         setPlanVisual(entry.mesh,isPlan(entry.data));
       }
     }
@@ -309,6 +327,8 @@ export class WorldScene {
     this.renderer.setSize(width,height); this.camera.aspect = width / Math.max(1,height); this.camera.updateProjectionMatrix();
   }
   reset() {
+    for(const {marker} of this.baseMarkers?.values() || [])disposeObject(marker);
+    this.baseMarkers?.clear();
     this.selectedRoverId=null;
     this.robots?.dispose();this.robots=null;
     for (const id of [...this.chunks.keys()]) this.unload(id);
@@ -327,6 +347,13 @@ export class WorldScene {
     this.selfId = snapshot.self_id;
     const world = snapshot.world;
     this.radius = world.radius; this.speed = world.move_speed;
+    this.playerRadius = snapshot.config?.player_radius ?? world.player_radius ?? .2;
+    this.buildingRadius = snapshot.config?.building_radius ?? world.building_radius ?? 1.35;
+    this.mountainRadius = snapshot.config?.mountain_radius ?? world.mountain_radius ?? 1.5;
+    this.roofRadius = snapshot.config?.building_roof_radius ?? .8;
+    this.gravity = snapshot.config?.gravity ?? 5.5;
+    this.playerHeight = snapshot.config?.player_height ?? .6;
+    this.stepHeight = snapshot.config?.step_height ?? .3;
     this.selectedRoverMarker.geometry.dispose();
     this.selectedRoverMarker.geometry=new THREE.OctahedronGeometry(Math.max(.35,this.radius*.025),0);
     this.terrain = !!world.terrain;
@@ -342,6 +369,16 @@ export class WorldScene {
   }
   applyState(state, snap = false) {
     const now = performance.now();
+    if(state.bases) {
+      this.baseMarkers ||= new Map();
+      const ids=new Set(state.bases.map(base=>base.building_id));
+      for(const [id,{marker}] of this.baseMarkers)if(!ids.has(id)){disposeObject(marker);this.baseMarkers.delete(id);}
+      for(const base of state.bases){
+        let entry=this.baseMarkers.get(base.building_id);
+        if(!entry){entry={marker:createBaseMarker(this.radius)};this.baseMarkers.set(base.building_id,entry);this.scene.add(entry.marker);}
+        entry.data=base;
+      }
+    }
     if(Number.isFinite(state.simulation_time)) { this.simulationTime=state.simulation_time;this.timeReceived=now; }
     if(state.stage)this.stage=state.stage;
     for (const id of state.removed_players || []) {
@@ -373,6 +410,9 @@ export class WorldScene {
         // Server owns position and collision resolution. Prediction is visual only.
         this.position.copy(vector(player.position));
         this.selfColor=player.color; this.altitude=player.altitude || 0; this.verticalSpeed=player.vertical_speed || 0;
+        this.roofBuildingId=null;
+        this.supportBuildingId=null;
+        this.supportSurfaceId=null;
         if (snap && player.heading) this.heading.copy(vector(player.heading));
         this.authoritative = this.position.clone(); this.predictionAge = 0;
         continue;
@@ -386,7 +426,8 @@ export class WorldScene {
         const helmet = mesh(new THREE.IcosahedronGeometry(.36,1),0x233a48); helmet.position.y = 1.65;
         model.add(body,helmet); }
         model.scale.multiply(new THREE.Vector3(CHARACTER_SCALE, CHARACTER_HEIGHT_SCALE, CHARACTER_SCALE));this.scene.add(model);
-        entry = { mesh: model, track: new PlayerTrack() }; this.players.set(player.player_id,entry);
+        entry = { mesh: model, track: new PlayerTrack() };
+        entry.flashlight=createPlayerFlashlight(model);this.players.set(player.player_id,entry);
       }
       entry.data=player; recolor(entry.mesh,player.color);
       entry.track.push(player,now);
@@ -394,12 +435,12 @@ export class WorldScene {
     for (const building of state.buildings || []) {
       const old = this.buildings.get(building.building_id);
       if (old && old.data.building_type===building.building_type) {
-        old.data=building;recolor(old.mesh,building.color);this.place(old.mesh,vector(building.position));
+        old.data=building;recolor(old.mesh,building.color);this.place(old.mesh,vector(building.position),true);
         if(!!old.mesh.userData.constructionPlan!==isPlan(building))setPlanVisual(old.mesh,isPlan(building));continue;
       }
       if(old)disposeObject(old.mesh);
       const model = this.buildingModel(building.building_type,building.color);
-      this.place(model,vector(building.position));
+      this.place(model,vector(building.position),true);
       setPlanVisual(model,isPlan(building));
       this.scene.add(model);
       if (building.interaction_point) {
@@ -446,10 +487,12 @@ export class WorldScene {
     group.traverse(node=>{if(type!=='solar_panel' && node.material && node.position.y>.35)node.material.name='Accent';}); recolor(group,color);
     return type==='drill'?group:withFoundation(group);
   }
-  place(object, position) {
-    fitFoundation(object,position,this.radius,this.terrain);
+  place(object, position, alignToTerrain = false) {
+    const normal=alignToTerrain?terrainNormal(position,this.radius,this.terrain):position.clone().normalize();
+    const orientation=new THREE.Quaternion().setFromUnitVectors(upAxis,normal);
+    fitFoundation(object,position,this.radius,this.terrain,orientation);
     object.position.copy(position);
-    object.quaternion.setFromUnitVectors(upAxis,position.clone().normalize());
+    object.quaternion.copy(orientation);
   }
   load(chunk) {
     this.unload(chunk.chunk_id);
@@ -513,12 +556,14 @@ export class WorldScene {
   unload(id) {
     const entry = this.chunks.get(id); if (!entry) return;
     if (entry.cells.some(tile => tile.userData.cell.cell_id === this.selected?.cell_id)) this.select(null);
-    const ids = new Set(entry.cells.map(tile => tile.userData.cell.cell_id));
-    for (const cellId of ids) this.cellsById.delete(cellId);
-    for (const [buildingId, building] of this.buildings) {
-      if (ids.has(building.data.cell_id)) { disposeObject(building.mesh); this.buildings.delete(buildingId); }
-    }
+    for (const tile of entry.cells) this.cellsById.delete(tile.userData.cell.cell_id);
     disposeObject(entry.group); this.chunks.delete(id);
+  }
+  updateBuildingVisibility(origin) {
+    // Buildings arrive in authoritative state independently of streamed terrain.
+    for (const entry of this.buildings.values()) {
+      entry.mesh.visible = surfaceDistance(origin,entry.mesh.position,this.radius) <= this.viewRadius;
+    }
   }
   select(cell) {
     const previousCell = this.selected; this.selected = cell;
@@ -535,11 +580,24 @@ export class WorldScene {
     this.selectionAllowed = allowed;
     this.preview.visible = !!cell && !!this.buildType;
     if (cell) {
-      this.place(this.preview,projectTerrain(vector(cell.center),this.radius,0,this.terrain));
+      this.place(this.preview,projectTerrain(vector(cell.center),this.radius,0,this.terrain),true);
       if(this.preview.material)this.preview.material.color.setHex(allowed ? 0x80ffd7 : 0xff605a);
       else this.preview.traverse(node=>{for(const m of [node.material].flat().filter(Boolean))m.color?.setHex(allowed?0x80ffd7:0xff605a);});
     }
     this.events.emit('cell.selected',{ cell, locallyAllowed: allowed });
+  }
+  interactRobot(event) {
+    if(!this.enabled || !this.robots || this.mode!=='first' || !this.visualOptions.animations)return false;
+    const pointer=new THREE.Vector2();
+    if(document.pointerLockElement!==this.renderer.domElement){
+      const rect=this.renderer.domElement.getBoundingClientRect();
+      pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);
+    }
+    this.camera.updateMatrixWorld();this.raycaster.setFromCamera(pointer,this.camera);
+    const blockers=[this.ground,...[...this.buildings.values()].filter(entry=>entry.mesh.visible).map(entry=>entry.mesh)].filter(Boolean);
+    for(const object of blockers)object.updateMatrixWorld(true);
+    const hit=this.raycaster.intersectObjects(blockers,true)[0];
+    return this.robots.interact(this.raycaster,Math.min(this.buildDistance,hit?.distance ?? Infinity));
   }
   pick(event) {
     if (!this.enabled) return;
@@ -591,6 +649,7 @@ export class WorldScene {
   }
   toggleCamera() {
     this.mode = this.mode === 'first' ? 'top' : 'first'; this.controls.mode = this.mode;
+    this.camera.fov=this.mode==='first'?this.firstPersonFov:70;this.camera.updateProjectionMatrix();
     this.syncSurface();
     this.controls.clear();
     if (document.pointerLockElement) document.exitPointerLock();
@@ -601,6 +660,7 @@ export class WorldScene {
     this.frameTimes.push(now-this.previous);
     const dt = Math.min(.05,Math.max(0,(now-this.previous)/1000)); this.previous = now;
     if (this.enabled) {
+      const animations = this.visualOptions.animations && this.mode === 'first';
       const axes = this.controls.axes(dt), frame = tangent(this.position,this.heading);
       const running=this.controls.keys.has('ShiftLeft') || this.controls.keys.has('ShiftRight');
       const jump=this.controls.keys.has('Space');
@@ -609,11 +669,11 @@ export class WorldScene {
       // Bound speculative travel to 150ms; collision and all gameplay remain server-authoritative.
       const predictionDt = Math.min(dt,Math.max(0,.15-(this.predictionAge || 0)));
       this.predictionAge = (this.predictionAge || 0) + dt;
-      const predicted = advance(this.position,this.heading,axes,this.speed*(running?1.5:1),predictionDt,this.radius);
       if(this.altitude || this.verticalSpeed) {
-        this.verticalSpeed-=5.5*predictionDt; this.altitude=Math.max(0,this.altitude+this.verticalSpeed*predictionDt);
+        this.verticalSpeed-=this.gravity*predictionDt; this.altitude=Math.max(0,this.altitude+this.verticalSpeed*predictionDt);
         if(!this.altitude)this.verticalSpeed=0;
       }
+      const predicted = advance(this.position,this.heading,axes,this.speed*(running?1.5:1),predictionDt,this.radius);
       projectTerrain(predicted.position,this.radius,this.altitude || 0,this.terrain);
       this.position.copy(predicted.position); this.heading.copy(predicted.heading);
       this.inputTime += dt;
@@ -622,7 +682,7 @@ export class WorldScene {
         const basis = tangent(this.position,this.heading);
         const move = basis.forward.multiplyScalar(axes.forward).addScaledVector(basis.right,axes.right);
         if (move.lengthSq() > 1) move.normalize();
-        this.events.emit('player.input',{ axes, heading: this.heading.toArray(), pitch: this.controls.pitch, move:move.toArray(),jump,running });
+        this.events.emit('player.input',{ axes, heading: this.heading.toArray(), pitch: this.controls.pitch, flashlight:this.atmosphere.flashlightOn, move:move.toArray(),jump,running });
         this.events.emit('audio.motion',{position:this.position.toArray(),altitude:this.altitude||0,running,active:this.stage==='running'&&!this.controls.suspended});
       }
       const { up, forward } = tangent(this.position,this.heading);
@@ -637,7 +697,7 @@ export class WorldScene {
         this.camera.up.copy(forward).applyQuaternion(this.orbitRotation); this.camera.lookAt(0,0,0);
       }
       const sharedTime=(this.simulationTime || 0)+(this.stage==='running'?Math.min(.25,(now-(this.timeReceived || now))/1000):0)+350;
-      this.atmosphere.update(sharedTime,this.camera,up,dt,{dust:this.visualOptions.dust,animations:this.visualOptions.animations});
+      this.atmosphere.update(sharedTime,this.camera,up,dt,{dust:this.visualOptions.dust,animations:animations});
       this.atmosphere.sky.visible=this.visualOptions.sky && this.mode==='first';
       this.atmosphere.dust.visible=this.visualOptions.dust && this.mode==='first' && this.atmosphere.dust.visible;
       this.atmosphere.stars.visible=this.visualOptions.stars;
@@ -645,7 +705,7 @@ export class WorldScene {
       if(this.mode==='top')this.atmosphere.stars.material.opacity=.75;
       this.fillLight.intensity=.12+.45*Math.max(0,up.dot(this.atmosphere.sunDirection));
       this.fillLight.position.copy(up);
-      this.hands.update(dt,{moving:this.cameraBob && this.visualOptions.animations && !!(axes.forward || axes.right),running,airborne:this.visualOptions.animations && (this.altitude || 0)>.05,animations:this.visualOptions.animations,color:this.selfColor,visible:this.visualOptions.hands && this.mode==='first'});
+      this.hands.update(dt,{moving:this.cameraBob && animations && !!(axes.forward || axes.right),running,airborne:animations && (this.altitude || 0)>.05,animations:animations,color:this.selfColor,visible:this.visualOptions.hands && this.mode==='first'});
       // Interest is always centered on the last authoritative player position, never on the camera.
       const origin = this.authoritative || this.position;
       for (const entry of this.chunks.values()) for (const tile of entry.cells) {
@@ -680,7 +740,8 @@ export class WorldScene {
           // The imported astronaut faces +Z; the camera basis faces -Z.
           entry.mesh.rotateY(Math.PI);
           entry.mesh.visible = surfaceDistance(origin,sample.position,this.radius) <= this.viewRadius;
-          if(entry.mesh.visible && this.visualOptions.animations)this.models.animate(entry.mesh,entry.data?.altitude>.05?'jump':entry.data?.moving?(entry.data.running?'run':'walk'):'idle',dt);
+          updatePlayerFlashlight(entry.flashlight,sample,entry.data?.pitch,entry.data?.flashlight,entry.mesh.visible);
+          if(entry.mesh.visible && animations)this.models.animate(entry.mesh,entry.data?.altitude>.05?'jump':entry.data?.moving?(entry.data.running?'run':'walk'):'idle',dt);
         }
       }
       for (const entry of this.rovers.values()) {
@@ -691,30 +752,37 @@ export class WorldScene {
         const basis=tangent(sample.position,sample.heading);
         entry.mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(basis.right,basis.up,basis.forward.clone().negate()));
         entry.mesh.visible=surfaceDistance(origin,sample.position,this.radius)<=this.viewRadius;
-        updateRoverWheels(entry.mesh,sample.position,this.visualOptions.animations);
+        updateRoverWheels(entry.mesh,sample.position,animations);
       }
       const selectedRover=this.selectedRoverId && this.rovers.get(this.selectedRoverId);
+      for(const {marker,data} of this.baseMarkers.values())updateBaseMarker(marker,data,data.position,this.mode,this.radius,this.terrain);
       const roverSample=selectedRover?.track.sample(now-100,this.radius);
       this.selectedRoverMarker.visible=this.mode==='top' && !!roverSample;
       if(roverSample)this.selectedRoverMarker.position.copy(projectTerrain(roverSample.position.clone(),this.radius,Math.max(.25,this.radius*.015),this.terrain));
+      this.updateBuildingVisibility(origin);
       for (const entry of this.buildings.values()) {
-        entry.mesh.visible = this.cellsById.has(entry.data.cell_id) && surfaceDistance(origin,entry.mesh.position,this.radius) <= this.viewRadius;
         const efficiency=entry.data.efficiency ?? 1;
-        const active=entry.mesh.visible && this.visualOptions.animations && this.stage==='running' && !isPlan(entry.data) && efficiency>0;
+        const active=entry.mesh.visible && animations && this.stage==='running' && !isPlan(entry.data) && efficiency>0;
         entry.mesh.userData.mechanical?.update(dt * efficiency,{active});
         if(['drill','oxygen_generator'].includes(entry.data.building_type)){
           if(active&&!entry.effects)entry.effects=new ProductionParticles(entry.mesh,entry.data.building_type);
           const resource = this.cellsById.get(entry.data.cell_id)?.resource;
           const stock=entry.data.stock||{};
           const producing=entry.data.producing ?? (entry.data.building_type==='drill'?Object.values(stock).reduce((a,b)=>a+b,0)<50:(stock.water||0)>0);
-          entry.effects?.update(dt * efficiency,active&&producing,resource);
+          if(entry.effects){
+            entry.effects.root.visible=animations;
+            // Debris follows the rotating drill bit even when its storage is
+            // full; this is cosmetic and never changes resource production.
+            if(animations)entry.effects.update(dt * efficiency,active&&(entry.data.building_type==='drill'||producing),resource);
+          }
         }
-        if(entry.mesh.visible && this.visualOptions.animations && entry.data.building_type==='wind_turbine' && !isPlan(entry.data))this.models.animate(entry.mesh,'spin',dt * efficiency);
+        if(entry.mesh.visible && animations && entry.data.building_type==='wind_turbine' && !isPlan(entry.data))this.models.animate(entry.mesh,'spin',dt * efficiency);
       }
       if(this.stage==='running'){
-        if(!this.robots)this.robots=new BaseRobots(this.scene,this.models,{radiusAt:()=>this.radius,projectSurface:p=>projectTerrain(p,this.radius,0,this.terrain)});
-        this.robots.setState({position:this.position,buildings:[...this.buildings.values()].filter(e=>e.mesh.visible).map(e=>e.data),players:[{position:this.position},...[...this.players.values()].map(e=>e.data)]});
-        if(this.visualOptions.animations)this.robots.update(dt);
+        if(!this.robots)this.robots=new BaseRobots(this.scene,this.models,{radiusAt:()=>this.radius,projectSurface:p=>projectTerrain(p,this.radius,-.025,this.terrain)});
+        const deposits=[...this.chunks.values()].flatMap(chunk=>chunk.cells.map(tile=>tile.userData.cell)).filter(cell=>cell.resource);
+        this.robots.setState({position:this.position,buildings:[...this.buildings.values()].filter(e=>e.mesh.visible).map(e=>e.data),players:[{position:this.position},...[...this.players.values()].map(e=>e.data)],deposits});
+        if(animations)this.robots.update(dt);
         for(const e of this.robots.entries.values())e.root.visible=surfaceDistance(origin,e.position,this.radius)<=this.viewRadius;
       }
       if(now-(this.lastAudioScene??-Infinity)>=250){

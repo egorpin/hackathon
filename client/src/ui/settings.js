@@ -35,6 +35,7 @@ export class Settings {
       </fieldset>
       <fieldset><legend>Графика</legend>
         <label class="settings-quality" for="quality">Качество<select id="quality"><option value="low">Низкое</option><option value="medium">Среднее</option><option value="high">Высокое</option></select></label>
+        <label class="settings-fov" for="camera-fov"><span>Угол обзора<small>Камера от первого лица · <output id="camera-fov-value" for="camera-fov">70°</output></small></span><input id="camera-fov" type="range" min="50" max="110" step="1"></label>
         <label class="settings-switch"><span>Звёзды</span><input id="stars" type="checkbox" role="switch"></label>
         <label class="settings-switch"><span>Камни<small>Декор поверхности. Ресурсы остаются видимыми.</small></span><input id="rocks" type="checkbox" role="switch"></label>
         <label class="settings-switch"><span>Пыль в воздухе</span><input id="dust" type="checkbox" role="switch"></label>
@@ -97,6 +98,13 @@ export class Settings {
       events.emit('graphics.quality', quality.value);
     });
     events.emit('graphics.quality', quality.value);
+    const fovInput=panel.querySelector('#camera-fov'),fovValue=panel.querySelector('#camera-fov-value');
+    const storedFov=Number(read('mars.graphics.fov','70'));
+    fovInput.value=String(Number.isInteger(storedFov)&&storedFov>=50&&storedFov<=110?storedFov:70);
+    fovValue.value=fovValue.textContent=`${fovInput.value}°`;
+    const applyFov=()=>{const value=Number(fovInput.value);fovValue.value=`${value}°`;fovValue.textContent=`${value}°`;this.save('mars.graphics.fov',value);events.emit('graphics.fov',value);};
+    on(fovInput,'input',applyFov);
+    events.emit('graphics.fov',Number(fovInput.value));
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     for (const [id, key, fallback, apply] of [
       ['stars', 'mars.graphics.stars', true, value => events.emit('graphics.effects', {stars:value})],

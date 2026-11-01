@@ -10,7 +10,8 @@ import uuid
 
 from app.game import Context, UnitOfWork, WorldState, apply_command, snapshot, step
 from app.game.state import (BUILDING_CAPACITY, INVENTORY_CAPACITY, TICK_SECONDS, Building, PLAYER_COLORS,
-                            BUILDING_RADIUS, PLAYER_RADIUS, building_interaction_distance)
+                            BUILDING_RADIUS, MOUNTAIN_RADIUS, PLAYER_RADIUS, CONSTRUCTION_BUILD_TICKS,
+                            CONSTRUCTION_TRAVEL_TICKS, building_interaction_distance)
 from app.world import generate_planet, move_on_surface, surface_distance
 from app.world.export import export_planet
 from app.world.geometry import angle, cross, dot, unit
@@ -106,6 +107,25 @@ class GeometryTests(unittest.TestCase):
         moved = move_on_surface(start, (1., 0., 0.), 2., 30., [(obstacle, .2)])
         self.assertEqual(moved, start)
 
+    def test_building_clearance_uses_footprint_and_allows_escape_from_overlap(self):
+        self.assertAlmostEqual(BUILDING_RADIUS, 1.35)
+        center = (0., 30., 0.)
+        # Start 1.4 m from the building centre, inside its 1.55 m combined
+        # radius. Moving toward its centre remains blocked (old radius allowed it).
+        start = move_on_surface(center, (1., 0., 0.), 1.4, 30.)
+        obstacle = [(center, BUILDING_RADIUS + PLAYER_RADIUS)]
+        blocked = move_on_surface(start, (-1., 0., 0.), .1, 30., obstacle)
+        self.assertEqual(blocked, start)
+        escaped = move_on_surface(start, (1., 0., 0.), .1, 30., obstacle)
+        self.assertGreater(surface_distance(center, escaped, 30.), surface_distance(center, start, 30.))
+
+    def test_mountain_clearance_keeps_configured_radius(self):
+        from app.game.state import MOUNTAIN_RADIUS
+        self.assertEqual(MOUNTAIN_RADIUS, 1.5)
+        start = (0., 30., 0.)
+        mountain = move_on_surface(start, (1., 0., 0.), 1.6, 30.)
+        self.assertEqual(move_on_surface(start, (1., 0., 0.), 1.7, 30., [(mountain, MOUNTAIN_RADIUS + PLAYER_RADIUS)]), start)
+
 
 class GameTests(unittest.TestCase):
     @classmethod
@@ -137,6 +157,10 @@ class GameTests(unittest.TestCase):
     def build(self, building_type="drill", cell_id=None, complete=True):
         if cell_id is None:
             cell_id = self.planet.cells[self.planet.landing_sites[0]].neighbors[0]
+        # Several tests remove a building and immediately place another at the
+        # same cell. Restore a legal player position after move_near() so the
+        # larger foundation radius does not make the test setup overlap it.
+        self._ensure_builder_clearance(cell_id)
         building_id = self.ok(self.act("building.place", cell_id=cell_id, building_type=building_type))["building_id"]
         # Most tests exercise completed-building behavior. Construction tests
         # opt out so they can assert the complete timeline independently.
@@ -153,6 +177,30 @@ class GameTests(unittest.TestCase):
                     and c not in self.planet.cells[self.planet.landing_sites[0]].neighbors)
         with self.world.transaction() as state:
             state.buildings['test-solar'] = Building('test-solar', cell, 'solar_panel', 'team-a', 'alice')
+
+    def _ensure_builder_clearance(self, cell_id):
+        cell = self.planet.cells[cell_id]
+        state = self.world.state
+        player = state.players["alice"]
+        obstacles = [(self.planet.cells[building.cell_id].center, BUILDING_RADIUS + PLAYER_RADIUS)
+                     for building in state.buildings.values()]
+        obstacles += [(self.planet.cells[mountain].center, MOUNTAIN_RADIUS + PLAYER_RADIUS)
+                      for mountain in state.mountains]
+        if surface_distance(player.position, cell.center, self.planet.radius) >= BUILDING_RADIUS + PLAYER_RADIUS:
+            return
+        east = unit(cross(cell.center, cell.vertices[0]))
+        north = unit(cross(cell.center, east))
+        radius = BUILDING_RADIUS + PLAYER_RADIUS + .1
+        for index in range(32):
+            angle = 2 * math.pi * index / 32
+            direction = tuple(math.cos(angle) * e + math.sin(angle) * n for e, n in zip(east, north))
+            candidate = move_on_surface(cell.center, direction, radius, self.planet.radius)
+            if all(surface_distance(candidate, center, self.planet.radius) >= clearance
+                   for center, clearance in obstacles):
+                with self.world.transaction() as draft:
+                    draft.players["alice"].position = candidate
+                return
+        raise AssertionError(f"No safe builder position found for {cell_id}")
 
     def move_near(self, building_id):
         cell = self.planet.cells[self.world.state.buildings[building_id].cell_id]
@@ -262,7 +310,7 @@ class GameTests(unittest.TestCase):
         generator_cell = next(cell for cell in neighbors if cell != neighbors[0]
                               and cell in self.planet.cells[neighbors[1]].neighbors)
         with self.world.transaction() as state:
-            state.players["alice"].position = move_on_surface(self.planet.cells[generator_cell].center, unit(cross(self.planet.cells[generator_cell].center, self.planet.cells[generator_cell].vertices[0])), 1.2, self.planet.radius)
+            state.players["alice"].position = move_on_surface(self.planet.cells[generator_cell].center, unit(cross(self.planet.cells[generator_cell].center, self.planet.cells[generator_cell].vertices[0])), 1.7, self.planet.radius)
         self.build("oxygen_generator", generator_cell)
         self.advance(100)
         state = self.world.state
@@ -343,9 +391,8 @@ class GameTests(unittest.TestCase):
         self.supply_energy()
         request = command("building.place", cell_id=self.planet.cells[self.planet.landing_sites[0]].neighbors[0], building_type="drill")
         response = apply_command(self.context, request, self.world)
-        # Construction takes 160 travel ticks and 60 building ticks; the
-        # remaining 220 ticks produce eleven units at full power.
-        self.advance(440)
+        # Delivery and construction finish before eleven production cycles.
+        self.advance(CONSTRUCTION_TRAVEL_TICKS + CONSTRUCTION_BUILD_TICKS + 220)
         restored = UnitOfWork(self.planet, WorldState.from_dict(json.loads(saved[-1])))
         self.assertEqual(json.loads(json.dumps(restored.state.to_dict())), json.loads(saved[-1]))
         self.assertEqual(apply_command(self.context, request, restored), response)
@@ -447,6 +494,37 @@ class GameTests(unittest.TestCase):
         self.assertNotIn("stock", view["buildings"][0])
         self.assertEqual(view["oxygen"], 42)
 
+    def test_snapshot_keeps_allied_bases_outside_interest_and_hides_other_teams(self):
+        bob = Context("world-a", "bob", "team-a")
+        eve = Context("world-a", "eve", "team-b")
+        self.world.enroll(bob)
+        self.world.enroll(eve)
+        for context, site in ((self.context, self.planet.landing_sites[0]),
+                              (bob, self.planet.landing_sites[1]),
+                              (eve, self.planet.landing_sites[2])):
+            self.ok(self.act("landing.select", context=context, cell_id=site))
+        self.ok(self.act("world.start"))
+        with self.world.transaction() as state:
+            own_site = self.planet.landing_sites[0]
+            allied_site = self.planet.landing_sites[1]
+            enemy_site = self.planet.landing_sites[2]
+            base_sites = (own_site, allied_site, enemy_site)
+            state.players["alice"].position = max(
+                self.planet.cells.values(),
+                key=lambda cell: min(surface_distance(cell.center, self.planet.cells[site].center, self.planet.radius)
+                                     for site in base_sites),
+            ).center
+        view = snapshot(self.context, self.world, view_radius=1.)["payload"]
+        self.assertEqual(view["buildings"], [], "bases outside AOI must not expand the regular buildings collection")
+        expected = {building.building_id for building in self.world.state.buildings.values()
+                    if building.building_type == "dome_base" and building.team_id == "team-a"}
+        enemy = {building.building_id for building in self.world.state.buildings.values()
+                 if building.building_type == "dome_base" and building.team_id == "team-b"}
+        self.assertEqual({base["building_id"] for base in view["bases"]}, expected)
+        self.assertTrue(expected.isdisjoint(enemy))
+        self.assertTrue(all(set(base) == {"building_id", "building_type", "position", "color"}
+                            for base in view["bases"]))
+
     def test_movement_speed_sequence_timeout_and_fixed_step(self):
         self.start()
         before = self.world.state.players["alice"].position
@@ -470,7 +548,7 @@ class GameTests(unittest.TestCase):
             request["payload"] = {"seq": 2, "move": invalid}
             self.assertEqual(apply_command(self.context, request, self.world)["payload"]["code"], "INVALID_ARGUMENT")
 
-    def test_movement_stops_at_building_and_mountain(self):
+    def test_movement_passes_through_buildings_and_mountains(self):
         self.start()
         drill = self.build()
         target = self.planet.cells[self.world.state.buildings[drill].cell_id].center
@@ -480,8 +558,8 @@ class GameTests(unittest.TestCase):
             self.ok(apply_command(self.context, {"type": "player.input", "payload": {"seq": seq, "move": direction}}, self.world))
             self.advance(1)
         position = self.world.state.players["alice"].position
-        self.assertGreaterEqual(surface_distance(position, target, 30), 1.0)
-        self.assertLess(surface_distance(position, target, 30), 1.3)
+        self.assertLess(surface_distance(position, target, 30), .3)
+        from app.world.terrain import seed_from_world_id
         mountain = self.planet.cells[self.world.state.mountains[0]].center
         near = move_on_surface(mountain, unit(cross(mountain, (0, 0, 1))), 1.9, 30)
         with self.world.transaction() as state:
@@ -490,9 +568,8 @@ class GameTests(unittest.TestCase):
         self.ok(apply_command(self.context, {"type": "player.input", "payload": {"seq": 31, "move": direction}}, self.world))
         self.advance(1)
         position = self.world.state.players["alice"].position
-        self.assertEqual(position, ground_position(near, 30, seed=seed_from_world_id(self.world.state.world_id)))
-        self.assertAlmostEqual(surface_distance(position, near, 30), 0, places=6)
-        self.assertAlmostEqual(surface_distance(position, mountain, 30), 1.9, delta=.01)
+        self.assertAlmostEqual(surface_distance(position, near, 30), .2, delta=.001)
+        self.assertAlmostEqual(surface_distance(position, mountain, 30), 1.7, delta=.01)
 
     def test_mutating_committed_draft_does_not_mutate_world(self):
         with self.world.transaction() as draft:

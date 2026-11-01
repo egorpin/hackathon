@@ -150,6 +150,8 @@ def test_stream_jump_reoffers_released_chunks_and_rejects_stale_requests(tmp_pat
     service = GameService(db)
     service.join(identity)
     stream = Stream(service, identity)
+    stream.last = service.dto(identity)
+    chunk_limit = service.total_bytes * .10 - 2 * byte_size(stream.last) - service.total_bytes * .01
     player = service.runtime(identity).state.players[identity['user_id']]
 
     class Socket:
@@ -160,8 +162,14 @@ def test_stream_jump_reoffers_released_chunks_and_rejects_stale_requests(tmp_pat
         socket = Socket()
         await stream.chunks(socket)
         initial = set(stream.offered)
-        assert initial and sum(byte_size(chunk) for chunk in stream.offered.values()) <= service.total_bytes * .04
+        assert initial and len(initial) >= 2
+        assert sum(byte_size(chunk) for chunk in stream.offered.values()) <= chunk_limit
         offer = next(message['payload'] for message in socket.messages if message['type'] == 'chunk.offer')
+        offers = [message['payload'] for message in socket.messages if message['type'] == 'chunk.offer']
+        for item in offers:
+            await stream.chunk_request(socket, item)
+        assert sum(message['type'] == 'chunk.load' for message in socket.messages) >= 2
+        socket.messages.clear()
         stream.release({'chunk_id': offer['chunk_id'], 'offer_id': offer['offer_id']})
         socket.messages.clear()
         player.position = tuple(component * 1.05 for component in player.position)
@@ -184,7 +192,7 @@ def test_stream_jump_reoffers_released_chunks_and_rejects_stale_requests(tmp_pat
             if i % 4 == 0:
                 player.position = tuple(component * 1.04 for component in player.position)
             await stream.chunks(socket)
-            assert sum(byte_size(chunk) for chunk in stream.offered.values()) <= service.total_bytes * .04
+            assert sum(byte_size(chunk) for chunk in stream.offered.values()) <= chunk_limit
             assert len(stream.chunk_cache) <= len(service.chunks)
 
     # The fake socket completes immediately, so no event loop or OS sockets

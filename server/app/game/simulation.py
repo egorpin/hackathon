@@ -6,7 +6,7 @@ from app.world.terrain import ground_position, seed_from_world_id
 from .commands import authorize
 from .energy import energy_balance
 from .state import ENERGY_CONSUMPTION, SOLAR_ENERGY_OUTPUT, WIND_ENERGY_OUTPUT
-from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, CONSTRUCTION_TRAVEL_TICKS,
+from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, CONSTRUCTION_TRAVEL_TICKS, GRAVITY, JUMP_SPEED,
                     INPUT_TIMEOUT_TICKS,
                     MOUNTAIN_RADIUS, OXYGEN_GOAL, PLAYER_RADIUS,
                     PRODUCTION_TICKS, REACH, RECIPES, SPEED, TICK_SECONDS,
@@ -25,26 +25,28 @@ def step(world, dt_seconds, planet):
     if world.stage != "running":
         return []
     events = []
-    obstacles = [(planet.cells[b.cell_id].center, BUILDING_RADIUS + PLAYER_RADIUS) for b in world.buildings.values()]
-    obstacles += [(planet.cells[cell].center, MOUNTAIN_RADIUS + PLAYER_RADIUS) for cell in world.mountains]
+    seed = seed_from_world_id(world.world_id)
     for player in world.players.values():
+        # Old saves may contain roof contacts; all players now follow terrain and gravity.
+        player.roof_building_id = None
+        player.support_building_id = player.support_surface_id = None
         if player.position is None:
             continue
         active = world.tick - player.input_tick < INPUT_TIMEOUT_TICKS
         if active and player.jump_pending and player.altitude <= 0:
-            player.vertical_speed = 3.4
+            player.vertical_speed = JUMP_SPEED
         player.jump_pending = False
         if not active:
             player.jump_held = False
         if player.vertical_speed or player.altitude:
-            player.vertical_speed -= 5.5 * dt_seconds
+            player.vertical_speed -= GRAVITY * dt_seconds
             player.altitude = max(0., player.altitude + player.vertical_speed * dt_seconds)
             if not player.altitude:
                 player.vertical_speed = 0.
         move = player.move if active else (0., 0., 0.)
         speed = SPEED * (1.5 if active and player.running else 1)
-        position = move_on_surface(player.position, move, speed * dt_seconds, planet.radius, obstacles)
-        position = ground_position(position, planet.radius, player.altitude, seed_from_world_id(world.world_id))
+        position = move_on_surface(player.position, move, speed * dt_seconds, planet.radius)
+        position = ground_position(position, planet.radius, player.altitude, seed)
         if position != player.position:
             player.position = position
             events.append({"type": "player.moved", "user_id": player.user_id})
@@ -119,6 +121,10 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                 "position": ground_position(p.position, planet.radius, p.altitude, seed_from_world_id(state.world_id)) if p.position else None,
                 "color": p.color, "heading": p.heading, "altitude": p.altitude,
                 "vertical_speed": p.vertical_speed,
+                "flashlight": p.flashlight, "pitch": p.pitch,
+                "roof_building_id": p.roof_building_id,
+                "support_building_id": p.support_building_id,
+                "support_surface_id": p.support_surface_id,
                 "running": p.running and state.tick-p.input_tick < INPUT_TIMEOUT_TICKS,
                 "moving": any(p.move) and state.tick-p.input_tick < INPUT_TIMEOUT_TICKS}
                for p in state.players.values() if p.user_id == player.user_id or visible(p.position)]
@@ -131,6 +137,7 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                 "building_type": building.building_type, "team_id": building.team_id,
                 "efficiency": 1.0 if building.building_type in ("solar_panel", "wind_turbine") else energy["efficiency"],
                 "color": state.players[building.creator_id].color,
+                "completed": building.construction_status == "completed",
                 "interaction_distance": building_interaction_distance(planet, planet.cells[building.cell_id]),
                 "construction_status": building.construction_status,
                 "construction_travel_progress": building.construction_travel_progress,
@@ -148,12 +155,18 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                     and (building.stock.get("water", 0) > 0 or
                          (supplied and state.team_storage[building.team_id].get("water", 0) > 0))))
         buildings.append(item)
+    bases = [{"building_id": building.building_id,
+              "building_type": building.building_type,
+              "position": planet.cells[building.cell_id].center,
+              "color": state.players[building.creator_id].color}
+             for building in sorted(state.buildings.values(), key=lambda item: item.building_id)
+             if building.building_type == "dome_base" and building.team_id == player.team_id]
     from .rover import coordinates, office_access, telemetry, COST, CAPACITY, MASSES, EMPTY_MASS
     fleet = [telemetry(r) for r in state.rovers.values() if r["team_id"] == player.team_id]
     rovers = [{k:r[k] for k in ("rover_id","team_id","position","heading","color")} for r in state.rovers.values() if visible(r["position"])]
     return {"type": "world.snapshot", "tick": state.tick, "revision": state.revision,
             "payload": {"stage": state.stage, "map_version": planet.version,
-                        "players": players, "buildings": buildings, "inventory": player.inventory,
+                        "players": players, "buildings": buildings, "bases": bases, "inventory": player.inventory,
                         "rovers": rovers, "rover_fleet": fleet, "rover_surveys": state.rover_surveys.get(player.user_id, []),
                         "rover_points": list(state.rover_points.get(player.team_id, {}).values()),
                         "office_access": office_access(state, planet, player),
@@ -165,6 +178,7 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                         "config": {"rover": {"cost": COST, "capacity": CAPACITY, "empty_mass": EMPTY_MASS, "resource_masses": MASSES, "program_max_bytes": 512, "max_rovers": 4, "max_points": 12, "max_surveys": 16, "point_name_max_length": 24}, "radius": planet.radius, "tick_seconds": TICK_SECONDS, "speed": SPEED,
                                    "interaction_distance": REACH, "view_radius": view_radius,
                                    "building_radius": BUILDING_RADIUS, "player_radius": PLAYER_RADIUS,
+                                   "jump_speed": JUMP_SPEED, "gravity": GRAVITY,
                                    "mountain_radius": MOUNTAIN_RADIUS, "recipes": {kind: dict(cost) for kind, cost in RECIPES.items()},
                                    "inventory_capacity": INVENTORY_CAPACITY, "building_capacity": BUILDING_CAPACITY,
                                    "storage_capacity": storage_capacity(state, player.team_id),

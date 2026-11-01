@@ -52,3 +52,26 @@ export function terrainHeight(x, y, z, seed = currentSeed) {
 export function projectTerrain(position, radius, offset=0, enabled=true) {
   return position.normalize().multiplyScalar(radius + offset + (enabled ? terrainHeight(position.x,position.y,position.z) : 0));
 }
+
+// Estimate the outward normal of the radial terrain surface with symmetric
+// samples in a stable tangent frame. `step` is an angular distance in radians.
+export function terrainNormal(position, radius, enabled=true, step=.003, seed) {
+  const radial=position.clone();
+  if(radial.lengthSq()<1e-20)return new (position.constructor)(0,1,0);
+  radial.normalize();
+  if(!enabled)return radial;
+  const axis=Math.abs(radial.y)<.9?new radial.constructor(0,1,0):new radial.constructor(1,0,0);
+  const tangent=axis.cross(radial).normalize();
+  const bitangent=radial.clone().cross(tangent).normalize();
+  const sample=(u,v)=>{
+    const point=radial.clone().addScaledVector(tangent,u).addScaledVector(bitangent,v).normalize();
+    return point.multiplyScalar(radius+(enabled?terrainHeight(point.x,point.y,point.z,seed):0));
+  };
+  const du=sample(step,0).sub(sample(-step,0));
+  const dv=sample(0,step).sub(sample(0,-step));
+  const normal=du.cross(dv);
+  if(normal.lengthSq()<1e-20)return radial;
+  normal.normalize();
+  if(normal.dot(radial)<0)normal.negate();
+  return normal;
+}

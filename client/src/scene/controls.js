@@ -25,7 +25,8 @@ export class Controls {
       if (this.mode === 'top' && this.drag && !this.suspended) {
         const dx=e.clientX-this.drag.x, dy=e.clientY-this.drag.y;
         this.drag.x=e.clientX; this.drag.y=e.clientY; this.drag.distance+=Math.abs(dx)+Math.abs(dy);
-        events.emit('camera.orbit',{x:dx*.008,y:dy*.008}); return;
+        // Dragging the map should move the view with the pointer.
+        events.emit('camera.orbit',{x:-dx*.008,y:-dy*.008}); return;
       }
       if (document.pointerLockElement !== canvas) return;
       this.yaw -= e.movementX * .002;

@@ -16,6 +16,7 @@ class EnergyTests(unittest.TestCase):
     act = helpers.GameTests.act
     ok = helpers.GameTests.ok
     start = helpers.GameTests.start
+    _ensure_builder_clearance = helpers.GameTests._ensure_builder_clearance
     build = helpers.GameTests.build
     advance = helpers.GameTests.advance
     move_near = helpers.GameTests.move_near

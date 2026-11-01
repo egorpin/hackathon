@@ -20,7 +20,7 @@ root.innerHTML = `
   <header><div class="brand" id="connection" role="status" data-connected="false" aria-label="ОЖИДАНИЕ СЕТИ"><div class="brand-title"><span class="network-dot" aria-hidden="true"></span>MARS</div><span class="brand-subtitle">COLONY / ЭКСПЕДИЦИЯ 01</span><span id="network-wait">ОЖИДАНИЕ СЕТИ</span></div><div class="header-actions"></div></header>
   <aside id="telemetry" aria-label="Показатели производительности" hidden><p id="performance" hidden>FPS: —</p><p id="performance-detail" hidden>Кадр p95: — · Треугольники: — · Вызовы: —</p><p id="cache" hidden>Данные мира: ожидание манифеста</p></aside>
   <section class="build-dock" aria-label="Строительство">
-    <div id="build-hotbar" role="group" aria-label="Выбор постройки, клавиши 1–4">${BUILDINGS.map((building,index)=>`<button type="button" class="build-slot" data-building="${building.type}" aria-pressed="false" aria-label="${index+1} · ${building.name}" title="${building.description}"><kbd>${index+1}</kbd><span class="build-icon" aria-hidden="true">${building.icon}</span><span class="build-name">${building.name}</span><span class="build-cost">—</span></button>`).join('')}<button type="button" id="build-rover" class="build-slot" title="Покупка ровера в офисе"><span class="build-icon" aria-hidden="true">▣</span><span class="build-name">Ровер</span><span class="build-cost">Офис</span></button></div>
+    <div id="build-hotbar" role="group" aria-label="Выбор постройки, клавиши 1–5">${BUILDINGS.map((building,index)=>`<button type="button" class="build-slot" data-building="${building.type}" aria-pressed="false" aria-label="${index+1} · ${building.name}" title="${building.description}"><kbd>${index+1}</kbd><span class="build-icon" aria-hidden="true">${building.icon}</span><span class="build-name">${building.name}</span><span class="build-cost">—</span></button>`).join('')}<button type="button" id="build-rover" class="build-slot" title="Покупка ровера в офисе"><span class="build-icon" aria-hidden="true">▣</span><span class="build-name">Ровер</span><span class="build-cost">Офис</span></button></div>
     <div id="build-context" hidden><p id="build-info" hidden>Выберите постройку</p><div class="build-actions"><button id="build">Построить</button><button id="build-cancel" aria-label="Отменить выбор постройки">Отмена · Esc</button></div></div>
   </section>
   <div id="crosshair" aria-hidden="true">+</div><div id="crosshair-hint" aria-live="off"></div>
@@ -78,7 +78,7 @@ function updateSelection(){
   if(!connected) reason='Ожидание соединения с сервером.';
   else if(!cost||missing===null) reason='Ожидание рецептов и общего запаса.';
   else if(!cell.buildable) reason='На этой клетке строить нельзя.';
-  else if(type==='drill'&&!MINABLE_RESOURCES.includes(cell.resource)) reason='Для бура выберите месторождение железа, меди, воды или серы.';
+  else if(type==='drill'&&!MINABLE_RESOURCES.includes(cell.resource)) reason='Для бура выберите месторождение железа, меди, льда или серы.';
   else if(gameState?.buildings?.some(item=>item.cell_id===cell.cell_id)) reason='Клетка занята постройкой; выберите соседнюю.';
   else if(Object.keys(missing).length) reason=`В общем запасе не хватает: ${formatResources(missing)}.`;
   else if(!locallyAllowed) reason='Подойдите ближе к клетке, чтобы строить.';
@@ -100,7 +100,7 @@ function explainAction(result){
     OUT_OF_RANGE:'Подойдите ближе к выбранной клетке или постройке.',
     CELL_OCCUPIED:'Клетка или место рядом с игроком заняты. Выберите свободную клетку.',
     CELL_UNBUILDABLE:'На этой клетке строить нельзя. Выберите другую поверхность.',
-    RESOURCE_REQUIRED:'Бур ставится только на месторождение железа, меди, воды или серы.',
+    RESOURCE_REQUIRED:'Бур ставится только на месторождение железа, меди, льда или серы.',
     INSUFFICIENT_RESOURCES:'В общем запасе недостаточно ресурсов. Проверьте стоимость постройки.',
     NOT_STARTED:'Экспедиция ещё не началась.',
     LANDING_REQUIRED:'Сначала все участники должны выбрать посадочную площадку.',
@@ -164,7 +164,6 @@ events.on('build.cancel',()=>{
 });
 events.on('expedition.lobby',()=>{selection=null;events.emit('build.choose',null);});
 for(const button of document.querySelectorAll('.build-slot[data-building]'))button.onclick=()=>events.emit('build.choose',button.dataset.building);
-document.getElementById('build-rover').onclick=()=>{if(!gameState?.office_access){events.emit('notice','Подойдите к офису в куполе для покупки ровера.');return;} events.emit('rover.open');};
 document.getElementById('build-cancel').onclick=()=>{events.emit('build.choose',null);document.querySelector('#build-hotbar button').focus();};
 try {
   const scene=new WorldScene(document.getElementById('viewport'),events);
@@ -172,6 +171,7 @@ try {
   const settings=new Settings({events,scene});
   const economy=new EconomyHUD({events,scene});
   const rover=new RoverUI({events,scene});
+  settings.button.before(rover.button);
   const pickup=new AimResources({events,scene});
   let transport;
   if(import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) {

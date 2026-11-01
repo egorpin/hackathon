@@ -3,6 +3,7 @@ import uuid
 import math
 
 from app.game import Context, UnitOfWork, WorldState, apply_command, step
+from app.game.simulation import snapshot
 from app.game.state import INPUT_TIMEOUT_TICKS, TICK_SECONDS
 from app.world import generate_planet
 from app.world.terrain import (DEFAULT_TERRAIN_SEED, ground_position, seed_from_world_id,
@@ -101,3 +102,32 @@ class TerrainAndJumpTests(unittest.TestCase):
             self.assertTrue(apply_command(self.context, request, self.world)['payload']['ok'])
             self.advance(1)
         self.assertFalse(self.world.state.players['alice'].jump_pending)
+
+    def test_flashlight_and_pitch_are_authoritative_and_optional_on_input(self):
+        send = lambda seq, **values: apply_command(self.context, {
+            'type': 'player.input', 'payload': {'seq': seq, 'move': [0, 0, 0], **values}
+        }, self.world)
+        accepted = send(1, flashlight=True, pitch=1.2)
+        self.assertTrue(accepted['payload']['ok'])
+        player = self.world.state.players['alice']
+        self.assertTrue(player.flashlight)
+        self.assertEqual(player.pitch, 1.2)
+        self.assertTrue(send(2)['payload']['ok'])
+        player = self.world.state.players['alice']
+        self.assertTrue(player.flashlight, 'omitting the optional flag must preserve its current value')
+        self.assertEqual(player.pitch, 1.2)
+        published = snapshot(self.context, self.world)['payload']['players'][0]
+        self.assertTrue(published['flashlight'])
+        self.assertEqual(published['pitch'], 1.2)
+        for field, value in (('flashlight', 1), ('pitch', float('nan')), ('pitch', 1.46)):
+            invalid = send(3, **{field: value})
+            self.assertEqual(invalid['payload']['code'], 'INVALID_ARGUMENT')
+        self.assertEqual(self.world.state.players['alice'].seq, 2)
+
+    def test_old_saved_player_records_default_flashlight_and_pitch(self):
+        data = self.world.state.to_dict()
+        data['players']['alice'].pop('flashlight')
+        data['players']['alice'].pop('pitch')
+        restored = WorldState.from_dict(data)
+        self.assertFalse(restored.players['alice'].flashlight)
+        self.assertEqual(restored.players['alice'].pitch, 0.)

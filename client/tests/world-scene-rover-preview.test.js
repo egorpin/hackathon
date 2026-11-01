@@ -7,6 +7,15 @@ function canvas() {
   return {clientWidth:200,clientHeight:100,getBoundingClientRect:()=>({left:10,top:20,width:200,height:100})};
 }
 
+test('late building models discard the old particle emitter',()=>{
+  const scene=Object.create(WorldScene.prototype),old=new THREE.Group();
+  const entry={mesh:old,effects:{root:new THREE.Group()},data:{building_type:'drill',position:[0,10,0]}};
+  scene.buildings=new Map([['drill',entry]]);scene.scene=new THREE.Scene();scene.scene.add(old);
+  scene.buildingModel=()=>new THREE.Group();scene.place=(model,position)=>model.position.copy(position);
+  scene.modelLoaded('drill');
+  assert.equal(entry.effects,null);assert.notEqual(entry.mesh,old);assert.equal(old.parent,null);
+});
+
 test('map preview click raycasts the rendered ground and returns planet coordinates',()=>{
   const scene=Object.create(WorldScene.prototype),c=canvas();
   scene.radius=10;scene.ground=new THREE.Mesh(new THREE.SphereGeometry(10,32,16),new THREE.MeshBasicMaterial());
@@ -38,11 +47,20 @@ test('onboard camera remains available when rover is culled and restores scene s
   assert.equal(scene.atmosphere.sky.visible,true);assert.equal(scene.atmosphere.dust.visible,true);
 });
 
-test('preview map drag reverses pointer movement to rotate the globe under the cursor',()=>{
-  const scene=Object.create(WorldScene.prototype);scene.roverPreview={mapYaw:0,mapPitch:0};
-  scene.orbitRoverPreview({x:1,y:.5});
-  assert.equal(scene.roverPreview.mapYaw,-1);
-  assert.equal(scene.roverPreview.mapPitch,-.5);
+test('preview map drags follow screen axes even after a tilted orbit',()=>{
+  for(const [x,y] of [[.1,0],[0,.1]]) {
+    const scene=Object.create(WorldScene.prototype), camera=new THREE.PerspectiveCamera(70,1,.1,100);
+    camera.position.set(4,7,8);camera.up.set(.6,.8,0);camera.lookAt(0,0,0);camera.updateMatrixWorld();
+    const point=camera.position.clone().normalize().multiplyScalar(3);
+    const before=point.clone().project(camera);
+    scene.roverPreview={camera,mapRotation:new THREE.Quaternion()};
+    scene.orbitRoverPreview({x,y});
+    const rotation=scene.roverPreview.mapRotation;
+    camera.position.applyQuaternion(rotation);camera.up.applyQuaternion(rotation);camera.lookAt(0,0,0);camera.updateMatrixWorld();
+    const after=point.clone().project(camera);
+    if(x){assert.ok(after.x>before.x);assert.ok(Math.abs(after.y-before.y)<1e-6);}
+    else {assert.ok(after.y<before.y);assert.ok(Math.abs(after.x-before.x)<1e-6);}
+  }
 });
 
 test('offscreen team rovers remain in scene from rover_fleet and disappear when fleet removes them',()=>{

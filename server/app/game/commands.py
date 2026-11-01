@@ -163,7 +163,7 @@ def dispatch(context, kind, payload, state, planet):
         raise Rejected("NOT_IMPLEMENTED")
     if kind == "player.input":
         require(isinstance(payload, dict) and {"seq", "move"} <= set(payload)
-                and set(payload) <= {"seq", "move", "heading", "jump", "running"})
+                and set(payload) <= {"seq", "move", "heading", "jump", "running", "flashlight", "pitch"})
         seq, move = payload["seq"], payload["move"]
         require(type(seq) is int and 0 <= seq <= 2**53 - 1)
         require(isinstance(move, (list, tuple)) and len(move) == 3)
@@ -171,13 +171,19 @@ def dispatch(context, kind, payload, state, planet):
         require(seq > player.seq, "STALE_INPUT")
         jump, running = payload.get("jump", False), payload.get("running", False)
         require(type(jump) is bool and type(running) is bool)
+        flashlight = payload.get("flashlight", player.flashlight)
+        pitch = payload.get("pitch", player.pitch)
+        require(type(flashlight) is bool)
+        require(type(pitch) in (int, float) and math.isfinite(pitch) and -1.45 <= pitch <= 1.45)
         heading = payload.get("heading", player.heading)
         require(isinstance(heading, (list, tuple)) and len(heading) == 3)
         require(all(type(v) in (int, float) and math.isfinite(v) and -1 <= v <= 1 for v in heading))
         require(sum(v*v for v in heading) > .01)
         player.heading = tuple(heading)
-        player.jump_pending = player.jump_pending or (jump and not player.jump_held and player.altitude <= 0)
+        player.jump_pending = player.jump_pending or (
+            jump and not player.jump_held and player.altitude <= 0)
         player.jump_held, player.running = jump, running
+        player.flashlight, player.pitch = flashlight, pitch
         player.seq, player.move, player.input_tick = seq, tuple(move), state.tick
         return {}
     if kind == "building.place":
@@ -266,6 +272,9 @@ def dispatch(context, kind, payload, state, planet):
         player.position = destination.center
         player.move = (0., 0., 0.)
         player.altitude = player.vertical_speed = 0.
+        player.roof_building_id = None
+        player.support_building_id = None
+        player.support_surface_id = None
         player.jump_held = player.jump_pending = player.running = False
         return {"cell_id": destination.cell_id, "building_id": base.building_id if base else None}
     if kind in ("resource.pickup", "resource.deposit", "resource.give"):

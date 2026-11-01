@@ -11,6 +11,9 @@ from .world import generate_planet
 from .world.geometry import surface_distance, move_on_surface, unit
 from .world.terrain import ground_position, seed_from_world_id
 
+CHUNK_CACHE_LIMIT = .10
+CHUNK_CACHE_STATE_MARGIN = .01
+
 
 def wire(value):
     # Six decimal places are ample for metre coordinates. Avoid Python's 1.0
@@ -233,6 +236,14 @@ class Stream:
                 # Prefer terrain ahead while keeping nearby offered chunks stable.
                 score = min(distance, ahead_distance) - (0.5 if key in self.offered else 0)
                 candidates.append((score, key))
+        # The browser's hard cache limit includes the current canonical state,
+        # the next incoming state reservation, and loaded chunks. Keep room for
+        # two copies of the latest full DTO plus a 1% safety margin before
+        # selecting streamed geometry.
+        state_bytes = byte_size(self.last) if self.last is not None else 0
+        chunk_budget = max(0, math.floor(self.service.total_bytes * CHUNK_CACHE_LIMIT
+                                          - 2 * state_bytes
+                                          - self.service.total_bytes * CHUNK_CACHE_STATE_MARGIN))
         selected, used = {}, 0
         for distance, key in sorted(candidates):
             if key not in self.chunk_cache:
@@ -241,7 +252,7 @@ class Stream:
                                            for cell in base['cells']]}
                 self.chunk_cache[key] = chunk, byte_size(chunk)
             chunk, size = self.chunk_cache[key]
-            if used + size > self.service.total_bytes * .04:
+            if used + size > chunk_budget:
                 continue
             selected[key] = chunk
             used += size
