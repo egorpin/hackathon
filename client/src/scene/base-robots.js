@@ -134,7 +134,13 @@ export class BaseRobots {
     this.sites = constructionSites.length ? constructionSites : buildings.filter(building =>
       ['planned', 'building'].includes(building.construction_status) || building.is_construction_site === true || building.status === 'constructing' || building.state === 'constructing' ||
       building.building_type === 'construction_site' || building.building_type === 'construction-site');
-    this.reconcile();
+    // Positions and site progress change frequently; membership usually does not.
+    const rosterKey = JSON.stringify([this.ambientCount, this.maxCount, this.sites.map(site =>
+      [constructionSiteId(site), site.construction_status])]);
+    if (rosterKey !== this.rosterKey) {
+      this.rosterKey = rosterKey;
+      this.reconcile();
+    }
   }
 
   create(role) {

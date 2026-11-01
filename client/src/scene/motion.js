@@ -19,7 +19,8 @@ export function advance(position, heading, axes, speed, dt, radius) {
   return { position: next, heading: heading.clone().applyQuaternion(rotation).normalize() };
 }
 export function surfaceDistance(a, b, radius) {
-  return Math.acos(THREE.MathUtils.clamp(a.clone().normalize().dot(b.clone().normalize()), -1, 1)) * radius;
+  const length = Math.sqrt(a.lengthSq() * b.lengthSq());
+  return Math.acos(THREE.MathUtils.clamp(length ? a.dot(b) / length : 0, -1, 1)) * radius;
 }
 export class PlayerTrack {
   constructor() { this.samples = []; }

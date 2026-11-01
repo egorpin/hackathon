@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { modelVersions } from './dev/model-versions.js';
 import { goldbergPreview } from './dev/goldberg-preview.js';
 import { fileURLToPath } from 'node:url';
 
@@ -11,7 +12,7 @@ export default defineConfig({
     markup: fileURLToPath(new URL('./character-markup.html', import.meta.url)),
     base: fileURLToPath(new URL('./base-review.html', import.meta.url)),
   } } },
-  plugins: [goldbergPreview()],
+  plugins: [modelVersions(), goldbergPreview()],
   server: {
     fs: { allow: [fileURLToPath(new URL('.', import.meta.url))] },
     proxy: {
