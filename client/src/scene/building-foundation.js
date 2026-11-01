@@ -15,6 +15,7 @@ export function withFoundation(building) {
   const root = new THREE.Group();
   root.add(slab,building);
   root.userData.foundation = {slab,building,bottom:bounds.min.y};
+  if(building.userData.mechanical)root.userData.mechanical=building.userData.mechanical;
   return root;
 }
 

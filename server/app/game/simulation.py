@@ -8,7 +8,7 @@ from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INPUT_TIMEOUT_TICKS,
                     MOUNTAIN_RADIUS, OXYGEN_GOAL, PLAYER_RADIUS,
                     PRODUCTION_TICKS, REACH, RECIPES, SPEED, TICK_SECONDS,
                     INVENTORY_CAPACITY, STORAGE_CAPACITY, STARTING_ORE, MINABLE_RESOURCES,
-                    STARTING_RESOURCES, OXYGEN_PER_CYCLE, storage_capacity)
+                    STARTING_RESOURCES, OXYGEN_PER_CYCLE, building_interaction_distance, storage_capacity)
 
 
 def step(world, dt_seconds, planet):
@@ -45,7 +45,7 @@ def step(world, dt_seconds, planet):
         if position != player.position:
             player.position = position
             events.append({"type": "player.moved", "user_id": player.user_id})
-    # Stable order and two phases: every drill delivers before generators consume.
+    # Stable production order. Drills retain output until a player collects it.
     producers = sorted(world.buildings.values(), key=lambda b: b.building_id)
     ready = []
     for building in producers:
@@ -58,25 +58,26 @@ def step(world, dt_seconds, planet):
     for building in ready:
         if building.building_type != "drill":
             continue
-        pool = world.team_storage[building.team_id]
-        room = max(0, storage_capacity(world, building.team_id) - sum(pool.values()))
         resource = planet.cells[building.cell_id].resource
-        # The local buffer is real stock, never a duplicate of the shared pool.
-        # Stop extraction when full; keep the buffer for future transport logic.
-        if resource in MINABLE_RESOURCES and room > 0 and sum(building.stock.values()) < BUILDING_CAPACITY:
+        if resource in MINABLE_RESOURCES and sum(building.stock.values()) < BUILDING_CAPACITY:
             building.stock[resource] += 1
-        for resource, amount in building.stock.items():
-            delivered = min(room, amount)
-            building.stock[resource] -= delivered
-            pool[resource] += delivered
-            room -= delivered
-        events.append({"type": "building.updated", "building_id": building.building_id})
+            events.append({"type": "building.updated", "building_id": building.building_id})
+    warehouses = [b for b in producers if b.building_type == "warehouse"]
     for building in ready:
         if building.building_type != "oxygen_generator" or world.oxygen_percent >= OXYGEN_GOAL:
             continue
         pool = world.team_storage[building.team_id]
-        if pool["water"] >= 1:
+        # A warehouse feeds only adjacent allied cells, and only missing inputs.
+        # Manually deposited generator water is always consumed first.
+        supplied = any(warehouse.team_id == building.team_id and
+                       building.cell_id in planet.cells[warehouse.cell_id].neighbors
+                       for warehouse in warehouses)
+        if (building.stock.get("water", 0) < 1 and supplied and pool.get("water", 0) >= 1
+                and sum(building.stock.values()) < BUILDING_CAPACITY):
             pool["water"] -= 1
+            building.stock["water"] = building.stock.get("water", 0) + 1
+        if building.stock.get("water", 0) >= 1:
+            building.stock["water"] -= 1
             world.oxygen_percent = min(OXYGEN_GOAL, round(world.oxygen_percent + OXYGEN_PER_CYCLE, 6))
             events.append({"type": "building.updated", "building_id": building.building_id})
     world.tick += 1
@@ -109,7 +110,8 @@ def snapshot(context, unit_of_work, view_radius=12.0):
             continue
         item = {"building_id": building.building_id, "cell_id": building.cell_id,
                 "building_type": building.building_type, "team_id": building.team_id,
-                "color": state.players[building.creator_id].color}
+                "color": state.players[building.creator_id].color,
+                "interaction_distance": building_interaction_distance(planet, planet.cells[building.cell_id])}
         if building.team_id == player.team_id:
             item["stock"] = building.stock if building.building_type != "warehouse" else state.team_storage[player.team_id]
         buildings.append(item)
@@ -128,4 +130,6 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                                    "storage_capacity": storage_capacity(state, player.team_id),
                                    "warehouse_capacity": STORAGE_CAPACITY, "starting_resources": dict(STARTING_RESOURCES),
                                    "starting_ore": STARTING_ORE, "oxygen_per_cycle": OXYGEN_PER_CYCLE,
+                                   "drill_auto_transfer": False, "warehouse_supply": "neighbors",
+                                   "oxygen_inputs": {"water": 1},
                                    "production_ticks": PRODUCTION_TICKS, "oxygen_enabled": True}}}

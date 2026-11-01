@@ -4,6 +4,9 @@ import * as THREE from 'three';
 // The asset remains the source of truth for pivots and bind transforms. This
 // module only animates matching nodes and composes every frame from a snapshot.
 const RULES = {
+  oxygen_generator: [
+    {key:'compressor',match:/oxygen.?housing/i,type:'bob',axis:[1,0,0],amplitude:0.002,speed:24,verticalAmplitude:0.002},
+  ],
   drill: [
     { key: 'bit', match: /drill.?bit|bit.?drill/i, type: 'spin', axis: [0, 1, 0], speed: 3.2 },
     { key: 'body', match: /drill.?body|chassis/i, type: 'bob', axis: [1, 0, 0], amplitude: 0.006, speed: 28, verticalAmplitude: 0.006 },

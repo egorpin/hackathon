@@ -9,7 +9,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from threading import RLock
 
-from app.world.geometry import Planet
+from app.world.geometry import Planet, surface_distance
 
 TICK_SECONDS = .05
 SPEED = 4.0
@@ -17,6 +17,14 @@ REACH = 4.5
 PLAYER_RADIUS = .3 / 1.5
 BUILDING_RADIUS = .8
 MOUNTAIN_RADIUS = 1.5
+
+
+def building_interaction_distance(planet, cell):
+    """Reach the building from roughly half a cell, outside its collision disc."""
+    cell_radius = sum(surface_distance(cell.center, v, planet.radius) for v in cell.vertices) / len(cell.vertices)
+    return max(cell_radius, BUILDING_RADIUS + PLAYER_RADIUS + .05)
+
+
 INVENTORY_CAPACITY = 50
 BUILDING_CAPACITY = 50
 STORAGE_CAPACITY = 200
@@ -82,6 +90,7 @@ class WorldState:
     stage: str = "lobby"
     tick: int = 0
     revision: int = 0
+    generation: int = 0
     players: dict[str, Player] = field(default_factory=dict)
     buildings: dict[str, Building] = field(default_factory=dict)
     landing_claims: dict[str, str] = field(default_factory=dict)
@@ -114,6 +123,8 @@ class WorldState:
                 pool["iron"] = pool.get("iron", 0) + pool.pop("ore", 0)
             for building in values["buildings"].values():
                 building.setdefault("paid_cost", {"iron": old_prices[building["building_type"]]})
+                stock = building["stock"]
+                stock["iron"] = stock.get("iron", 0) + stock.pop("ore", 0)
             values["oxygen_percent"] = min(100, max(values.get("team_oxygen", {}).values(), default=0))
             values["economy_version"] = 2
         values["players"] = {key: Player(**value) for key, value in values["players"].items()}
@@ -171,8 +182,8 @@ class UnitOfWork:
                 if state.players[context.user_id].team_id != context.team_id:
                     raise ValueError("Membership changed; reconcile it before reconnect")
                 return
-            if state.stage != "lobby" or len(state.players) >= 4:
-                raise ValueError("World is full or already started")
+            if len(state.players) >= 4:
+                raise ValueError("World is full")
             state.players[context.user_id] = Player(context.user_id, context.team_id)
             state.team_storage.setdefault(context.team_id, dict.fromkeys(RESOURCES, 0))
             for resource, amount in STARTING_RESOURCES.items():

@@ -9,10 +9,11 @@ export class GameClient extends Events {
   constructor({ url = socketURL(window.location), WebSocketClass = WebSocket } = {}) {
     super(); this.url = url; this.Socket = WebSocketClass;
     this.seq = 0; this.revision = null; this.attempt = 0; this.pending = new Map();
-    this.ready = false; this.stopped = true; this.session = null;
+    this.ready = false; this.stopped = true; this.session = null; this.generation = null;
   }
   connect() {
     clearTimeout(this.timer);
+    this.worldUnavailableReason = null;
     const previous = this.socket;
     this.socket = null;
     previous?.close();
@@ -60,6 +61,7 @@ export class GameClient extends Events {
     if (type === 'world.offer') { this.emit(type, payload); return; }
     if (type === 'world.snapshot') {
       if (!Number.isSafeInteger(revision)) throw new Error('Snapshot без revision');
+      this.observeGeneration(payload.generation);
       this.revision = revision; this.seq = Math.max(this.seq, payload.last_input_seq || 0);
       this.ready = true; this.attempt = 0;
       this.emit(type, payload);
@@ -68,16 +70,22 @@ export class GameClient extends Events {
       for (const command of this.pending.values()) if (command.type !== 'chat.send') this.send(command);
       return;
     }
+    if (type === 'lobby.state' && payload.stage === 'lobby') {
+      // Commands from the previous expedition must never be replayed into a new one.
+      for (const [id, command] of this.pending) if (command.type !== 'chat.send') this.pending.delete(id);
+    }
     if (type === 'world.delta') {
       if (!this.ready) return;
       if (!Number.isSafeInteger(revision) || revision <= this.revision) { this.resync(); return; }
       if (revision !== this.revision + 1) { this.resync(); return; }
+      this.observeGeneration(payload.generation);
       this.revision = revision;
     } else if (!this.ready) return;
     if (type === 'action.result' || type === 'error') this.pending.delete(request_id);
     if (type === 'error') this.emit('error', payload.message || payload.code || 'Неизвестная ошибка сервера');
     else this.emit(type, payload);
     if (type === 'error' && payload.code === 'WORLD_UNAVAILABLE') {
+      this.worldUnavailableReason = payload.message;
       this.ready = false; this.emit('status', 'world_unavailable');
     }
     this.emit('message', message);
@@ -85,6 +93,13 @@ export class GameClient extends Events {
   send(message) {
     if (this.socket?.readyState !== 1) return false;
     this.socket.send(JSON.stringify(message)); return true;
+  }
+  observeGeneration(generation) {
+    if (!Number.isSafeInteger(generation)) return;
+    if (this.generation !== null && generation !== this.generation) {
+      for (const [id, command] of this.pending) if (command.type !== 'chat.send') this.pending.delete(id);
+    }
+    this.generation = generation;
   }
   input(input) {
     if (!this.ready || this.revision === null) return;

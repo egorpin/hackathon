@@ -6,8 +6,9 @@ import uuid
 
 from app.world.geometry import surface_distance
 from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INVENTORY_CAPACITY,
-                    PLAYER_RADIUS, REACH, RECIPES, MINABLE_RESOURCES, Building, Context, UnitOfWork)
-from .state import PLAYER_COLORS, MOUNTAIN_RADIUS, storage_capacity
+                    PLAYER_RADIUS, REACH, RECIPES, MINABLE_RESOURCES, RESOURCES, STARTING_RESOURCES,
+                    Building, Context, Player, UnitOfWork)
+from .state import PLAYER_COLORS, MOUNTAIN_RADIUS, building_interaction_distance, storage_capacity
 
 
 class Rejected(Exception):
@@ -29,9 +30,14 @@ def identifier(value):
     return value
 
 
-def in_reach(planet, player, position):
-    require(player.position is not None and surface_distance(player.position, position, planet.radius) <= REACH,
+def in_reach(planet, player, position, distance=REACH):
+    require(player.position is not None and surface_distance(player.position, position, planet.radius) <= distance,
             "OUT_OF_RANGE")
+
+
+def in_building_reach(planet, player, building):
+    cell = planet.cells[building.cell_id]
+    in_reach(planet, player, cell.center, building_interaction_distance(planet, cell))
 
 
 def authorize(context, state):
@@ -54,6 +60,23 @@ def dispatch(context, kind, payload, state, planet):
         state.landing_claims[cell_id] = player.user_id
         player.position = planet.cells[cell_id].center
         return {}
+    if kind == "world.restart":
+        fields(payload)
+        require(all(p.team_id == player.team_id for p in state.players.values()), "FORBIDDEN")
+        players, claims, pools = {}, {}, {}
+        for (user_id, old), cell in zip(state.players.items(), planet.landing_sites):
+            players[user_id] = Player(user_id, old.team_id, position=planet.cells[cell].center,
+                                      color=old.color, seq=old.seq)
+            claims[cell] = user_id
+            pool = pools.setdefault(old.team_id, dict.fromkeys(RESOURCES, 0))
+            for resource, amount in STARTING_RESOURCES.items():
+                pool[resource] += amount
+        state.players, state.landing_claims, state.team_storage = players, claims, pools
+        state.buildings, state.mountains = {}, []
+        state.team_oxygen = dict.fromkeys(pools, 0)
+        state.oxygen_percent, state.stage, state.tick = 0.0, "lobby", 0
+        state.generation += 1
+        return {"generation": state.generation}
     if kind == "world.start":
         fields(payload)
         require(state.stage == "lobby", "ALREADY_STARTED")
@@ -113,7 +136,7 @@ def dispatch(context, kind, payload, state, planet):
         building = state.buildings.get(identifier(payload["building_id"]))
         require(building is not None)
         require(building.team_id == player.team_id, "FORBIDDEN")
-        in_reach(planet, player, planet.cells[building.cell_id].center)
+        in_building_reach(planet, player, building)
         pool = state.team_storage[player.team_id]
         # Refunds can exceed capacity: never destroy resources during demolition.
         for stock in (building.paid_cost, building.stock):
@@ -166,7 +189,7 @@ def dispatch(context, kind, payload, state, planet):
             building = state.buildings.get(target_id)
             require(building is not None)
             require(building.team_id == player.team_id, "FORBIDDEN")
-            in_reach(planet, player, planet.cells[building.cell_id].center)
+            in_building_reach(planet, player, building)
             stock = state.team_storage[player.team_id] if building.building_type == "warehouse" else building.stock
             if kind == "resource.pickup":
                 source, destination, capacity = stock, player.inventory, INVENTORY_CAPACITY

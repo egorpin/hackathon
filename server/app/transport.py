@@ -6,8 +6,9 @@ from decimal import Decimal
 from dataclasses import asdict
 
 from .game import Context, UnitOfWork, WorldState, apply_command, snapshot
+from .game.state import BUILDING_RADIUS, MOUNTAIN_RADIUS, PLAYER_RADIUS, INPUT_TIMEOUT_TICKS
 from .world import generate_planet
-from .world.geometry import surface_distance
+from .world.geometry import surface_distance, move_on_surface, unit
 from .world.terrain import ground_position, seed_from_world_id
 
 
@@ -71,6 +72,8 @@ class GameService:
             for cell in chunk['cells']:
                 cell['surface'] = cell.pop('terrain')
         self.total_bytes = sum(byte_size(chunk) for chunk in self.chunks.values())
+        self.chunk_normals = {key: [unit(self.planet.cells[cell].center) for cell in cells]
+                              for key, cells in self.planet.chunks.items()}
 
     def runtime(self, identity):
         world_id = identity['world_id']
@@ -101,8 +104,23 @@ class GameService:
             player = state.players[context.user_id]
             if player.position is None:
                 cell = next(cell for cell in self.planet.landing_sites if cell not in state.landing_claims)
+                position = self.planet.cells[cell].center
+                if state.stage == 'running':
+                    obstacles = [(self.planet.cells[b.cell_id].center, BUILDING_RADIUS + PLAYER_RADIUS)
+                                 for b in state.buildings.values()]
+                    obstacles += [(self.planet.cells[c].center, MOUNTAIN_RADIUS + PLAYER_RADIUS)
+                                  for c in state.mountains if c != cell]
+                    obstacles += [(p.position, 2 * PLAYER_RADIUS) for p in state.players.values()
+                                  if p.user_id != context.user_id and p.position is not None]
+                    candidates = sorted(self.planet.cells.values(), key=lambda candidate:
+                                        surface_distance(candidate.center, position, self.planet.radius))
+                    position = next(candidate.center for candidate in candidates
+                                    if all(surface_distance(candidate.center, obstacle, self.planet.radius) >= radius
+                                           for obstacle, radius in obstacles))
                 state.landing_claims[cell] = context.user_id
-                player.position = self.planet.cells[cell].center
+                if cell in state.mountains:
+                    state.mountains.remove(cell)
+                player.position = position
                 state.revision += 1
         return context
 
@@ -119,6 +137,7 @@ class GameService:
         message = snapshot(context, self.runtime(identity))
         data = message['payload']
         data['self_id'], data['team_id'] = context.user_id, context.team_id
+        data['generation'] = self.runtime(identity).state.generation
         data['simulation_time'] = message['tick'] * .05
         for player in data['players']:
             player['player_id'] = player.pop('user_id')
@@ -141,6 +160,10 @@ class Stream:
         self.revision = 0
         self.offered = {}
         self.released = set()
+        self.offer_ids = {}
+        self.next_offer_id = 0
+        self.chunk_cache = {}
+        self.mountains = None
 
     async def offer(self, socket):
         if self.pending is not None:
@@ -171,20 +194,34 @@ class Stream:
     async def chunks(self, socket):
         runtime = self.service.runtime(self.identity)
         state = runtime.state
-        position = state.players[self.identity['user_id']].position
+        player = state.players[self.identity['user_id']]
+        position = player.position
+        mountains = frozenset(state.mountains)
+        if mountains != self.mountains:
+            self.chunk_cache.clear()
+            self.mountains = mountains
+        active = state.tick - player.input_tick < INPUT_TIMEOUT_TICKS
+        ahead = move_on_surface(position, player.move, 3, self.service.planet.radius) if active else position
+        normal, ahead_normal = unit(position), unit(ahead)
+        def nearest(normal, points):
+            cosine = max(sum(a * b for a, b in zip(normal, point)) for point in points)
+            return self.service.planet.radius * math.acos(max(-1., min(1., cosine)))
         candidates = []
-        for key, cells in self.service.planet.chunks.items():
-            distance = min(surface_distance(position, self.service.planet.cells[cell].center,
-                                            self.service.planet.radius) for cell in cells)
+        for key, points in self.service.chunk_normals.items():
+            distance = nearest(normal, points)
             if distance <= 12:
-                candidates.append((distance, key))
+                ahead_distance = nearest(ahead_normal, points) if active else distance
+                # Prefer terrain ahead while keeping nearby offered chunks stable.
+                score = min(distance, ahead_distance) - (0.5 if key in self.offered else 0)
+                candidates.append((score, key))
         selected, used = {}, 0
         for distance, key in sorted(candidates):
-            chunk = self.service.chunks[key]
-            # Terrain changes at world.start; unload before offering its replacement.
-            chunk = {**chunk, 'cells': [{**cell, 'surface': 'mountain' if cell['cell_id'] in state.mountains else cell['surface']}
-                                       for cell in chunk['cells']]}
-            size = byte_size(chunk)
+            if key not in self.chunk_cache:
+                base = self.service.chunks[key]
+                chunk = {**base, 'cells': [{**cell, 'surface': 'mountain' if cell['cell_id'] in mountains else cell['surface']}
+                                           for cell in base['cells']]}
+                self.chunk_cache[key] = chunk, byte_size(chunk)
+            chunk, size = self.chunk_cache[key]
             if used + size > self.service.total_bytes * .04:
                 continue
             selected[key] = chunk
@@ -194,17 +231,27 @@ class Stream:
                 await socket.send_json({'type': 'chunk.unload', 'payload': {'chunk_id': key}})
                 del self.offered[key]
                 self.released.discard(key)
+                self.offer_ids.pop(key, None)
         for key, chunk in selected.items():
-            if key not in self.offered:
+            if key not in self.offered or key in self.released:
                 self.offered[key] = chunk
-                await socket.send_json({'type': 'chunk.offer', 'payload': {'chunk_id': key, 'byte_size': byte_size(chunk)}})
+                self.released.discard(key)
+                self.next_offer_id += 1
+                self.offer_ids[key] = self.next_offer_id
+                await socket.send_json({'type': 'chunk.offer', 'payload': {'chunk_id': key, 'byte_size': self.chunk_cache[key][1],
+                                                                          'offer_id': self.next_offer_id}})
+        # A connection should not retain overlays for the entire planet after traversal.
+        for key in self.chunk_cache.keys() - {key for _, key in candidates}:
+            del self.chunk_cache[key]
 
     async def chunk_request(self, socket, payload):
         key = payload.get('chunk_id') if isinstance(payload, dict) else None
-        if isinstance(key, str) and key in self.offered and key not in self.released:
+        if (isinstance(key, str) and key in self.offered and key not in self.released
+                and payload.get('offer_id', self.offer_ids[key]) == self.offer_ids[key]):
             await socket.send_json({'type': 'chunk.load', 'payload': self.offered[key]})
 
     def release(self, payload):
         key = payload.get('chunk_id') if isinstance(payload, dict) else None
-        if isinstance(key, str) and key in self.offered:
+        if (isinstance(key, str) and key in self.offered
+                and payload.get('offer_id', self.offer_ids[key]) == self.offer_ids[key]):
             self.released.add(key)

@@ -107,7 +107,17 @@ def test_world_isolation_and_loading_barrier():
     assert game.started == 'one'
     assert not lobby.players('two')[0]['ready']
 
-def test_saved_running_world_requires_new_votes():
+
+def test_restart_clears_only_world_votes():
+    lobby = Lobby(None)
+    lobby.active.update(('one', 'two'))
+    lobby.ready.update((('one', 'alice'), ('two', 'bob')))
+    lobby.restart('one')
+    assert lobby.stage('one') == 'lobby'
+    assert lobby.stage('two') == 'running'
+    assert lobby.ready == {('two', 'bob')}
+
+def test_new_connection_does_not_pause_running_world():
     from types import SimpleNamespace
     game = SimpleNamespace(worlds={'saved': SimpleNamespace(state=SimpleNamespace(stage='running'))})
     lobby = Lobby(game)
@@ -124,10 +134,9 @@ def test_saved_running_world_requires_new_votes():
     lobby.disconnect(1)
     lobby.connect(3, alice)
     lobby.loaded.add(3)
-    assert lobby.stage('saved') == 'lobby'
-    assert not next(p for p in lobby.players('saved') if p['user_id'] == 'a')['ready']
-    lobby.set_ready(3, {'ready': True})
     assert lobby.stage('saved') == 'running'
+    assert not next(p for p in lobby.players('saved') if p['user_id'] == 'a')['ready']
+    assert lobby.set_ready(3, {'ready': True}) == 'ALREADY_STARTED'
     lobby.disconnect(3)
     lobby.disconnect(2)
     lobby.connect(4, alice)

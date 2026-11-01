@@ -1,28 +1,28 @@
 import './style.css';
 import { Lobby } from './ui/lobby.js';
+import { Assistant } from './ui/assistant.js';
 import { Events } from './net/events.js';
 import { GameClient } from './net/client.js';
 import { Runtime } from './net/runtime.js';
 import { WorldScene } from './scene/world-scene.js';
+import { BUILDINGS } from './ui/buildings.js';
+import { Settings } from './ui/settings.js';
+import { EconomyHUD } from './ui/economy-hud.js';
+import { AimResources } from './ui/aim-resources.js';
+import { inInteractionRange } from './ui/interaction.js';
+import { recipeFor, formatResources, missingResources, canAfford, MINABLE_RESOURCES } from './ui/economy.js';
 
 const root = document.querySelector('main');
 root.innerHTML = `
   <div id="viewport"></div>
-  <header><div class="brand">MARS<span>COLONY / ЭКСПЕДИЦИЯ 01</span></div><button id="panel-toggle" aria-expanded="true" aria-controls="instruments">Скрыть панель · H</button><div id="connection" role="status">Подключение…</div></header>
-  <section class="instrument" id="instruments"><span class="eyebrow">ТЕЛЕМЕТРИЯ ЭКСПЕДИЦИИ</span><h1>Поверхность Марса</h1>
-    <p id="mode">Камера: первое лицо</p><p id="cache">Данные мира: ожидание манифеста</p><p id="performance" aria-live="off">FPS: —</p><p id="performance-detail" aria-live="off">Кадр p95: — · Треугольники: — · Вызовы: —</p>
-    <p id="inventory">Ресурсы: ожидание состояния</p>
-    <p id="selection">Наведитесь на клетку</p><p id="selection-help">Выберите свободную клетку рядом с персонажем.</p>
-    <p id="build-info">Стоимость постройки: ожидание состояния</p>
-    <div class="actions"><button id="camera">Сменить камеру · Tab</button>
-    <label class="setting">Качество графики<select id="quality" aria-label="Качество графики"><option value="low">Низкое</option><option value="medium">Среднее</option><option value="high">Высокое</option></select></label>
-    <label class="setting setting-check"><input id="camera-bob" type="checkbox"> Покачивание камеры</label>
-    <select id="building" aria-label="Тип постройки"><option value="drill">Бур</option><option value="oxygen_generator">Генератор O₂ (кислород)</option><option value="warehouse">Склад</option><option value="dome_base">База</option></select>
-    <fieldset class="color-picker" aria-label="Цвет игрока и построек"><legend>Цвет игрока и построек</legend><div id="colors" role="radiogroup" aria-label="Цвет игрока и построек"></div></fieldset>
-    <button id="build">Построить · B</button></div>
+  <header><div class="brand" id="connection" role="status" data-connected="false" aria-label="ОЖИДАНИЕ СЕТИ"><div class="brand-title"><span class="network-dot" aria-hidden="true"></span>MARS</div><span class="brand-subtitle">COLONY / ЭКСПЕДИЦИЯ 01</span><span id="network-wait">ОЖИДАНИЕ СЕТИ</span></div><div class="header-actions"></div></header>
+  <aside id="telemetry" aria-label="Показатели производительности" hidden><p id="performance" hidden>FPS: —</p><p id="performance-detail" hidden>Кадр p95: — · Треугольники: — · Вызовы: —</p><p id="cache" hidden>Данные мира: ожидание манифеста</p></aside>
+  <section class="build-dock" aria-label="Строительство">
+    <div id="build-hotbar" role="group" aria-label="Выбор постройки, клавиши 1–4">${BUILDINGS.map((building,index)=>`<button type="button" class="build-slot" data-building="${building.type}" aria-pressed="false" aria-label="${index+1} · ${building.name}" title="${building.description}"><kbd>${index+1}</kbd><span class="build-icon" aria-hidden="true">${building.icon}</span><span class="build-name">${building.name}</span><span class="build-cost">—</span></button>`).join('')}</div>
+    <div id="build-context" hidden><p id="build-info" hidden>Выберите постройку</p><div class="build-actions"><button id="build">Построить · B</button><button id="build-cancel" aria-label="Отменить выбор постройки">Отмена · Esc</button></div></div>
   </section>
   <div id="crosshair" aria-hidden="true">+</div><div id="crosshair-hint" aria-live="off"></div>
-  <aside id="notice" role="status" aria-live="polite">Ожидание серверного состояния. WASD — движение, мышь или стрелки — взгляд.</aside>
+  <aside id="notice" role="status" aria-live="polite" hidden></aside>
   <section id="auth" class="auth" aria-labelledby="auth-title" hidden>
     <form id="auth-form">
       <span class="eyebrow">ЗАЩИЩЁННОЕ ПОДКЛЮЧЕНИЕ</span><h2 id="auth-title">Вход в экспедицию</h2>
@@ -32,55 +32,65 @@ root.innerHTML = `
       <div class="auth-actions"><button type="submit" value="login">Войти</button><button type="submit" value="register">Создать игрока</button></div>
     </form>
   </section>
-  <footer><span>WASD · движение &nbsp; Shift · бег &nbsp; Space · прыжок &nbsp; F · фонарик &nbsp; E · действие &nbsp; Esc · мышь</span><span id="environment">ЛОКАЛЬНАЯ СЕТЬ</span></footer>
+  <span id="environment" hidden></span>
 `;
 const events = new Events();
-const panelToggle=document.getElementById('panel-toggle');
-panelToggle.onclick=()=>{const panel=document.getElementById('instruments');panel.hidden=!panel.hidden;panelToggle.setAttribute('aria-expanded',String(!panel.hidden));panelToggle.textContent=panel.hidden?'Показать панель · H':'Скрыть панель · H';};
-document.addEventListener('keydown',event=>{if(event.code==='KeyH' && !event.repeat && !event.target?.closest?.('input,textarea,select,[contenteditable=true]'))panelToggle.click();});
-const show = (id,text) => { document.getElementById(id).textContent=text; };
+let noticeTimer;
+const show = (id,text) => {
+  const element=document.getElementById(id);element.textContent=text;
+  if(id==='notice'){
+    element.hidden=!text;clearTimeout(noticeTimer);
+    if(text)noticeTimer=setTimeout(()=>{element.hidden=true;},5000);
+  }
+};
 let totalChunks=0;
-let gameState=null, selection=null, cameraMode='first';
-const buildingSelect=document.getElementById('building');
-const buildingNames={drill:'Бур',warehouse:'Склад',oxygen_generator:'Генератор O₂',dome_base:'База'};
-const resourceNames={water:'лёд',ice:'лёд',iron:'железо',sulfur:'сера',stone:'камень',ore:'руда',oxygen:'кислород'};
-const costFor=type=>gameState?.config?.recipes?.[type];
-function updateInventory(){
-  const inventory=gameState?.inventory;
-  if(!inventory){show('inventory','Ресурсы: ожидание состояния');return;}
-  const items=['ore','water','iron','sulfur','stone','oxygen'].filter(key=>Object.hasOwn(inventory,key));
-  show('inventory',`Ресурсы: ${items.map(key=>`${resourceNames[key]||key} ${inventory[key]}`).join(' · ') || 'нет данных'}`);
-}
+let gameState=null, selection=null, cameraMode='first', connected=false;
+let selectedBuilding=null, aimedId=null;
+let selectionHelp='';
+const buildingNames=Object.fromEntries(BUILDINGS.map(({type,name})=>[type,name]));
+const costFor=type=>recipeFor(gameState,type);
 function updateBuildInfo(){
-  const type=buildingSelect.value, cost=costFor(type), ore=gameState?.inventory?.ore;
-  if(!Number.isFinite(cost)||!Number.isFinite(ore)){show('build-info',`Стоимость ${buildingNames[type]||'постройки'}: ожидание состояния`);return;}
-  let detail=`${buildingNames[type]||'Постройка'}: ${cost} руды · у вас ${ore}`;
-  if(ore<cost) detail+=` · не хватает ${cost-ore}`;
+  for(const button of document.querySelectorAll('.build-slot')){
+    const cost=costFor(button.dataset.building);
+    button.querySelector('.build-cost').textContent=cost?formatResources(cost,true):'—';
+    button.title=`${buildingNames[button.dataset.building]} · ${cost?formatResources(cost):'ожидание рецепта'}`;
+    button.classList.toggle('is-unaffordable',!!cost&&!canAfford(gameState,button.dataset.building));
+  }
+  const type=selectedBuilding, cost=costFor(type);
+  document.getElementById('build-context').hidden=!type;
+  if(!type){show('build-info','Выберите постройку: 1–4');return;}
+  if(!cost||!gameState?.team_storage){show('build-info',`Стоимость ${buildingNames[type]||'постройки'}: ожидание состояния`);return;}
+  let detail=`${buildingNames[type]||'Постройка'}: ${formatResources(cost)} из общего запаса`;
+  const missing=missingResources(gameState,type);
+  if(Object.keys(missing).length) detail+=` · не хватает ${formatResources(missing)}`;
   if(type==='oxygen_generator' && gameState?.config?.oxygen_enabled===false) detail+=' · производство O₂ отключено';
   show('build-info',detail);
 }
 function updateSelection(){
   const {cell,locallyAllowed}=selection||{};
-  if(!cell){show('selection','Наведитесь на клетку');show('selection-help','Выберите свободную клетку рядом с персонажем.');updateCrosshairHint();return;}
-  const kind=cell.resource?resourceNames[cell.resource]||'ресурс':'без жилы';
-  const type=buildingSelect.value, cost=costFor(type), ore=gameState?.inventory?.ore;
+  document.getElementById('build').disabled=!connected || gameState?.stage!=='running' || !selectedBuilding || !cell || !locallyAllowed || !canAfford(gameState,selectedBuilding);
+  if(!selectedBuilding){selectionHelp='';updateCrosshairHint();return;}
+  if(!cell){selectionHelp='Выберите свободную клетку рядом с персонажем.';updateCrosshairHint();return;}
+  const type=selectedBuilding, cost=costFor(type), missing=missingResources(gameState,type);
   let reason='';
-  if(!cell.buildable) reason='На этой клетке строить нельзя.';
-  else if(type==='drill'&&!cell.resource) reason='Для бура выберите клетку с рудной жилой.';
+  if(!connected) reason='Ожидание соединения с сервером.';
+  else if(!cost||missing===null) reason='Ожидание рецептов и общего запаса.';
+  else if(!cell.buildable) reason='На этой клетке строить нельзя.';
+  else if(type==='drill'&&!MINABLE_RESOURCES.includes(cell.resource)) reason='Для бура выберите месторождение железа, меди, воды или серы.';
   else if(gameState?.buildings?.some(item=>item.cell_id===cell.cell_id)) reason='Клетка занята постройкой; выберите соседнюю.';
-  else if(Number.isFinite(cost)&&Number.isFinite(ore)&&ore<cost) reason=`Не хватает руды: нужно ${cost}, у вас ${ore}.`;
+  else if(Object.keys(missing).length) reason=`В общем запасе не хватает: ${formatResources(missing)}.`;
   else if(!locallyAllowed) reason='Подойдите ближе к клетке, чтобы строить.';
-  else reason=`Построить · B · стоимость ${cost} руды.`;
-  show('selection',`Клетка ${cell.cell_id} · ${kind}`);
-  show('selection-help',reason);
+  else reason=`Построить · B · ${formatResources(cost)}.`;
+  selectionHelp=reason;
   updateCrosshairHint();
 }
 function updateCrosshairHint(){
   const hint=document.getElementById('crosshair-hint'); hint.hidden=cameraMode!=='first';
   if(hint.hidden)return;
   if(gameState?.stage!=='running'){hint.textContent='Ожидайте начала экспедиции';return;}
-  if(!selection?.cell){hint.textContent='Наведитесь на клетку · B построить';return;}
-  hint.textContent=document.getElementById('selection-help').textContent;
+  if(!selectedBuilding){const building=gameState?.buildings?.find(item=>item.building_id===aimedId);hint.textContent=connected && building && inInteractionRange(gameState,building)?'E · постройка':'';return;}
+  if(!selection?.cell){hint.textContent='Наведитесь на клетку для установки';return;}
+  hint.textContent=selectionHelp;
 }
 function explainAction(result){
   if(result.ok)return 'Готово.';
@@ -88,82 +98,82 @@ function explainAction(result){
     OUT_OF_RANGE:'Подойдите ближе к выбранной клетке или постройке.',
     CELL_OCCUPIED:'Клетка или место рядом с игроком заняты. Выберите свободную клетку.',
     CELL_UNBUILDABLE:'На этой клетке строить нельзя. Выберите другую поверхность.',
-    RESOURCE_REQUIRED:'Бур ставится только на клетку с рудной жилой.',
-    INSUFFICIENT_RESOURCES:`Не хватает руды для постройки. ${document.getElementById('build-info').textContent}.`,
+    RESOURCE_REQUIRED:'Бур ставится только на месторождение железа, меди, воды или серы.',
+    INSUFFICIENT_RESOURCES:'В общем запасе недостаточно ресурсов. Проверьте стоимость постройки.',
     NOT_STARTED:'Экспедиция ещё не началась.',
     LANDING_REQUIRED:'Сначала все участники должны выбрать посадочную площадку.',
     ALREADY_STARTED:'Экспедиция уже началась.',
     FORBIDDEN:'Это действие доступно только участникам вашей команды.',
     INVENTORY_FULL:'Нет места в инвентаре. Освободите место и повторите.',
+    SPAWN_BLOCKED:'Рядом с базой нет свободного места для возвращения.',
+    READY_REQUIRED:'Все участники должны подтвердить готовность к экспедиции.',
     REQUEST_CONFLICT:'Этот запрос уже использован с другим содержимым. Повторите действие.',
     NOT_IMPLEMENTED:'Это действие пока недоступно.',
     NOT_READY:'Дождитесь синхронизации состояния мира.',
-    WORLD_UNAVAILABLE:'Мир заполнен или уже запущен. Войдите существующим игроком.',
+    WORLD_UNAVAILABLE:'Не удалось войти в мир. Проверьте доступ к экспедиции.',
     PREVIEW_ONLY:'В режиме просмотра игровые действия отключены.',
     INVALID_ARGUMENT:'Проверьте выбранное действие и его параметры.',
   };
   return explanations[result.code]||`Действие отклонено сервером: ${result.code||'неизвестная ошибка'}.`;
 }
 events.on('notice', text=>show('notice',text));
-events.on('connection.status', status=>{
-  const names={connecting:'Подключение…',syncing:'Синхронизация…',connected:'Подключено',reconnecting:'Нет связи · переподключение',unauthorized:'Требуется вход через сервер',world_unavailable:'Мир недоступен'};
-  show('connection',names[status] || status);
-});
+function setConnection(status){
+  connected=status==='connected';
+  if(!connected){gameState=null;selection=null;updateBuildInfo();}
+  const indicator=document.getElementById('connection');
+  indicator.dataset.connected=String(connected);
+  indicator.setAttribute('aria-label',connected?'Сеть доступна':'ОЖИДАНИЕ СЕТИ');
+  document.getElementById('network-wait').hidden=connected;
+  updateSelection();
+}
+events.on('connection.status',setConnection);
 events.on('cache.stats', s=>show('cache',`Чанки: ${s.chunks} / ${totalChunks || '—'} · данные: ${s.percent.toFixed(2)}% · предел: 10% · очередь: ${s.queuedBytes} Б`));
-events.on('world.ready', ({totalChunks:count})=>{ totalChunks=count; show('notice','Щёлкните по сцене для захвата мыши. Tab переключает камеру.'); });
+events.on('world.ready', ({totalChunks:count})=>{ totalChunks=count; });
 events.on('performance', s=>{
-  show('performance',`FPS: ${Math.round(s.fps)} · вызовы отрисовки: ${s.drawCalls}`);
+  show('performance',`FPS: ${Math.round(s.fps)}`);
   const p95=Number.isFinite(s.frameP95)?`${s.frameP95.toFixed(1)} мс`:'—';
   const triangles=Number.isFinite(s.triangles)?s.triangles.toLocaleString('ru-RU'):'—';
   show('performance-detail',`Кадр p95: ${p95} · Треугольники: ${triangles} · Вызовы: ${s.drawCalls}`);
 });
-events.on('world.snapshot',state=>{gameState=state;updateInventory();updateBuildInfo();updateSelection();});
-events.on('world.delta',delta=>{if(gameState)gameState={...gameState,...delta};updateInventory();updateBuildInfo();updateSelection();});
+events.on('world.state',state=>{gameState=state;updateBuildInfo();updateSelection();});
+events.on('building.targeted', building=>{aimedId=building?.building_id;updateCrosshairHint();});
 events.on('cell.selected', value=>{selection=value;updateSelection();});
-events.on('camera.changed', mode=>{cameraMode=mode;show('mode',mode==='first'?'Камера: первое лицо':'Камера: сверху · прежний радиус обзора');document.getElementById('crosshair').hidden=mode!=='first';updateCrosshairHint();});
+events.on('camera.changed', mode=>{cameraMode=mode;document.getElementById('crosshair').hidden=mode!=='first';updateCrosshairHint();});
 events.on('action.result', result=>show('notice',explainAction(result)));
-events.on('building.selected', building=>show('notice',building ? `Выбрано: ${building.building_id}. Подойдите ближе для работы с ресурсами.`:'Рядом нет доступных построек.'));
-document.getElementById('camera').onclick=()=>events.emit('camera.toggle');
 document.getElementById('build').onclick=()=>events.emit('build.request');
-buildingSelect.onchange=e=>{events.emit('build.type',e.target.value);updateBuildInfo();updateSelection();};
-const playerColors=[['#ff6b4a','Красный'],['#ffbd4a','Жёлтый'],['#a7d94b','Лаймовый'],['#42d6a4','Бирюзовый'],['#42b8ff','Голубой'],['#687bff','Синий'],['#bd70ff','Фиолетовый'],['#ff75b8','Розовый']];
-const colorGroup=document.getElementById('colors');
-for(const [color,label] of playerColors){
-  const button=document.createElement('button'); button.type='button'; button.className='color-choice'; button.setAttribute('role','radio');
-  button.setAttribute('aria-label',label); button.setAttribute('aria-checked','false'); button.dataset.color=color;
-  button.style.setProperty('--swatch',color); button.title=label;
-  button.onclick=()=>events.emit('command',{type:'player.color',payload:{color}});
-  button.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();const buttons=[...colorGroup.children],index=buttons.indexOf(button),step=['ArrowRight','ArrowDown'].includes(event.key)?1:-1;buttons[(index+step+buttons.length)%buttons.length].click();buttons[(index+step+buttons.length)%buttons.length].focus();};
-  colorGroup.append(button);
-}
-function selectColor(color){if(!color)return;for(const button of colorGroup.children){const selected=button.dataset.color===color;button.setAttribute('aria-checked',String(selected));button.tabIndex=selected?0:-1;}}
-events.on('world.snapshot',state=>selectColor(state.players?.find(p=>p.player_id===state.self_id)?.color));
-events.on('world.delta',state=>selectColor(state.players?.find(p=>p.player_id===state.self_id)?.color));
-function readPreference(key,fallback){try{return localStorage.getItem(key) ?? fallback;}catch{return fallback;}}
-function savePreference(key,value){try{localStorage.setItem(key,value);}catch{/* Storage can be disabled by browser policy. */}}
-const qualitySelect=document.getElementById('quality');
-const savedQuality=readPreference('mars.graphics.quality','medium');
-qualitySelect.value=['low','medium','high'].includes(savedQuality)?savedQuality:'medium';
-const bobToggle=document.getElementById('camera-bob'); bobToggle.checked=readPreference('mars.graphics.bob','true')==='true';
-qualitySelect.onchange=()=>{savePreference('mars.graphics.quality',qualitySelect.value);events.emit('graphics.quality',qualitySelect.value);};
-bobToggle.onchange=()=>{savePreference('mars.graphics.bob',String(bobToggle.checked));events.emit('graphics.bob',bobToggle.checked);};
+events.on('build.choose',type=>{
+  selectedBuilding=type===selectedBuilding?null:type;
+  root.classList.toggle('is-building',!!selectedBuilding);
+  for(const button of document.querySelectorAll('.build-slot'))button.setAttribute('aria-pressed',String(button.dataset.building===selectedBuilding));
+  events.emit('build.type',selectedBuilding);
+  updateBuildInfo();updateSelection();
+});
+events.on('build.cancel',()=>{
+  if(!document.querySelector('#assistant-panel:not([hidden])'))events.emit('build.choose',null);
+});
+events.on('expedition.lobby',()=>{selection=null;events.emit('build.choose',null);});
+for(const button of document.querySelectorAll('.build-slot'))button.onclick=()=>events.emit('build.choose',button.dataset.building);
+document.getElementById('build-cancel').onclick=()=>{events.emit('build.choose',null);document.querySelector('#build-hotbar button').focus();};
 try {
   const scene=new WorldScene(document.getElementById('viewport'),events);
-  events.emit('graphics.quality',qualitySelect.value);
-  events.emit('graphics.bob',bobToggle.checked);
+  const settings=new Settings({events,scene});
+  const economy=new EconomyHUD({events,scene});
+  const pickup=new AimResources({events,scene});
   let transport;
   if(import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) {
     const {createFixture}=await import('./scene/fixture.js'); transport=createFixture();
     show('environment','GOLDBERG · ПРОСМОТР ГЕОМЕТРИИ · НЕ МУЛЬТИПЛЕЕР');
+    document.getElementById('environment').hidden=false;
   } else transport=new GameClient();
   const runtime=new Runtime(transport,scene,events);
   const lobby=new Lobby({events,transport,scene,preview:import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')});
+  const assistant=new Assistant({events,scene});
   // Participant 4 integration surface: subscribe to events; send intentions via command().
   window.marsClient={events,command:(type,payload)=>runtime.command(type,payload),toggleCamera:()=>events.emit('camera.toggle'),dispose:()=>runtime.dispose()};
   if (import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) { lobby.setIdentity({user_id:'preview-explorer',username:'Explorer',world_id:'Марс / просмотр'}); transport.connect(); }
   else authenticate(transport,lobby);
-  window.addEventListener('pagehide',()=>{lobby.dispose();runtime.dispose();},{once:true});
-  if(import.meta.hot) import.meta.hot.dispose(()=>{lobby.dispose();runtime.dispose();});
+  window.addEventListener('pagehide',()=>{assistant.dispose();pickup.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();},{once:true});
+  if(import.meta.hot) import.meta.hot.dispose(()=>{assistant.dispose();pickup.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();});
 } catch(error) { show('notice',`Не удалось запустить 3D: ${error.message}`); }
 
 async function authenticate(transport,lobby) {
@@ -172,10 +182,12 @@ async function authenticate(transport,lobby) {
   const error=document.getElementById('auth-error');
   const openSocket=(identity)=>{ panel.hidden=true; lobby.setIdentity(identity); transport.connect(); };
   transport.on('status', status=>{
-    if(status==='unauthorized') { panel.hidden=false; show('connection','Требуется вход'); }
+    if(status==='unauthorized') { panel.hidden=false; setConnection(status); }
     if(status==='world_unavailable') {
       panel.hidden=false;
-      error.textContent='Мир уже запущен или заполнен. Войдите под именем игрока, который уже участвует в этой экспедиции.';
+      error.textContent=transport.worldUnavailableReason==='World is full'
+        ?'В экспедиции уже четыре игрока. Участники могут войти под своими аккаунтами.'
+        :'Не удалось войти в мир. Проверьте доступ к экспедиции и попробуйте снова.';
     }
   });
   form.addEventListener('submit',async event=>{
@@ -204,5 +216,5 @@ async function authenticate(transport,lobby) {
   } catch (cause) {
     error.textContent=`Сервер авторизации недоступен: ${cause.message}`;
   }
-  panel.hidden=false; show('connection','Требуется вход');
+  panel.hidden=false; setConnection('unauthorized');
 }

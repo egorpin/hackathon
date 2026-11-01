@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 const RESOURCE_COLORS = Object.freeze({
   iron: 0x41484c,
+  copper: 0xb87545,
   sulfur: 0xd1b04b,
   stone: 0x858b8b,
   ice: 0xa6dce2,

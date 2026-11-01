@@ -110,7 +110,7 @@ export class Atmosphere {
     this.flashlight.target = this.flashlightTarget;
 
     this.onKeyDown = event => {
-      if (event.code !== 'KeyF' || event.repeat || event.target?.closest?.('input,textarea,select,[contenteditable=true]')) return;
+      if (event.code !== 'KeyF' || event.repeat || event.ctrlKey || event.altKey || event.metaKey || document.querySelector('dialog[open]') || event.target?.closest?.('input,textarea,select,[contenteditable=true]')) return;
       this.setFlashlight(!this.flashlightOn);
     };
     window.addEventListener('keydown', this.onKeyDown);
@@ -179,7 +179,7 @@ export class Atmosphere {
 
   toggleFlashlight() { this.setFlashlight(!this.flashlightOn); }
 
-  update(sharedTimeSeconds, camera, localUp, dt = 0, {dust = true} = {}) {
+  update(sharedTimeSeconds, camera, localUp, dt = 0, {dust = true, animations = true} = {}) {
     if (this.disposed) return;
     const solar = computeSolarState(sharedTimeSeconds, this.cycleSeconds, localUp);
     this.sunDirection.fromArray(solar.direction);
@@ -206,7 +206,7 @@ export class Atmosphere {
     this.dust.quaternion.copy(camera.quaternion);
     const positions = this.dustPositions;
     const elapsed = sharedTimeSeconds;
-    for (let i = 0; dust && i < this.dustMotion.length; i++) {
+    for (let i = 0; dust && animations && i < this.dustMotion.length; i++) {
       const p = this.dustMotion[i];
       const offset = i * 3;
       p.x += dt * p.drift;
@@ -215,7 +215,7 @@ export class Atmosphere {
       positions[offset + 1] = p.y + Math.sin(elapsed * 0.7 + p.sway) * 0.12;
       positions[offset + 2] = p.z;
     }
-    if(dust) this.dust.geometry.attributes.position.needsUpdate = true;
+    if(dust && animations) this.dust.geometry.attributes.position.needsUpdate = true;
     this.dust.visible = dust && daylight > 0.12;
   }
 

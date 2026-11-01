@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { projectTerrain } from './terrain.js';
 
-const COLORS = { iron:0x66554b, sulfur:0xc9b442, water:0x9fcbd8, ice:0x9fcbd8, stone:0x777775 };
+const COLORS = { iron:0x66554b, copper:0xb87545, sulfur:0xc9b442, water:0x9fcbd8, ice:0x9fcbd8, stone:0x777775 };
 
 // A light preview of the deposit silhouette, pending approval of generated assets.
 // Keep the entire pile inside the cell's inscribed circle with a generous margin.

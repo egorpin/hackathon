@@ -19,6 +19,8 @@ class EconomyTests(unittest.TestCase):
     start = helpers.GameTests.start
     advance = helpers.GameTests.advance
     build = helpers.GameTests.build
+    move_near = helpers.GameTests.move_near
+    interact = helpers.GameTests.interact
     def test_starter_grant_once_and_team_pool(self):
         view = snapshot(self.context, self.world)
         view["payload"]["config"]["recipes"]["drill"]["iron"] = 999
@@ -37,6 +39,7 @@ class EconomyTests(unittest.TestCase):
             building_id = self.build(kind)
             with self.world.transaction() as state:
                 state.buildings[building_id].stock['copper'] = 3
+            self.move_near(building_id)
             request = command('building.remove', building_id=building_id)
             with ThreadPoolExecutor(max_workers=4) as pool:
                 results = list(pool.map(lambda _: apply_command(self.context, request, self.world), range(4)))
@@ -57,40 +60,104 @@ class EconomyTests(unittest.TestCase):
             pool['iron'] += 500 - sum(pool.values())
         self.advance(20)
         self.assertEqual(sum(self.world.state.team_storage['team-a'].values()), 500)
-        self.ok(self.act('building.remove', building_id=warehouse))
+        self.ok(self.interact('building.remove', building_id=warehouse))
         self.assertEqual(storage_capacity(self.world.state, 'team-a'), 300)
         self.assertEqual(sum(self.world.state.team_storage['team-a'].values()), 515)
         self.advance(40)
         self.assertEqual(sum(self.world.state.team_storage['team-a'].values()), 515)
-        self.assertEqual(sum(self.world.state.buildings[drill].stock.values()), 0)
+        self.assertEqual(sum(self.world.state.buildings[drill].stock.values()), 3)
+        self.advance(1200)
+        self.assertEqual(sum(self.world.state.buildings[drill].stock.values()), 50)
+        self.assertEqual(sum(self.world.state.team_storage['team-a'].values()), 515)
 
-    def test_water_drill_sustains_generator_and_cap_stops_consumption(self):
+    def test_manual_water_delivery_to_generator_and_cap_stops_consumption(self):
         self.start()
         neighbors = self.planet.cells[self.planet.landing_sites[0]].neighbors
-        self.build('drill', neighbors[1])
-        self.build('oxygen_generator', neighbors[0])
+        drill = self.build('drill', neighbors[1])
+        generator = self.build('oxygen_generator', neighbors[0])
         with self.world.transaction() as state:
             state.team_storage['team-a']['water'] = 0
         self.advance(19)
         self.assertEqual(self.world.state.oxygen_percent, 0)
         self.advance(1)
+        self.assertEqual(self.world.state.oxygen_percent, 0)
+        self.assertEqual(self.world.state.buildings[drill].stock['water'], 1)
+        self.ok(self.interact('resource.pickup', building_id=drill, resource='water', amount=1))
+        self.ok(self.interact('resource.deposit', building_id=generator, resource='water', amount=1))
+        self.advance(20)
         self.assertEqual(self.world.state.oxygen_percent, .1)
         self.assertEqual(self.world.state.team_storage['team-a']['water'], 0)
+        self.ok(self.interact('resource.pickup', building_id=drill, resource='water', amount=1))
+        self.ok(self.interact('resource.deposit', building_id=generator, resource='water', amount=1))
         with self.world.transaction() as state:
             state.oxygen_percent = 99.95
         self.advance(20)
         self.assertEqual(self.world.state.oxygen_percent, 100)
+        self.ok(self.interact('resource.pickup', building_id=drill, resource='water', amount=1))
+        self.ok(self.interact('resource.deposit', building_id=generator, resource='water', amount=1))
         self.advance(20)
-        self.assertEqual(self.world.state.team_storage['team-a']['water'], 1)
+        self.assertEqual(self.world.state.buildings[generator].stock['water'], 1)
+        self.assertEqual(self.world.state.team_storage['team-a']['water'], 0)
 
     def test_respawn_uses_base_then_landing_after_demolition(self):
         self.start()
         base = self.build('dome_base')
         self.assertEqual(self.ok(self.act('player.respawn'))['building_id'], base)
-        self.ok(self.act('building.remove', building_id=base))
+        self.ok(self.interact('building.remove', building_id=base))
         response = self.ok(self.act('player.respawn'))
         self.assertIsNone(response['building_id'])
         self.assertEqual(response['cell_id'], self.planet.landing_sites[0])
+
+    def test_warehouse_supplies_only_adjacent_allied_generator_missing_water(self):
+        self.start()
+        neighbors = self.planet.cells[self.planet.landing_sites[0]].neighbors
+        drill_cell = next(cell for cell in neighbors if self.planet.cells[cell].resource == 'water')
+        drill = self.build('drill', drill_cell)
+        warehouse_cell = next(cell for cell in neighbors if cell != drill_cell)
+        warehouse = self.build('warehouse', warehouse_cell)
+        generator_cell = next(cell for cell in neighbors if cell != drill_cell
+                              and cell in self.planet.cells[warehouse_cell].neighbors)
+        generator = self.build('oxygen_generator', generator_cell)
+        with self.world.transaction() as state:
+            state.team_storage['team-a']['water'] = 0
+        self.advance(20)
+        self.assertEqual(self.world.state.oxygen_percent, 0)
+        self.ok(self.interact('resource.pickup', building_id=drill, resource='water', amount=1))
+        self.ok(self.interact('resource.deposit', building_id=warehouse, resource='water', amount=1))
+        self.advance(20)
+        self.assertEqual(self.world.state.oxygen_percent, .1)
+        self.assertEqual(self.world.state.team_storage['team-a']['water'], 0)
+        self.assertEqual(self.world.state.buildings[generator].stock['water'], 0)
+        with self.world.transaction() as state:
+            state.team_storage['team-a']['water'] = 4
+            state.buildings[generator].stock['water'] = 1
+        self.advance(20)
+        self.assertEqual(self.world.state.oxygen_percent, .2)
+        self.assertEqual(self.world.state.team_storage['team-a']['water'], 4)
+        # Team resources alone cannot feed a distant generator.
+        with self.world.transaction() as state:
+            state.buildings[warehouse].cell_id = next(cell.cell_id for cell in self.planet.cells.values()
+                if cell.buildable and cell.cell_id not in self.planet.cells[generator_cell].neighbors
+                and cell.cell_id not in (drill_cell, generator_cell))
+        self.advance(20)
+        self.assertEqual(self.world.state.oxygen_percent, .2)
+        self.assertEqual(self.world.state.team_storage['team-a']['water'], 4)
+        # A neighboring enemy warehouse never supplies this team's generator.
+        with self.world.transaction() as state:
+            state.buildings[warehouse].cell_id = warehouse_cell
+            state.buildings[warehouse].team_id = 'team-b'
+        self.advance(20)
+        self.assertEqual(self.world.state.oxygen_percent, .2)
+        with self.world.transaction() as state:
+            state.buildings[warehouse].team_id = 'team-a'
+            state.oxygen_percent = 100
+        self.advance(20)
+        self.assertEqual(self.world.state.team_storage['team-a']['water'], 4)
+        self.assertEqual(self.world.state.buildings[generator].stock['water'], 0)
+        config = snapshot(self.context, self.world)['payload']['config']
+        self.assertFalse(config['drill_auto_transfer'])
+        self.assertEqual(config['warehouse_supply'], 'neighbors')
+        self.assertEqual(config['oxygen_inputs'], {'water': 1})
 
     def test_remove_rejects_distance_team_and_failed_commit(self):
         eve = Context('world-a', 'eve', 'team-b')
@@ -104,6 +171,7 @@ class EconomyTests(unittest.TestCase):
         self.assertEqual(self.act('building.remove', building_id=building)['payload']['code'], 'OUT_OF_RANGE')
         with self.world.transaction() as state:
             state.players['alice'].position = self.planet.cells[self.planet.landing_sites[0]].center
+        self.move_near(building)
         before = self.world.state
         def fail(_):
             raise OSError('disk failure')
@@ -125,6 +193,8 @@ class EconomyTests(unittest.TestCase):
     def test_new_economy_roundtrip_and_legacy_refund(self):
         self.start()
         building = self.build('oxygen_generator')
+        with self.world.transaction() as state:
+            state.buildings[building].stock['water'] = 1
         self.advance(25)
         restored = WorldState.from_dict(self.world.state.to_dict())
         self.assertEqual(restored, self.world.state)
@@ -137,5 +207,22 @@ class EconomyTests(unittest.TestCase):
         restored = WorldState.from_dict(legacy)
         self.world = UnitOfWork(self.planet, restored)
         before = restored.team_storage['team-a']['iron']
-        self.ok(self.act('building.remove', building_id=building))
+        self.ok(self.interact('building.remove', building_id=building))
         self.assertEqual(self.world.state.team_storage['team-a']['iron'], before + 8)
+
+    def test_legacy_building_ore_migrates_before_delivery_or_refund(self):
+        self.start()
+        building = self.build('drill')
+        legacy = self.world.state.to_dict()
+        legacy.pop('economy_version')
+        legacy['buildings'][building].pop('paid_cost')
+        legacy['buildings'][building]['stock'] = {'ore': 8, 'iron': 2}
+        restored = WorldState.from_dict(legacy)
+        self.assertEqual(restored.buildings[building].stock['iron'], 10)
+        self.assertEqual(restored.buildings[building].stock['ore'], 0)
+        self.assertEqual(WorldState.from_dict(restored.to_dict()), restored)
+        self.world = UnitOfWork(self.planet, restored)
+        before = restored.team_storage['team-a']['iron']
+        self.ok(self.interact('building.remove', building_id=building))
+        self.assertEqual(self.world.state.team_storage['team-a']['iron'], before + 15)
+        self.assertEqual(self.world.state.team_storage['team-a']['ore'], 0)

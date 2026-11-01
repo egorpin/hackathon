@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { prepareDrillParts } from './drill-parts.js';
 import { attachMechanicalAnimation } from './mechanical-animation.js';
+import { ModelCache } from './model-cache.js';
 
 export const MODEL_NAMES = ['astronaut','drill','oxygen_generator','storage','dome_base','rover'];
 const suitTints = new WeakMap();
@@ -39,17 +40,32 @@ export function recolor(root, color) {
   });
 }
 export class ModelLibrary {
-  constructor() { this.assets = new Map(); this.loader = new GLTFLoader(); this.disposed=false; }
-  async load(onLoad) {
+  constructor() { this.assets = new Map(); this.loader = new GLTFLoader(); this.cache = new ModelCache(); this.disposed=false; this.loading=null; }
+  load(onLoad) {
+    if (!this.loading) this.loading = this.loadAssets(onLoad).finally(() => { this.loading = null; });
+    return this.loading;
+  }
+  async loadAssets(onLoad) {
     const response = await fetch('/assets/models/manifest.json', {cache:'no-store'});
     if(!response.ok)return;
     const manifest=await response.json();
     const approved=MODEL_NAMES.filter(name=>manifest.approved?.includes(name));
     const results = await Promise.allSettled(approved.map(async name => {
-      const revision=manifest.revision?`?v=${encodeURIComponent(manifest.revision)}`:'';
-      const asset = await this.loader.loadAsync(`/assets/models/${name}.glb${revision}`);
+      if (this.assets.has(name) || this.disposed) return;
+      let asset;
+      try {
+        const bytes = await this.cache.get(name, manifest.revision);
+        asset = await this.loader.parseAsync(bytes, '/assets/models/');
+      } catch (error) {
+        const removed = await this.cache.invalidate(name, manifest.revision);
+        if (!removed) throw error;
+        const bytes = await this.cache.get(name, manifest.revision);
+        try { asset = await this.loader.parseAsync(bytes, '/assets/models/'); }
+        catch (retryError) { await this.cache.invalidate(name, manifest.revision); throw retryError; }
+      }
       if(this.disposed) { this.release(asset); return; }
       if(name==='drill')prepareDrillParts(asset.scene);
+      if(name==='oxygen_generator')asset.scene.traverse(node=>{if(node.isMesh)node.name='OxygenHousing';});
       this.assets.set(name,asset); onLoad?.(name);
     }));
     const failures = results.filter(result => result.status === 'rejected');
@@ -67,6 +83,7 @@ export class ModelLibrary {
     });
     recolor(root,color);
     if(name==='drill')root.userData.mechanical=attachMechanicalAnimation(root,'drill');
+    if(name==='oxygen_generator')root.userData.mechanical=attachMechanicalAnimation(root,name);
     if(asset.animations.length) {
       const mixer = new THREE.AnimationMixer(root);
       root.userData.animation = { mixer, clips:asset.animations, current:null };
