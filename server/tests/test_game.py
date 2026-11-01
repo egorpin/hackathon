@@ -63,7 +63,7 @@ class GeometryTests(unittest.TestCase):
         self.assertTrue(all(len(planet.cells[c].neighbors) == 5 for c in planet.landing_sites))
 
     def test_deposits_are_deterministic_and_available_at_landings(self):
-        self.assertEqual({c.resource for c in self.planet.cells.values()}, {None, "water", "iron", "sulfur"})
+        self.assertEqual({c.resource for c in self.planet.cells.values()}, {None, "water", "iron", "sulfur", "copper"})
         for site in self.planet.landing_sites:
             self.assertIsNone(self.planet.cells[site].resource)
             self.assertTrue({"water", "iron", "sulfur"} <= {self.planet.cells[n].resource for n in self.planet.cells[site].neighbors})
@@ -159,9 +159,9 @@ class GameTests(unittest.TestCase):
 
     def test_base_can_be_placed_without_producing_resources(self):
         self.start()
-        before = self.world.state.players['alice'].inventory['ore']
+        before = self.world.state.team_storage['team-a']['iron']
         base_id = self.build('dome_base')
-        self.assertEqual(self.world.state.players['alice'].inventory['ore'], before - 5)
+        self.assertEqual(self.world.state.team_storage['team-a']['iron'], before - 10)
         stock = dict(self.world.state.buildings[base_id].stock)
         self.advance(40)
         self.assertEqual(self.world.state.buildings[base_id].stock, stock)
@@ -172,20 +172,22 @@ class GameTests(unittest.TestCase):
         neighbors = self.planet.cells[self.planet.landing_sites[0]].neighbors
         drill = self.build("drill", neighbors[0])
         warehouse = self.build("warehouse", neighbors[1])
-        generator = self.build("oxygen_generator", neighbors[2])
+        generator_cell = next(cell for cell in neighbors if cell != neighbors[0]
+                              and cell in self.planet.cells[neighbors[1]].neighbors)
+        self.build("oxygen_generator", generator_cell)
         self.advance(100)
-        self.assertEqual(self.world.state.buildings[drill].stock["iron"], 5)
-        self.ok(self.act("resource.pickup", building_id=drill, resource="iron", amount=5))
-        self.ok(self.act("resource.deposit", building_id=warehouse, resource="iron", amount=5))
-        self.ok(self.act("resource.pickup", building_id=warehouse, resource="iron", amount=3))
-        self.ok(self.act("resource.deposit", building_id=generator, resource="iron", amount=3))
-        self.advance(60)
         state = self.world.state
-        self.assertEqual(state.team_oxygen["team-a"], 0)
-        self.assertEqual(state.buildings[generator].stock["iron"], 3)
-        self.assertEqual(state.players["alice"].inventory["ore"], 2)
-        remaining = state.players["alice"].inventory["iron"] + state.team_storage["team-a"]["iron"] + sum(b.stock["iron"] for b in state.buildings.values())
-        self.assertEqual(remaining, 8)
+        self.assertEqual(state.buildings[drill].stock["iron"], 5)
+        self.assertEqual(state.team_storage["team-a"]["iron"], 10)
+        self.assertEqual(state.team_storage["team-a"]["water"], 0)
+        self.assertEqual(state.oxygen_percent, 0.5)
+        self.advance(60)
+        self.assertEqual(self.world.state.oxygen_percent, 0.5)
+        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 10)
+        self.ok(self.act("resource.pickup", building_id=drill, resource="iron", amount=8))
+        self.assertEqual(self.world.state.players["alice"].inventory["iron"], 8)
+        self.ok(self.act("resource.deposit", building_id=warehouse, resource="iron", amount=8))
+        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 18)
 
     def test_drill_requires_resource_without_spending(self):
         self.start()
@@ -201,15 +203,18 @@ class GameTests(unittest.TestCase):
 
     def test_each_deposit_produces_and_transfers_its_resource(self):
         self.start()
-        for cell_id in self.planet.cells[self.planet.landing_sites[0]].neighbors[:3]:
-            resource = self.planet.cells[cell_id].resource
-            building_id = self.build(cell_id=cell_id)
+        for resource in ("iron", "water", "sulfur", "copper"):
+            cell = next(c for c in self.planet.cells.values() if c.resource == resource)
+            with self.world.transaction() as state:
+                state.players["alice"].position = move_on_surface(cell.center, unit(cross(cell.center, (0, 0, 1))), 2, self.planet.radius)
+            building_id = self.build(cell_id=cell.cell_id)
+            before = self.world.state.team_storage["team-a"][resource]
             self.advance(20)
             self.assertEqual(self.world.state.buildings[building_id].stock[resource], 1)
+            self.assertEqual(self.world.state.team_storage["team-a"][resource], before)
             self.ok(self.act("resource.pickup", building_id=building_id, resource=resource, amount=1))
             self.assertEqual(self.world.state.players["alice"].inventory[resource], 1)
             self.assertEqual(self.act("resource.pickup", building_id=building_id, resource="oxygen", amount=1)["payload"]["code"], "INVALID_ARGUMENT")
-        self.assertEqual(self.world.state.players["alice"].inventory["oxygen"], 0)
 
     def test_retry_conflict_and_concurrent_build(self):
         self.start()
@@ -220,14 +225,14 @@ class GameTests(unittest.TestCase):
         self.assertTrue(all(r == results[0] for r in results))
         self.ok(results[0])
         self.assertEqual(len(self.world.state.buildings), 1)
-        self.assertEqual(self.world.state.players["alice"].inventory["ore"], 15)
+        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 35)
         conflict = {**request, "payload": {**request["payload"], "building_type": "warehouse"}}
         self.assertEqual(apply_command(self.context, conflict, self.world)["payload"]["code"], "REQUEST_CONFLICT")
         other_cell = self.planet.cells[self.planet.landing_sites[0]].neighbors[1]
         with ThreadPoolExecutor(max_workers=4) as pool:
             results = list(pool.map(lambda _: self.act("building.place", cell_id=other_cell, building_type="drill"), range(4)))
         self.assertEqual(sum(r["payload"]["ok"] for r in results), 1)
-        self.assertEqual(self.world.state.players["alice"].inventory["ore"], 10)
+        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 30)
 
     def test_commit_failure_does_not_publish_building_or_debit_or_request(self):
         self.start()
@@ -251,7 +256,7 @@ class GameTests(unittest.TestCase):
         restored = UnitOfWork(self.planet, WorldState.from_dict(json.loads(saved[-1])))
         self.assertEqual(json.loads(json.dumps(restored.state.to_dict())), json.loads(saved[-1]))
         self.assertEqual(apply_command(self.context, request, restored), response)
-        self.assertEqual(snapshot(self.context, restored)["payload"]["inventory"]["ore"], 15)
+        self.assertEqual(snapshot(self.context, restored)["payload"]["team_storage"]["iron"], 35)
         self.assertEqual(next(iter(restored.state.buildings.values())).stock["iron"], 2)
         with self.assertRaises(ValueError):
             UnitOfWork(generate_planet(subdivisions=1), restored.state)
@@ -304,19 +309,21 @@ class GameTests(unittest.TestCase):
         self.assertEqual(self.act("resource.pickup", building_id=drill, resource="ore", amount=1)["payload"]["code"], "OUT_OF_RANGE")
         with self.world.transaction() as state:
             state.players["alice"].position = self.planet.cells[self.planet.landing_sites[0]].center
-            state.players["alice"].inventory["ore"] = 0
+            state.team_storage["team-a"]["iron"] = 0
         self.assertEqual(self.act("building.place", cell_id=self.planet.cells[self.planet.landing_sites[0]].neighbors[1], building_type="drill")["payload"]["code"], "INSUFFICIENT_RESOURCES")
 
     def test_invalid_amounts_and_capacities(self):
         self.start()
         drill = self.build()
         self.advance(2000)
+        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 35)
         self.assertEqual(self.world.state.buildings[drill].stock["iron"], BUILDING_CAPACITY)
         for amount in (-1, 0, True, 1.5, "1", 51, 10**300, None):
             self.assertEqual(self.act("resource.pickup", building_id=drill, resource="ore", amount=amount)["payload"]["code"], "INVALID_ARGUMENT")
         with self.world.transaction() as state:
             state.players["alice"].inventory["ore"] = INVENTORY_CAPACITY - 1
             state.players["alice"].inventory["iron"] = 1
+            state.buildings[drill].stock["iron"] = BUILDING_CAPACITY
         self.assertEqual(self.act("resource.pickup", building_id=drill, resource="iron", amount=1)["payload"]["code"], "INVENTORY_FULL")
         self.assertEqual(self.act("resource.deposit", building_id=drill, resource="iron", amount=1)["payload"]["code"], "INVENTORY_FULL")
 
@@ -332,9 +339,10 @@ class GameTests(unittest.TestCase):
         with self.world.transaction() as state:
             for name in ("bob", "eve"):
                 state.players[name].position = state.players["alice"].position
-            state.team_oxygen["team-a"] = 42
+            state.oxygen_percent = 42
+            state.players["alice"].inventory["ore"] = 3
         self.ok(self.act("resource.give", recipient_player_id="bob", resource="ore", amount=3))
-        self.assertEqual(self.world.state.players["bob"].inventory["ore"], 23)
+        self.assertEqual(self.world.state.players["bob"].inventory["ore"], 3)
         self.assertEqual(self.act("resource.give", recipient_player_id="eve", resource="ore", amount=1)["payload"]["code"], "FORBIDDEN")
         for action in ("resource.pickup", "resource.deposit"):
             self.assertEqual(self.act(action, context=eve, building_id=drill, resource="ore", amount=1)["payload"]["code"], "FORBIDDEN")
@@ -342,7 +350,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(len(view["players"]), 3)
         self.assertTrue(all("inventory" not in p for p in view["players"]))
         self.assertNotIn("stock", view["buildings"][0])
-        self.assertEqual(view["oxygen"], 0)
+        self.assertEqual(view["oxygen"], 42)
 
     def test_movement_speed_sequence_timeout_and_fixed_step(self):
         self.start()
@@ -406,7 +414,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(apply_command(self.context, request, self.world)["payload"]["code"], "LANDING_REQUIRED")
         view = snapshot(self.context, self.world)
         view["payload"]["inventory"]["ore"] = -100
-        self.assertEqual(self.world.state.players["alice"].inventory["ore"], 20)
+        self.assertEqual(self.world.state.players["alice"].inventory["ore"], 0)
 
 
 if __name__ == "__main__":

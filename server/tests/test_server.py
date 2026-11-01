@@ -17,6 +17,7 @@ from websockets.sync.client import connect
 
 from app import main
 from app.storage import Database
+from app.game.state import Building, STARTING_RESOURCES
 
 ORIGIN = "http://localhost:8000"
 
@@ -166,6 +167,63 @@ def test_two_clients_receive_authoritative_movement(client):
             raise AssertionError('The second client never received movement')
 
 
+def test_restart_with_unaccepted_offer_reconnects_and_replay_is_safe(client):
+    identity, token = register(client, 'restart_player')
+    headers = {'origin': ORIGIN, 'cookie': f'mars_session={token}'}
+    request = {'type': 'world.restart', 'request_id': str(uuid.uuid4()), 'payload': {}}
+
+    def receive(ws, kind, accept_offers=False):
+        for _ in range(200):
+            message = ws.receive_json()
+            if accept_offers and message['type'] == 'world.offer':
+                ws.send_json({'type': 'world.accept', 'payload': {}})
+            if message['type'] == kind:
+                return message
+        raise AssertionError(f'Expected {kind}')
+
+    with client.websocket_connect('/ws', headers=headers) as ws:
+        assert ws.receive_json()['type'] == 'session.ready'
+        ws.send_json({'type': 'world.subscribe', 'payload': {}})
+        receive(ws, 'world.snapshot', accept_offers=True)
+        runtime = main.app.state.game.runtime(identity)
+        with runtime.transaction() as state:
+            cell = runtime.planet.landing_sites[0]
+            state.buildings['old'] = Building('old', cell, 'warehouse', identity['team_id'], identity['user_id'])
+            state.team_storage[identity['team_id']]['iron'] = 1
+            state.oxygen_percent = 42
+            state.revision += 1
+        ws.send_json({'type': 'lobby.ready', 'payload': {'ready': True}})
+        running = offered = False
+        while not (running and offered):
+            message = ws.receive_json()
+            running |= message['type'] == 'lobby.state' and message['payload']['stage'] == 'running'
+            offered |= message['type'] == 'world.offer'
+        # Leave this reservation outstanding when the restart arrives.
+        ws.send_json(request)
+        first = receive(ws, 'action.result')
+        assert first['request_id'] == request['request_id']
+        assert first['payload'] == {'ok': True, 'generation': 1}
+        with pytest.raises(WebSocketDisconnect) as closed:
+            while True:
+                ws.receive_json()
+        assert closed.value.code == 4000
+
+    with client.websocket_connect('/ws', headers=headers) as ws:
+        assert ws.receive_json()['type'] == 'session.ready'
+        ws.send_json({'type': 'world.subscribe', 'payload': {}})
+        snapshot = receive(ws, 'world.snapshot', accept_offers=True)['payload']
+        assert snapshot['generation'] == 1 and snapshot['stage'] == 'lobby'
+        assert snapshot['buildings'] == [] and snapshot['oxygen_percent'] == 0
+        assert all(snapshot['team_storage'][key] == value for key, value in STARTING_RESOURCES.items())
+        ws.send_json(request)
+        assert receive(ws, 'action.result', accept_offers=True) == first
+        # A subsequent request succeeds on the same socket: replay did not close it.
+        ws.send_json({'type': 'lobby.profile', 'payload': {'color': 0, 'variant': 0}})
+        receive(ws, 'lobby.state', accept_offers=True)
+        state = main.app.state.game.runtime(identity).state
+        assert state.generation == 1 and state.team_storage[identity['team_id']]['iron'] == 40
+
+
 def test_four_connections_and_logout(client):
     tokens = [register(client, f"player_{n}")[1] for n in range(4)]
     from contextlib import ExitStack
@@ -272,3 +330,33 @@ def test_real_uvicorn_websocket(tmp_path):
     finally:
         process.terminate()
         process.wait(timeout=5)
+
+
+def test_build_remove_and_respawn_commands_over_websocket(client):
+    identity, token = register(client, 'builder')
+    with client.websocket_connect('/ws', headers={'origin': ORIGIN, 'cookie': f'mars_session={token}'}) as ws:
+        assert ws.receive_json()['type'] == 'session.ready'
+        ws.send_json({'type': 'world.subscribe', 'payload': {}})
+        while ws.receive_json()['type'] != 'world.offer':
+            pass
+        ws.send_json({'type': 'lobby.ready', 'payload': {'ready': True}})
+        while True:
+            message = ws.receive_json()
+            if message['type'] == 'lobby.state' and message['payload']['stage'] == 'running':
+                break
+        runtime = main.app.state.game.runtime(identity)
+        def action(kind, **payload):
+            request_id = str(uuid.uuid4())
+            ws.send_json({'type': kind, 'request_id': request_id, 'payload': payload})
+            for _ in range(100):
+                message = ws.receive_json()
+                if message['type'] == 'action.result' and message.get('request_id') == request_id:
+                    assert message['payload']['ok'], message
+                    return message['payload']
+            raise AssertionError('No action result')
+        site = next(cell for cell, user in runtime.state.landing_claims.items() if user == identity['user_id'])
+        cell = runtime.planet.cells[site].neighbors[0]
+        building = action('building.place', cell_id=cell, building_type='dome_base')['building_id']
+        assert action('player.respawn')['building_id'] == building
+        assert action('building.remove', building_id=building)['refunded'] == {'iron': 10}
+        assert action('player.respawn')['building_id'] is None

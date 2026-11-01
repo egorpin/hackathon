@@ -122,12 +122,12 @@ export class FirstPersonHands {
     this.currentState = state;
   }
 
-  update(dt, { moving = false, running = false, airborne = false, color, visible = true } = {}) {
+  update(dt, { moving = false, running = false, airborne = false, animations = true, color, visible = true } = {}) {
     if (color != null) this.setColor(color);
     this.root.visible = visible;
-    const delta = Math.max(0, Math.min(dt || 0, 0.05));
+    const delta = animations ? Math.max(0, Math.min(dt || 0, 0.05)) : 0;
     this.time += delta;
-    if (this.mixer) {
+    if (this.mixer && animations) {
       this.playState(airborne ? 'jump' : moving ? (running ? 'run' : 'walk') : 'idle');
       this.mixer.update(delta);
     }

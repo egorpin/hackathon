@@ -13,12 +13,12 @@ export class WorldCache extends Events {
   reserve(key, bytes, { pinned = false, distance = 0 } = {}) {
     if (!Number.isSafeInteger(bytes) || bytes < 0 || this.total <= 0) return false;
     if (this.entries.has(key)) return false;
-    const hard = Math.floor(this.total * .1), target = Math.floor(this.total * .05);
+    const hard = Math.floor(this.total * .1);
     if (bytes > hard) return false;
     const candidates = [...this.entries].filter(([,e]) => !e.pinned && e.data !== null)
       .sort((a,b) => a[1].touched - b[1].touched || b[1].distance - a[1].distance);
     for (const [id] of candidates) {
-      if (this.used + bytes <= target) break;
+      if (this.used + bytes <= hard) break;
       this.drop(id);
     }
     if (this.used + bytes > hard) return false;

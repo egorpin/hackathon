@@ -12,8 +12,6 @@ class Lobby:
         self.active = set()
 
     def connect(self, socket, identity):
-        if not any(self.key(member) == self.key(identity) for member in self.members.values()):
-            self.active.discard(identity['world_id'])
         self.members[socket] = dict(identity)
 
     def key(self, identity):
@@ -41,6 +39,10 @@ class Lobby:
                      ready=self.key(identity) in self.ready,
                      avatar=self.profiles.get(self.key(identity)))
                 for user_id, identity in sorted(members.items(), key=lambda item: item[1]['username'].lower())]
+
+    def restart(self, world_id):
+        self.active.discard(world_id)
+        self.ready = {key for key in self.ready if key[0] != world_id}
 
     def stage(self, world_id):
         return 'running' if world_id in self.active else 'lobby'

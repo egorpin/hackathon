@@ -13,11 +13,24 @@ test('UTF-8 bytes, reservations and duplicate keys',()=>{
  assert.equal(c.reserve('chunk:a',bytes),false); assert.ok(c.commit('chunk:a',value));
  assert.equal(c.stats().queuedBytes,0); assert.equal(c.used,bytes);
 });
-test('evicts oldest loaded chunk before reservation; pending queue cannot be evicted',()=>{
+test('evicts loaded chunks only when needed for the hard limit; pending queue cannot be evicted',()=>{
  const c=new WorldCache(); c.reset(1000);
  c.put('chunk:a','a'.repeat(28)); c.reserve('chunk:b',30);
- assert.equal(c.entries.has('chunk:a'),false);
- assert.ok(c.reserve('chunk:c',60)); assert.equal(c.reserve('chunk:d',11),false); assert.equal(c.used,90);
+ assert.equal(c.entries.has('chunk:a'),true);
+ assert.ok(c.reserve('chunk:c',60)); assert.equal(c.entries.has('chunk:a'),false);
+ assert.equal(c.reserve('chunk:d',11),false); assert.equal(c.used,90);
+});
+test('repeated incoming state reservations preserve loaded terrain within the hard limit',()=>{
+ const c=new WorldCache(); c.reset(10000);
+ c.put('state','s'.repeat(298),{pinned:true});
+ c.put('chunk:a','a'.repeat(348));
+ c.put('chunk:b','b'.repeat(148));
+ for(let i=0;i<200;i++){
+  assert.ok(c.reserve('incoming:state',180,{pinned:true}));
+  c.drop('incoming:state');
+  assert.ok(c.entries.has('chunk:a') && c.entries.has('chunk:b'));
+  assert.ok(c.used<=1000);
+ }
 });
 test('wrong byte sizes and unsolicited chunks rejected',()=>{
  const c=new WorldCache(); c.reset(1000);
@@ -85,6 +98,16 @@ test('unconfirmed commands replay with original IDs only after snapshot',()=>{
  c.receive({type:'action.result',request_id:id,payload:{ok:true}});
  assert.equal(c.pending.size,0);c.close();
 });
+test('a new expedition drops stale gameplay commands before reconnect replay but preserves chat',()=>{
+ const c=new GameClient({url:'ws://test/ws',WebSocketClass:Socket});c.connect();
+ c.receive({type:'world.snapshot',revision:1,payload:{generation:0}});
+ c.command('building.place',{cell_id:'x',building_type:'drill'});
+ const chat=c.command('chat.send',{text:'hello'});
+ c.connect();c.receive({type:'session.ready',payload:{user_id:'u',world_id:'w',team_id:'t'}});
+ c.receive({type:'world.snapshot',revision:3,payload:{generation:1}});
+ assert.deepEqual(c.socket.sent.map(message=>message.request_id),[chat]);
+ assert.deepEqual([...c.pending.keys()],[chat]);c.close();
+});
 
 test('drill requests require deposits and changing building type refreshes preview', async () => {
  const { Runtime } = await import('../src/net/runtime.js');
@@ -94,14 +117,22 @@ test('drill requests require deposits and changing building type refreshes previ
  const scene = {selected:{cell_id:'ground',resource:null}, select(cell){this.refreshed = cell;}};
  new Runtime(transport,scene,events);
  events.emit('build.request'); assert.equal(sent.length,0);
- for (const resource of ['water','iron','sulfur']) {
+ scene.selected = {cell_id:'iron',resource:'iron'};
+ events.emit('build.request'); assert.equal(sent.length,0,'no implicit drill before choosing a slot');
+ events.emit('build.type','drill');
+ scene.selected = {cell_id:'ground',resource:null};
+ events.emit('build.request'); assert.equal(sent.length,0);
+ for (const resource of ['water','iron','sulfur','copper']) {
   scene.selected = {cell_id:resource,resource}; events.emit('build.request');
  }
- assert.equal(sent.length,3);
+ assert.equal(sent.length,4);
  scene.selected = {cell_id:'ground',resource:null};
  events.emit('build.type','warehouse');
  assert.equal(scene.buildType,'warehouse'); assert.equal(scene.refreshed,scene.selected);
  events.emit('build.request'); assert.equal(sent.at(-1).payload.building_type,'warehouse');
+ const count=sent.length;
+ events.emit('build.type',null);events.emit('build.request');
+ assert.equal(sent.length,count,'cancelled selection cannot place buildings');
 });
 
 test('server errors emit readable text once, preserving the raw message separately',()=>{
@@ -109,8 +140,8 @@ test('server errors emit readable text once, preserving the raw message separate
  c.receive({type:'session.ready',payload:{user_id:'u',world_id:'w',team_id:'t'}});
  const errors=[], messages=[];
  c.on('error',error=>errors.push(error));c.on('message',message=>messages.push(message));
- const message={type:'error',payload:{code:'WORLD_UNAVAILABLE',message:'World is full or already started'}};
+ const message={type:'error',payload:{code:'WORLD_UNAVAILABLE',message:'World is full'}};
  c.receive(message);
- assert.deepEqual(errors,['World is full or already started']);
- assert.deepEqual(messages,[message]);assert.equal(c.ready,false);c.close();
+ assert.deepEqual(errors,['World is full']);
+ assert.deepEqual(messages,[message]);assert.equal(c.ready,false);assert.equal(c.worldUnavailableReason,'World is full');c.close();
 });

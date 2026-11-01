@@ -1,4 +1,4 @@
-// Internal switches; intentionally not connected to the settings UI yet.
+// Visual preferences never change simulation or resource availability.
 export const DEFAULT_VISUAL_OPTIONS = Object.freeze({
   rocks: true,
   resourceDeposits: true,
@@ -7,6 +7,7 @@ export const DEFAULT_VISUAL_OPTIONS = Object.freeze({
   sky: true,
   sun: true,
   hands: true,
+  animations: true,
 });
 
 export function updateVisualOptions(current, patch = {}) {

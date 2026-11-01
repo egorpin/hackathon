@@ -7,6 +7,7 @@ import os
 import secrets
 import sqlite3
 import uuid
+import time
 from contextlib import asynccontextmanager
 from contextlib import suppress
 from pathlib import Path
@@ -19,6 +20,7 @@ from .storage import Database
 from .transport import GameService, Stream
 from .lobby import Lobby
 from .game import step
+from . import agent
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
 STATIC_DIR = Path(os.environ.get("STATIC_DIR", "client/dist"))
@@ -118,6 +120,55 @@ async def game_loop():
 
 
 app = FastAPI(title="Mars Colony", lifespan=lifespan)
+agent_busy = set()
+
+
+class AgentQuestion(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+
+
+def agent_identity(request):
+    identity = db.identity(request.cookies.get(COOKIE))
+    if not identity:
+        raise HTTPException(status_code=401, detail='Сначала войдите в игру.')
+    return identity
+
+
+@app.get('/api/agent/messages')
+def agent_messages(request: Request, response: Response):
+    response.headers['Cache-Control'] = 'no-store'
+    return {'messages': agent.history(db, agent_identity(request))}
+
+
+@app.post('/api/agent/ask')
+async def agent_ask(question: AgentQuestion, request: Request, response: Response):
+    require_origin(request)
+    identity = agent_identity(request)
+    text = question.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail='Введите вопрос.')
+    if agent_busy:
+        raise HTTPException(status_code=429, detail='ИИ отвечает на другой вопрос. Попробуйте чуть позже.')
+    agent_busy.add(identity['user_id'])
+    response.headers['Cache-Control'] = 'no-store'
+    try:
+        context = {'stage': app.state.lobby.stage(identity['world_id'])}
+        runtime = app.state.game.worlds.get(identity['world_id'])
+        if runtime and identity['user_id'] in runtime.state.players:
+            state = app.state.game.dto(identity)
+            context.update({key: state[key] for key in ('inventory', 'team_storage', 'oxygen_percent', 'oxygen_goal', 'config', 'stage') if key in state})
+            context['team_buildings'] = [item['building_type'] for item in state.get('buildings', [])]
+        answer = await asyncio.to_thread(agent.complete, agent.history(db, identity), text, context)
+        with db.connect() as connection:
+            for role, message in [('user', text), ('assistant', answer)]:
+                connection.execute('INSERT INTO agent_messages VALUES (?,?,?,?,?,?,?)',
+                                   (str(uuid.uuid4()), identity['world_id'], identity['user_id'], 'expedition',
+                                    role, message, int(time.time())))
+        return {'text': answer}
+    except (OSError, ValueError, KeyError):
+        raise HTTPException(status_code=503, detail='Модель сейчас недоступна. Попробуйте позже.') from None
+    finally:
+        agent_busy.discard(identity['user_id'])
 
 
 @app.get("/api/health")
@@ -257,6 +308,8 @@ async def websocket_endpoint(socket: WebSocket):
                     socket.state.stream = Stream(app.state.game, identity)
                     app.state.lobby.connect(socket, identity)
                     app.state.lobby.loaded.add(socket)
+                    if app.state.game.runtime(identity).state.stage == 'running':
+                        app.state.lobby.active.add(identity['world_id'])
                 async with socket.state.send_lock:
                     await socket.state.stream.offer(socket)
                 await broadcast_lobby(identity['world_id'])
@@ -281,6 +334,34 @@ async def websocket_endpoint(socket: WebSocket):
                 await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),
                                         'payload': {'ok': False, 'code': 'READY_REQUIRED'}})
                 continue
+            if kind == 'world.restart':
+                if stream is None:
+                    await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),
+                                            'payload': {'ok': False, 'code': 'NOT_READY'}})
+                    continue
+                runtime = app.state.game.runtime(identity)
+                before = runtime.state.generation
+                result = app.state.game.command(identity, message)
+                changed = result['payload']['ok'] and runtime.state.generation != before
+                if changed:
+                    app.state.lobby.restart(identity['world_id'])
+                    peers = [peer for peer in list(connections)
+                             if (getattr(peer.state, 'stream', None) is not None
+                                 and peer.state.stream.identity['world_id'] == identity['world_id'])]
+                    # Stop all streams before yielding. Reconnection clears any
+                    # client reservation for an offer already in flight.
+                    for peer in peers:
+                        peer.state.stream = None
+                await socket.send_json(result)
+                if changed:
+                    await broadcast_lobby(identity['world_id'])
+                    for peer in peers:
+                        try:
+                            async with peer.state.send_lock:
+                                await peer.close(code=4000, reason='expedition restarted')
+                        except (RuntimeError, WebSocketDisconnect, OSError):
+                            pass
+                continue
             if kind in ('world.accept', 'chunk.request', 'chunk.release'):
                 if stream is not None:
                     async with socket.state.send_lock:
@@ -291,7 +372,7 @@ async def websocket_endpoint(socket: WebSocket):
                         else:
                             stream.release(message.get('payload'))
                 continue
-            if kind in ('player.input', 'player.color', 'landing.select', 'world.start', 'building.place',
+            if kind in ('player.input', 'player.color', 'landing.select', 'world.start', 'building.place', 'building.remove', 'player.respawn',
                         'resource.pickup', 'resource.deposit', 'resource.give'):
                 if stream is None:
                     await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),

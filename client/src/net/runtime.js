@@ -1,15 +1,16 @@
 import { WorldCache } from './world-cache.js';
+import { MINABLE_RESOURCES } from '../ui/economy.js';
 export class Runtime {
   constructor(transport, scene, events) {
     this.transport = transport; this.scene = scene; this.events = events; this.cache = new WorldCache();
     this.unsubs = [
-      transport.on('lobby.state', state => { this.lobbyStage = state.stage; }),
+      transport.on('lobby.state', state => { this.lobbyStage = state.stage; if(state.stage==='lobby'){scene.controls.clear();scene.select(null);scene.targetBuilding(null);events.emit('expedition.lobby');} }),
       transport.on('session.ready', () => transport.send({type:'world.subscribe',payload:{}})),
       this.cache.on('stats', stats => events.emit('cache.stats', stats)),
       this.cache.on('evict', key => {
         if (key.startsWith('chunk:')) {
           const id = key.slice(6); scene.unload(id);
-          if (transport.ready) transport.command('chunk.release',{ chunk_id: id });
+          if (transport.ready && !this.serverUnloading) transport.command('chunk.release',{ chunk_id: id, offer_id: this.chunkOffers?.get(id) });
         }
       }),
       transport.on('world.offer', offer => this.stateOffer(offer)),
@@ -17,7 +18,10 @@ export class Runtime {
       transport.on('world.delta', delta => this.delta(delta)),
       transport.on('chunk.offer', offer => this.offer(offer)),
       transport.on('chunk.load', chunk => this.load(chunk)),
-      transport.on('chunk.unload', ({chunk_id}) => this.cache.drop('chunk:'+chunk_id)),
+      transport.on('chunk.unload', ({chunk_id}) => {
+        this.serverUnloading = true;
+        try { this.cache.drop('chunk:'+chunk_id); } finally { this.serverUnloading = false; }
+      }),
       transport.on('status', status => {
         scene.enabled = status === 'connected' && !!this.state; scene.controls.clear();
         if (['connecting', 'reconnecting', 'unauthorized'].includes(status)) { this.cache.reset(); this.state = null; scene.reset(); } events.emit('connection.status',status);
@@ -27,13 +31,14 @@ export class Runtime {
       events.on('player.input', input => { if (this.state?.stage !== 'lobby' && (!transport.session || this.lobbyStage === 'running')) transport.input(input); }),
       events.on('command', ({type,payload}) => this.command(type,payload)),
       events.on('build.request', () => {
-        if (scene.selected && (this.buildType || 'drill') === 'drill' && !['water','iron','sulfur'].includes(scene.selected.resource)) {
-          events.emit('notice','Бур можно построить только на ресурсной клетке: В, Ж или С.'); return;
+        if (!this.buildType) { events.emit('notice','Выберите постройку: 1–4 или кнопка внизу экрана.'); return; }
+        if (scene.selected && this.buildType === 'drill' && !MINABLE_RESOURCES.includes(scene.selected.resource)) {
+          events.emit('notice','Бур можно построить только на месторождении воды, железа, меди или серы.'); return;
         }
-        if (scene.selected) this.command('building.place',{cell_id:scene.selected.cell_id,building_type:this.buildType || 'drill'});
+        if (scene.selected) this.command('building.place',{cell_id:scene.selected.cell_id,building_type:this.buildType});
       }),
       events.on('build.type', type => { this.buildType = type; scene.buildType = type; scene.select(scene.selected); }),
-      events.on('interact.request', () => events.emit('building.selected',scene.nearestBuilding())),
+      events.on('interact.request', () => events.emit('building.selected',scene.targetedBuilding || scene.nearestBuilding())),
     ];
   }
   fail(message) {
@@ -56,6 +61,7 @@ export class Runtime {
   }
   snapshot(snapshot) {
     if (!this.acceptState(snapshot)) return;
+    this.observeGeneration(snapshot.generation);
     const w = snapshot.world;
     if (!w || !Number.isFinite(w.radius) || w.radius <= 0 || !Number.isSafeInteger(w.total_bytes) || w.total_bytes <= 0
       || !Number.isFinite(w.move_speed) || w.move_speed <= 0 || !Number.isFinite(w.view_radius) || w.view_radius <= 0
@@ -74,10 +80,12 @@ export class Runtime {
     this.events.emit('world.stage', snapshot.stage);
     this.events.emit('world.snapshot', snapshot);
     this.scene.configure(snapshot);
+    this.events.emit('world.state', this.state);
     this.events.emit('world.ready',{selfId:snapshot.self_id,teamId:snapshot.team_id,totalChunks:w.total_chunks});
   }
   delta(delta) {
     if (!this.state || !this.acceptState(delta)) return;
+    this.observeGeneration(delta.generation);
     const merge = (old, updates=[], removed=[], id) => {
       const values = new Map(old.map(v=>[v[id],v]));
       removed.forEach(key=>values.delete(key)); updates.forEach(v=>values.set(v[id],v)); return [...values.values()];
@@ -89,18 +97,28 @@ export class Runtime {
     if (!this.cache.put('state',next,{pinned:true})) return this.fail('Динамическое состояние превышает бюджет данных.');
     this.state=next; this.scene.applyState(delta);
     this.events.emit('world.stage', next.stage);
+    this.events.emit('world.state', next);
   }
-  offer({chunk_id,byte_size,distance=0}) {
+  observeGeneration(generation) {
+    if (!Number.isSafeInteger(generation)) return;
+    if (this.generation !== undefined && generation !== this.generation) {
+      this.scene.controls.clear();this.scene.select(null);this.scene.targetBuilding(null);this.events.emit('expedition.lobby');
+    }
+    this.generation = generation;
+  }
+  offer({chunk_id,byte_size,distance=0,offer_id}) {
     if (typeof chunk_id !== 'string') return this.fail('Некорректный chunk.offer');
     const key='chunk:'+chunk_id;
     if (this.cache.entries.has(key)) return;
-    if (this.cache.reserve(key,byte_size,{distance})) this.command('chunk.request',{chunk_id});
-    else this.command('chunk.release',{chunk_id});
+    (this.chunkOffers ||= new Map()).set(chunk_id, offer_id);
+    if (this.cache.reserve(key,byte_size,{distance})) this.command('chunk.request',{chunk_id,offer_id});
+    else this.command('chunk.release',{chunk_id,offer_id});
   }
   load(chunk) {
     const key='chunk:'+chunk.chunk_id;
+    if (this.cache.entries.has(key) && this.cache.entries.get(key).data !== null) return;
     if (!Array.isArray(chunk.cells) || !this.cache.commit(key,chunk)) {
-      this.cache.drop(key); this.command('chunk.release',{chunk_id:chunk.chunk_id});
+      this.cache.drop(key); this.command('chunk.release',{chunk_id:chunk.chunk_id,offer_id:this.chunkOffers?.get(chunk.chunk_id)});
       this.events.emit('notice','Чанк отклонён: отсутствует резерв или размер не совпадает.'); return;
     }
     this.scene.load(chunk);
@@ -108,7 +126,7 @@ export class Runtime {
     this.scene.applyState({buildings:(this.state?.buildings || []).filter(building=>ids.has(building.cell_id))});
   }
   command(type,payload) {
-    const allowed = new Set(['landing.select','player.color','building.place','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release']);
+    const allowed = new Set(['landing.select','player.color','building.place','building.remove','player.respawn','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release']);
     if (!allowed.has(type)) { this.events.emit('notice','Неизвестная клиентская команда'); return; }
     try { return this.transport.command(type,payload); }
     catch (error) { this.events.emit('notice',error.message); }
