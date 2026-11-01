@@ -53,6 +53,28 @@ def test_program_coordinates_are_validated_and_used_without_registry():
     assert cmd(w,c,'rover.start',rover_id=rid,expected_revision=1)['ok']
     assert w.state.rovers[rid]['targets']['BASE'] == {'latitude':58.496,'longitude':176.0201}
 
+def test_remote_program_and_start_keep_ownership_and_revision_checks():
+    p,c,w=setup(); rid=next(iter(w.state.rovers))
+    remote=Context('w','b','t'); w.enroll(remote)
+    with w.transaction() as s: s.players['b'].position=None
+    program='wait(1)'
+    assert not snapshot(remote,w)['payload']['office_access']
+    assert cmd(w,remote,'rover.program',rover_id=rid,program=program,expected_revision=0)['ok']
+    assert cmd(w,remote,'rover.program',rover_id=rid,program=program,expected_revision=0)['code']=='REVISION_CONFLICT'
+    assert cmd(w,remote,'rover.start',rover_id=rid,expected_revision=1)['ok']
+    assert cmd(w,remote,'rover.start',rover_id=rid,expected_revision=1)['code']=='REVISION_CONFLICT'
+    other=Context('w','c','other'); w.enroll(other)
+    assert cmd(w,other,'rover.program',rover_id=rid,program=program,expected_revision=2)['code']=='FORBIDDEN'
+    assert cmd(w,other,'rover.start',rover_id=rid,expected_revision=2)['code']=='FORBIDDEN'
+
+def test_remote_registration_still_requires_office():
+    p,c,w=setup(); remote=Context('w','b','t'); w.enroll(remote)
+    coords=coordinates(w.state.players['a'].position)
+    with w.transaction() as s:
+        s.players['b'].position=None
+        s.rover_surveys['b']=[coords]
+    assert cmd(w,remote,'rover.point.register',name='REMOTE',**coords)['code']=='OFFICE_REQUIRED'
+
 def test_load_unload_and_restart_state():
     p,c,w=setup(); rid=next(iter(w.state.rovers)); cells=p.cells[p.landing_sites[0]].neighbors
     source=next(x for x in cells if p.cells[x].resource=='iron'); dest=next(x for x in cells if x!=source)

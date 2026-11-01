@@ -71,14 +71,16 @@ export class WorldScene {
     this.preview = mesh(new THREE.CylinderGeometry(.7,.9,1.6,6),0x80ffd7);
     this.preview.material.transparent = true; this.preview.material.opacity = .45;
     this.preview.visible = false; this.scene.add(this.preview);
+    this.selectedRoverMarker = new THREE.Mesh(new THREE.OctahedronGeometry(Math.max(.35,this.radius*.025),0), new THREE.MeshBasicMaterial({color:0xffd166, depthTest:false}));
+    this.selectedRoverMarker.visible=false; this.selectedRoverMarker.renderOrder=20; this.scene.add(this.selectedRoverMarker);
     this.unsubs = [
       events.on('camera.toggle', () => this.toggleCamera()),
       events.on('camera.zoom', delta => { if(this.mode==='top')this.orbitZoom=THREE.MathUtils.clamp(this.orbitZoom*Math.exp(delta*.65),.18,8); }),
       events.on('camera.orbit', ({x,y}) => {
         if(this.mode!=='top')return;
         const right=new THREE.Vector3(1,0,0).applyQuaternion(this.camera.quaternion);
-        const turn=new THREE.Quaternion().setFromAxisAngle(this.camera.up.clone().normalize(),-x);
-        turn.multiply(new THREE.Quaternion().setFromAxisAngle(right,-y));
+        const turn=new THREE.Quaternion().setFromAxisAngle(this.camera.up.clone().normalize(),x);
+        turn.multiply(new THREE.Quaternion().setFromAxisAngle(right,y));
         this.orbitRotation.premultiply(turn).normalize();
       }),
       events.on('scene.click', e => {
@@ -101,6 +103,7 @@ export class WorldScene {
   }
   setRoverPreview({canvas, roverId, mode = 'camera', points = []}) {
     if (!canvas) return;
+    this.selectedRoverId=roverId;
     if (this.roverPreview?.canvas !== canvas) {
       this.clearRoverPreview();
       const renderer = new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'low-power'});
@@ -143,7 +146,7 @@ export class WorldScene {
   }
   orbitRoverPreview({x=0,y=0}={}) {
     const p=this.roverPreview;if(!p)return;
-    p.mapYaw+=x;p.mapPitch=THREE.MathUtils.clamp(p.mapPitch+y,-1.2,1.2);
+    p.mapYaw-=x;p.mapPitch=THREE.MathUtils.clamp(p.mapPitch-y,-1.2,1.2);
   }
   zoomRoverPreview(delta) {
     const p=this.roverPreview;if(!p)return;
@@ -182,12 +185,18 @@ export class WorldScene {
     camera.updateProjectionMatrix();
     if (!available) { renderer.clear(); return; }
     const oldMode = this.mode, cameraVisible = this.camera.visible, roverVisible = entry?.mesh.visible;
+    const roverMarkerVisible=this.selectedRoverMarker?.visible || false;
     const skyVisible = this.atmosphere.sky.visible, dustVisible = this.atmosphere.dust.visible;
     const mapVisibility = [];
     const markerVisibility=preview.markers.visible;
     this.camera.visible = false;
+    if(entry?.track) {
+      const sample=entry.track.sample(performance.now()-100,this.radius);
+      if(sample && this.selectedRoverMarker) this.selectedRoverMarker.position.copy(projectTerrain(sample.position.clone(),this.radius,Math.max(.25,this.radius*.015),this.terrain));
+    }
     if (mode === 'map') {
       preview.markers.visible=true;
+      if(this.selectedRoverMarker)this.selectedRoverMarker.visible=!!entry;
       const {up, forward} = tangent(this.position,this.heading);
       const direction = up.clone().applyQuaternion(this.orbitRotation);
       const distance = this.radius + Math.max(this.radius*.28,this.viewRadius*.65)*this.orbitZoom*preview.mapZoom;
@@ -208,8 +217,19 @@ export class WorldScene {
       if (this.mode !== 'first') { this.mode = 'first'; this.syncSurface(); }
       const position = entry.mesh.position;
       const basis = tangent(position,vector(entry.data.heading || [0,0,-1]));
-      camera.position.copy(position).addScaledVector(basis.up,.55).addScaledVector(basis.forward,.3);
+      camera.position.copy(position).addScaledVector(basis.up,1.35).addScaledVector(basis.forward,.3);
       camera.up.copy(basis.up); camera.lookAt(camera.position.clone().add(basis.forward));
+      // Stream culling follows the player, while this camera follows the rover.
+      // Re-enable already loaded surface cells around the rover for this pass.
+      for(const chunk of this.chunks.values()) for(const tile of chunk.cells) {
+        mapVisibility.push([tile,tile.visible]);
+        const nearby=surfaceDistance(position,vector(tile.userData.cell.center),this.radius)<=this.viewRadius;
+        tile.visible=nearby;
+        for(const object of [tile.userData.outline,tile.userData.decoration,tile.userData.resourcePile].filter(Boolean)) {
+          mapVisibility.push([object,object.visible]); object.visible=nearby;
+        }
+      }
+      // The onboard camera sits just ahead of the rover, so hide its own body.
       entry.mesh.visible = false;
       this.atmosphere.dust.visible = false;
     }
@@ -220,6 +240,7 @@ export class WorldScene {
       for (const [object, visible] of mapVisibility) object.visible = visible;
       this.camera.visible = cameraVisible;
       preview.markers.visible=markerVisibility;
+      if(this.selectedRoverMarker)this.selectedRoverMarker.visible=this.mode==='top' ? roverMarkerVisible : false;
       this.atmosphere.sky.visible = skyVisible; this.atmosphere.dust.visible = dustVisible;
       if (this.mode !== oldMode) { this.mode = oldMode; this.syncSurface(); }
     }
@@ -259,6 +280,7 @@ export class WorldScene {
     this.renderer.setSize(width,height); this.camera.aspect = width / Math.max(1,height); this.camera.updateProjectionMatrix();
   }
   reset() {
+    this.selectedRoverId=null;
     this.robots?.dispose();this.robots=null;
     for (const id of [...this.chunks.keys()]) this.unload(id);
     for (const entry of this.players.values()) disposeObject(entry.mesh);
@@ -276,6 +298,8 @@ export class WorldScene {
     this.selfId = snapshot.self_id;
     const world = snapshot.world;
     this.radius = world.radius; this.speed = world.move_speed;
+    this.selectedRoverMarker.geometry.dispose();
+    this.selectedRoverMarker.geometry=new THREE.OctahedronGeometry(Math.max(.35,this.radius*.025),0);
     this.terrain = !!world.terrain;
     configureTerrain(world.terrain_seed);
     this.terrainSeed = world.terrain_seed;
@@ -297,10 +321,15 @@ export class WorldScene {
     for (const id of state.removed_buildings || []) {
       const entry = this.buildings.get(id); if (entry) disposeObject(entry.mesh); this.buildings.delete(id);
     }
-    if (state.rovers) {
-      const ids = new Set(state.rovers.map(r => r.rover_id));
+    if (state.rovers || state.rover_fleet) {
+      // `rovers` is only the nearby, world-visible subset. The complete team
+      // fleet carries onboard-camera targets even when they are out of range.
+      const fleet=new Map((state.rover_fleet || []).map(rover=>[rover.rover_id,rover]));
+      for(const rover of state.rovers || [])fleet.set(rover.rover_id,{...fleet.get(rover.rover_id),...rover});
+      const rovers=[...fleet.values()];
+      const ids = new Set(rovers.map(r => r.rover_id));
       for (const [id, entry] of this.rovers) if (!ids.has(id)) { disposeObject(entry.mesh); this.rovers.delete(id); }
-      for (const rover of state.rovers) {
+      for (const rover of rovers) {
         if (!Array.isArray(rover.position)) continue;
         let entry = this.rovers.get(rover.rover_id);
         if (!entry) {
@@ -620,6 +649,10 @@ export class WorldScene {
         entry.mesh.visible=surfaceDistance(origin,sample.position,this.radius)<=this.viewRadius;
         updateRoverWheels(entry.mesh,sample.position,this.visualOptions.animations);
       }
+      const selectedRover=this.selectedRoverId && this.rovers.get(this.selectedRoverId);
+      const roverSample=selectedRover?.track.sample(now-100,this.radius);
+      this.selectedRoverMarker.visible=this.mode==='top' && !!roverSample;
+      if(roverSample)this.selectedRoverMarker.position.copy(projectTerrain(roverSample.position.clone(),this.radius,Math.max(.25,this.radius*.015),this.terrain));
       const loadedCells = new Set([...this.chunks.values()].flatMap(c => c.cells.map(t => t.userData.cell.cell_id)));
       for (const entry of this.buildings.values()) {
         entry.mesh.visible = loadedCells.has(entry.data.cell_id) && surfaceDistance(origin,entry.mesh.position,this.radius) <= this.viewRadius;
@@ -660,6 +693,6 @@ export class WorldScene {
   }
   dispose() {
     this.renderer.setAnimationLoop(null); this.clearRoverPreview(); this.resizeObserver.disconnect(); this.controls.dispose();
-    this.unsubs.forEach(fn=>fn()); this.reset(); this.resourceLabelTextures.dispose(); this.hands.dispose();this.atmosphere.dispose();this.models.dispose();disposeObject(this.preview); this.renderer.dispose(); this.renderer.domElement.remove();
+    this.unsubs.forEach(fn=>fn()); this.reset(); this.resourceLabelTextures.dispose(); this.hands.dispose();this.atmosphere.dispose();this.models.dispose();disposeObject(this.preview); disposeObject(this.selectedRoverMarker); this.renderer.dispose(); this.renderer.domElement.remove();
   }
 }

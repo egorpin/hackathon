@@ -3,13 +3,15 @@ import * as THREE from 'three';
 const AMBIENT_COUNT = 9;
 const BUILDERS_PER_SITE = 3;
 const MAX_ROBOTS = 30;
-// Personal-space interaction: greet only when the astronaut is roughly within
-// an outstretched arm, not merely visible in the surrounding area.
-const PLAYER_REACT_RADIUS = 1.5;
+// A robot can notice and greet an astronaut from a small, but visible distance.
+const PLAYER_REACT_RADIUS = 3;
 const REACTION_COOLDOWN = 8;
 const TAU = Math.PI * 2;
 const ROBOT_SCALE = .14;
 const BUILDER_STANDOFF = 1.35;
+// Ambient robots are hub staff, rather than explorers. Construction workers may
+// still travel to their assigned site, but idle robots remain within the hub.
+const HUB_ROAM_RADIUS = 6;
 
 function hash(value) {
   let h = 2166136261;
@@ -147,7 +149,7 @@ export class BaseRobots {
     const direction = originPoint.clone().normalize();
     const frame = tangentFrame(originPoint, new THREE.Vector3(0, 0, -1));
     const angle = random() * TAU;
-    const distance = role.role === 'builder' ? 1.5 + random() * 1.2 : 4 + random() * 9;
+    const distance = role.role === 'builder' ? 1.5 + random() * 1.2 : 2 + random() * (HUB_ROAM_RADIUS - 2);
     direction.addScaledVector(frame.forward, Math.cos(angle) * distance / this.radiusAt(originPoint));
     direction.addScaledVector(frame.right, Math.sin(angle) * distance / this.radiusAt(originPoint));
     const position = surfacePoint(direction, this.radiusAt, this.projectSurface, .08);
@@ -220,7 +222,7 @@ export class BaseRobots {
       if (toward.lengthSq() > 1e-8) return surfacePoint(origin.clone().addScaledVector(toward.normalize(), (1.5 + entry.random() * 2) / this.radiusAt(this.baseOrigin || this.origin)), this.radiusAt, this.projectSurface, .08);
     }
     const angle = entry.random() * TAU;
-    const distance = 2 + entry.random() * 7;
+    const distance = 2 + entry.random() * (HUB_ROAM_RADIUS - 2);
     const baseRadius = this.radiusAt(this.baseOrigin || this.origin);
     const direction = origin.clone().addScaledVector(frame.forward, Math.cos(angle) * distance / baseRadius)
       .addScaledVector(frame.right, Math.sin(angle) * distance / baseRadius);

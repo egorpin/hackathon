@@ -2,7 +2,7 @@
 
 Ветка: `codex/models-and-animations`, создана после `git pull --ff-only` и обновления из `origin/main`.
 
-Источник — предоставленный пользователем `PixelArtistry_lowpoly_00011.glb`. Исходная копия хранится локально в `artifacts/character-import/source.glb`: один меш, 1 000 треугольников, без скелета и анимаций, встроенные карты base color, normal, metallic/roughness и emission. Обработка выполняется в Blender; генерация ComfyUI для этой задачи не нужна.
+Актуальная игровая модель хранится в `client/public/assets/models/astronaut.glb`. Это единственная опубликованная версия персонажа; промежуточные исходники и скриншоты не хранятся в репозитории.
 
 ## Контракт готового GLB
 
