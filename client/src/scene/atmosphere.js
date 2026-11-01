@@ -103,7 +103,7 @@ export class Atmosphere {
     this.fillStars();
     this.fillDust();
 
-    this.flashlight = new THREE.SpotLight(0xffe7d0, 0, 22, Math.PI / 7, 0.65, 1.5);
+    this.flashlight = new THREE.SpotLight(0xffe7d0, 0, 37.4, Math.PI / 7, 0.65, 1.5);
     this.flashlight.position.set(0, 0, 0);
     this.flashlightTarget = new THREE.Object3D();
     this.scene.add(this.flashlight, this.flashlightTarget);

@@ -3,7 +3,9 @@ import * as THREE from 'three';
 const AMBIENT_COUNT = 9;
 const BUILDERS_PER_SITE = 3;
 const MAX_ROBOTS = 30;
-const PLAYER_REACT_RADIUS = 8;
+// Personal-space interaction: greet only when the astronaut is roughly within
+// an outstretched arm, not merely visible in the surrounding area.
+const PLAYER_REACT_RADIUS = 1.5;
 const REACTION_COOLDOWN = 8;
 const TAU = Math.PI * 2;
 const ROBOT_SCALE = .14;

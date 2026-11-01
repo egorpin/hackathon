@@ -11,7 +11,7 @@ const controls=new OrbitControls(camera,renderer.domElement);controls.target.set
 const titles={drill:'Бур',dome_base:'База',oxygen_generator:'Генератор кислорода',storage:'Склад',rover:'Марсоход'};
 const requested=new URLSearchParams(location.search).get('model');
 const selected=Object.hasOwn(titles,requested)?requested:'dome_base';
-document.querySelector('#model-title').textContent=`${titles[selected]} · текстура 1024²`;
+document.querySelector('#model-title').textContent=`${titles[selected]} · цветные материалы`;
 document.title=`${titles[selected]} — просмотр`;
 let mechanical;
 const models=new ModelLibrary();models.load(name=>{if(name===selected){

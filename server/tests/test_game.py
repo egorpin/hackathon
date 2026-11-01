@@ -309,14 +309,14 @@ class GameTests(unittest.TestCase):
         self.supply_energy()
         request = command("building.place", cell_id=self.planet.cells[self.planet.landing_sites[0]].neighbors[0], building_type="drill")
         response = apply_command(self.context, request, self.world)
-        # All placed buildings spend 400 ticks in construction before their
-        # normal simulation starts; the following 40 ticks produce two units.
+        # Construction takes 160 travel ticks and 60 building ticks; the
+        # remaining 220 ticks produce eleven units at full power.
         self.advance(440)
         restored = UnitOfWork(self.planet, WorldState.from_dict(json.loads(saved[-1])))
         self.assertEqual(json.loads(json.dumps(restored.state.to_dict())), json.loads(saved[-1]))
         self.assertEqual(apply_command(self.context, request, restored), response)
         self.assertEqual(snapshot(self.context, restored)["payload"]["team_storage"]["iron"], 35)
-        self.assertEqual(next(b for b in restored.state.buildings.values() if b.building_type == "drill").stock["iron"], 2)
+        self.assertEqual(next(b for b in restored.state.buildings.values() if b.building_type == "drill").stock["iron"], 11)
         with self.assertRaises(ValueError):
             UnitOfWork(generate_planet(subdivisions=1), restored.state)
 

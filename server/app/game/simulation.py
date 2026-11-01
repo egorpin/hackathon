@@ -54,13 +54,14 @@ def step(world, dt_seconds, planet):
     ready = []
     for building in producers:
         if building.construction_status != "completed":
-            building.construction_progress = min(building.construction_required, building.construction_progress + 1)
-            if building.construction_progress < CONSTRUCTION_TRAVEL_TICKS:
-                building.construction_status = "planned"
-            elif building.construction_progress < building.construction_required:
-                building.construction_status = "building"
+            if building.construction_travel_progress < CONSTRUCTION_TRAVEL_TICKS:
+                building.construction_travel_progress += 1
+                building.construction_status = ("planned" if building.construction_travel_progress < CONSTRUCTION_TRAVEL_TICKS
+                                                else "building")
             else:
-                building.construction_status = "completed"
+                building.construction_progress = min(building.construction_required, building.construction_progress + 1)
+                building.construction_status = ("building" if building.construction_progress < building.construction_required
+                                                else "completed")
             events.append({"type": "building.updated", "building_id": building.building_id})
             if building.construction_status != "completed":
                 continue
@@ -132,10 +133,20 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                 "color": state.players[building.creator_id].color,
                 "interaction_distance": building_interaction_distance(planet, planet.cells[building.cell_id]),
                 "construction_status": building.construction_status,
+                "construction_travel_progress": building.construction_travel_progress,
                 "construction_progress": building.construction_progress,
                 "construction_required": building.construction_required}
         if building.team_id == player.team_id and building.building_type not in ("solar_panel", "wind_turbine"):
             item["stock"] = building.stock if building.building_type != "warehouse" else state.team_storage[player.team_id]
+            supplied = any(w.building_type == "warehouse" and w.team_id == building.team_id
+                           and w.construction_status == "completed"
+                           and building.cell_id in planet.cells[w.cell_id].neighbors
+                           for w in state.buildings.values())
+            item["producing"] = state.stage == "running" and building.construction_status == "completed" and (
+                (building.building_type == "drill" and sum(building.stock.values()) < BUILDING_CAPACITY)
+                or (building.building_type == "oxygen_generator" and state.oxygen_percent < OXYGEN_GOAL
+                    and (building.stock.get("water", 0) > 0 or
+                         (supplied and state.team_storage[building.team_id].get("water", 0) > 0))))
         buildings.append(item)
     from .rover import coordinates, office_access, telemetry, COST, CAPACITY, MASSES, EMPTY_MASS
     fleet = [telemetry(r) for r in state.rovers.values() if r["team_id"] == player.team_id]

@@ -16,6 +16,8 @@ import { DEFAULT_VISUAL_OPTIONS, updateVisualOptions } from './visual-options.js
 import { CHARACTER_SCALE, CHARACTER_HEIGHT_SCALE, EYE_HEIGHT } from './character-scale.js';
 import { BaseRobots } from './base-robots.js';
 import { isPlan, setPlanVisual } from './construction-visual.js';
+import { ProductionParticles } from './production-particles.js';
+import { updateRoverWheels } from './rover-wheels.js';
 
 export function disposeObject(root) {
   const geometries = new Set(), materials = new Set(), textures = new Set();
@@ -97,29 +99,77 @@ export class WorldScene {
     this.previous = performance.now(); this.fpsStart = this.previous; this.frames = 0; this.inputTime = 0;
     this.renderer.setAnimationLoop(now => this.frame(now));
   }
-  setRoverPreview({canvas, roverId, mode = 'camera'}) {
+  setRoverPreview({canvas, roverId, mode = 'camera', points = []}) {
     if (!canvas) return;
     if (this.roverPreview?.canvas !== canvas) {
       this.clearRoverPreview();
       const renderer = new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'low-power'});
       renderer.setPixelRatio(Math.min(devicePixelRatio, 1));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
-      this.roverPreview = {canvas, renderer, camera:new THREE.PerspectiveCamera(70,1,.05,Math.max(1200,this.radius*8)), available:null};
+      const markers=new THREE.Group();markers.visible=false;this.scene.add(markers);
+      this.roverPreview = {canvas, renderer, camera:new THREE.PerspectiveCamera(70,1,.05,Math.max(1200,this.radius*8)), available:null, mapYaw:0, mapPitch:0, mapZoom:1, markers, pointsKey:null};
     }
     this.roverPreview.roverId = roverId;
     this.roverPreview.mode = mode;
+    this.updateRoverPreviewMarkers(points);
+  }
+  updateRoverPreviewMarkers(points=[]) {
+    const preview=this.roverPreview;if(!preview)return;
+    const safePoints=Array.isArray(points)?points.filter(p=>Number.isFinite(p?.latitude)&&Number.isFinite(p?.longitude)):[];
+    const key=JSON.stringify(safePoints);
+    if(preview.pointsKey===key)return;
+    preview.pointsKey=key;
+    for(const child of [...preview.markers.children]) {
+      child.geometry?.dispose();
+      if(Array.isArray(child.material))child.material.forEach(m=>m.dispose());else child.material?.dispose();
+    }
+    preview.markers.clear();
+    const markerSize=Math.max(.12,this.radius*.012);
+    for(const point of safePoints) {
+      const lat=THREE.MathUtils.degToRad(THREE.MathUtils.clamp(point.latitude,-90,90));
+      const lon=THREE.MathUtils.degToRad(point.longitude);
+      const position=new THREE.Vector3(Math.cos(lat)*Math.cos(lon),Math.sin(lat),Math.cos(lat)*Math.sin(lon));
+      projectTerrain(position,this.radius,markerSize*1.8,this.terrain);
+      const marker=new THREE.Mesh(new THREE.OctahedronGeometry(markerSize,0),new THREE.MeshBasicMaterial({color:0x54f3dc,depthTest:false}));
+      marker.position.copy(position);marker.userData.pointName=point.name||'';preview.markers.add(marker);
+    }
   }
   clearRoverPreview() {
     if (!this.roverPreview) return;
     this.roverPreview.renderer.dispose();
+    this.roverPreview.markers.traverse(object=>{object.geometry?.dispose();if(Array.isArray(object.material))object.material.forEach(m=>m.dispose());else object.material?.dispose();});
+    this.roverPreview.markers.removeFromParent();
     this.roverPreview = null;
+  }
+  orbitRoverPreview({x=0,y=0}={}) {
+    const p=this.roverPreview;if(!p)return;
+    p.mapYaw+=x;p.mapPitch=THREE.MathUtils.clamp(p.mapPitch+y,-1.2,1.2);
+  }
+  zoomRoverPreview(delta) {
+    const p=this.roverPreview;if(!p)return;
+    p.mapZoom=THREE.MathUtils.clamp(p.mapZoom*Math.exp(delta),.45,3);
+  }
+  pickRoverPreviewPoint({clientX,clientY}={}) {
+    const p=this.roverPreview;
+    if(!p||p.mode!=='map'||!p.canvas.clientWidth||!p.canvas.clientHeight)return null;
+    const rect=p.canvas.getBoundingClientRect();if(!rect.width||!rect.height)return null;
+    const pointer=new THREE.Vector2(
+      ((clientX-rect.left)/rect.width)*2-1, -((clientY-rect.top)/rect.height)*2+1);
+    const raycaster=new THREE.Raycaster();raycaster.setFromCamera(pointer,p.camera);
+    this.ground?.updateMatrixWorld(true);
+    const hit=this.ground?raycaster.intersectObject(this.ground,false)[0]?.point:null;
+    if(!hit)return null;
+    const point=hit.normalize();
+    return {latitude:Math.asin(THREE.MathUtils.clamp(point.y,-1,1))*180/Math.PI,longitude:THREE.MathUtils.euclideanModulo(Math.atan2(point.z,point.x)*180/Math.PI+180,360)-180};
   }
   renderRoverPreview() {
     const preview = this.roverPreview;
     if (!preview) return;
     const {canvas, renderer, camera, mode} = preview;
     const entry = this.rovers.get(preview.roverId);
-    const available = !!this.enabled && (mode === 'map' || !!entry?.mesh.visible);
+    // A selected rover can be outside the player's streamed view radius. Its
+    // onboard camera still works, so don't gate the feed on world-view culling.
+    const available = !!this.enabled && (mode === 'map' || !!entry);
     if (preview.available !== available) {
       preview.available = available;
       this.events.emit('rover.preview.available', available);
@@ -134,11 +184,15 @@ export class WorldScene {
     const oldMode = this.mode, cameraVisible = this.camera.visible, roverVisible = entry?.mesh.visible;
     const skyVisible = this.atmosphere.sky.visible, dustVisible = this.atmosphere.dust.visible;
     const mapVisibility = [];
+    const markerVisibility=preview.markers.visible;
     this.camera.visible = false;
     if (mode === 'map') {
+      preview.markers.visible=true;
       const {up, forward} = tangent(this.position,this.heading);
       const direction = up.clone().applyQuaternion(this.orbitRotation);
-      const distance = this.radius + Math.max(this.radius*.28,this.viewRadius*.65)*this.orbitZoom;
+      const distance = this.radius + Math.max(this.radius*.28,this.viewRadius*.65)*this.orbitZoom*preview.mapZoom;
+      const right=forward.clone().cross(direction).normalize();
+      direction.applyAxisAngle(forward,preview.mapYaw).applyAxisAngle(right,preview.mapPitch);
       camera.position.copy(direction).multiplyScalar(distance);
       camera.up.copy(forward).applyQuaternion(this.orbitRotation); camera.lookAt(0,0,0);
       this.mode = 'top'; this.syncSurface();
@@ -149,6 +203,9 @@ export class WorldScene {
       }
       this.atmosphere.sky.visible = false; this.atmosphere.dust.visible = false;
     } else {
+      // The feed has its own first-person presentation even when the main
+      // world is currently in top view.
+      if (this.mode !== 'first') { this.mode = 'first'; this.syncSurface(); }
       const position = entry.mesh.position;
       const basis = tangent(position,vector(entry.data.heading || [0,0,-1]));
       camera.position.copy(position).addScaledVector(basis.up,.55).addScaledVector(basis.forward,.3);
@@ -156,12 +213,16 @@ export class WorldScene {
       entry.mesh.visible = false;
       this.atmosphere.dust.visible = false;
     }
-    renderer.render(this.scene,camera);
-    if (entry) entry.mesh.visible = roverVisible;
-    for (const [object, visible] of mapVisibility) object.visible = visible;
-    this.camera.visible = cameraVisible;
-    this.atmosphere.sky.visible = skyVisible; this.atmosphere.dust.visible = dustVisible;
-    if (this.mode !== oldMode) { this.mode = oldMode; this.syncSurface(); }
+    try {
+      renderer.render(this.scene,camera);
+    } finally {
+      if (entry) entry.mesh.visible = roverVisible;
+      for (const [object, visible] of mapVisibility) object.visible = visible;
+      this.camera.visible = cameraVisible;
+      preview.markers.visible=markerVisibility;
+      this.atmosphere.sky.visible = skyVisible; this.atmosphere.dust.visible = dustVisible;
+      if (this.mode !== oldMode) { this.mode = oldMode; this.syncSurface(); }
+    }
   }
   setQuality(level) {
     this.atmosphere.setQuality(level);
@@ -557,12 +618,22 @@ export class WorldScene {
         const basis=tangent(sample.position,sample.heading);
         entry.mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(basis.right,basis.up,basis.forward.clone().negate()));
         entry.mesh.visible=surfaceDistance(origin,sample.position,this.radius)<=this.viewRadius;
+        updateRoverWheels(entry.mesh,sample.position,this.visualOptions.animations);
       }
       const loadedCells = new Set([...this.chunks.values()].flatMap(c => c.cells.map(t => t.userData.cell.cell_id)));
       for (const entry of this.buildings.values()) {
         entry.mesh.visible = loadedCells.has(entry.data.cell_id) && surfaceDistance(origin,entry.mesh.position,this.radius) <= this.viewRadius;
-        if(entry.mesh.visible && this.visualOptions.animations)entry.mesh.userData.mechanical?.update(dt * (entry.data.efficiency ?? 1),{active:(entry.data.efficiency ?? 1)>0});
-        if(entry.mesh.visible && this.visualOptions.animations && entry.data.building_type==='wind_turbine' && !isPlan(entry.data))this.models.animate(entry.mesh,'spin',dt * (entry.data.efficiency ?? 1));
+        const efficiency=entry.data.efficiency ?? 1;
+        const active=entry.mesh.visible && this.visualOptions.animations && this.stage==='running' && !isPlan(entry.data) && efficiency>0;
+        entry.mesh.userData.mechanical?.update(dt * efficiency,{active});
+        if(['drill','oxygen_generator'].includes(entry.data.building_type)){
+          if(active&&!entry.effects)entry.effects=new ProductionParticles(entry.mesh,entry.data.building_type);
+          let resource;for(const chunk of this.chunks.values()){const tile=chunk.cells.find(t=>t.userData.cell.cell_id===entry.data.cell_id);if(tile){resource=tile.userData.cell.resource;break;}}
+          const stock=entry.data.stock||{};
+          const producing=entry.data.producing ?? (entry.data.building_type==='drill'?Object.values(stock).reduce((a,b)=>a+b,0)<50:(stock.water||0)>0);
+          entry.effects?.update(dt * efficiency,active&&producing,resource);
+        }
+        if(entry.mesh.visible && this.visualOptions.animations && entry.data.building_type==='wind_turbine' && !isPlan(entry.data))this.models.animate(entry.mesh,'spin',dt * efficiency);
       }
       if(this.stage==='running'){
         if(!this.robots)this.robots=new BaseRobots(this.scene,this.models,{radiusAt:()=>this.radius,projectSurface:p=>projectTerrain(p,this.radius,0,this.terrain)});

@@ -96,3 +96,21 @@ test('ambient jump and wave reactions keep their complete animation durations', 
     crowd.dispose();
   }
 });
+
+test('ambient robots greet only within an outstretched arm distance', () => {
+  const scene = new THREE.Scene();
+  const crowd = new BaseRobots(scene, { create: () => new THREE.Group(), animate() {} }, { seed: 8 });
+  crowd.setState({ position: [0, 100, 0] });
+  const ambient = [...crowd.entries.values()].find(entry => entry.role.id === 'ambient-0');
+  ambient.random = () => 0;
+
+  crowd.players = [{ position: ambient.position.clone().add(new THREE.Vector3(1.6, 0, 0)) }];
+  crowd.update(.05);
+  assert.notEqual(ambient.action, 'wave');
+  assert.notEqual(ambient.action, 'jump');
+
+  crowd.players = [{ position: ambient.position.clone().add(new THREE.Vector3(1.5, 0, 0)) }];
+  crowd.update(.05);
+  assert.equal(ambient.action, 'wave');
+  crowd.dispose();
+});
