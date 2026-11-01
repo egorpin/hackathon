@@ -5,10 +5,10 @@ import * as THREE from 'three';
 // module only animates matching nodes and composes every frame from a snapshot.
 const RULES = {
   oxygen_generator: [
-    {key:'compressor',match:/oxygen.?housing/i,type:'bob',axis:[1,0,0],amplitude:0.002,speed:24,verticalAmplitude:0.002},
+    {key:'compressor',match:/oxygen.?housing/i,type:'bob',axis:[1,0,0],amplitude:0.006,speed:24,verticalAmplitude:0.004},
   ],
   drill: [
-    { key: 'bit', match: /drill.?bit|bit.?drill/i, type: 'spin', axis: [0, 1, 0], speed: 3.2 },
+    { key: 'bit', match: /drill.?bit|bit.?drill/i, type: 'spin', axis: [0, 1, 0], speed: 3.2, stroke:0.10 },
     { key: 'body', match: /drill.?body|chassis/i, type: 'bob', axis: [1, 0, 0], amplitude: 0.006, speed: 28, verticalAmplitude: 0.006 },
   ],
   rover: [
@@ -36,8 +36,8 @@ export function attachMechanicalAnimation(root, kind) {
   const axis = new THREE.Vector3();
   function update(dt, { active = false } = {}) {
     if (!Number.isFinite(dt) || dt <= 0) return;
-    if(kind==='drill' && !active) {
-      for(const {node,rule,base} of parts)if(rule.type==='bob')node.position.copy(base.position);
+    if(!active) {
+      for(const {node,base} of parts)node.position.copy(base.position);
       return;
     }
     time += Math.min(dt, 0.1);
@@ -49,6 +49,7 @@ export function attachMechanicalAnimation(root, kind) {
       if (rule.type === 'spin') {
         const angle = time * rule.speed * gain;
         node.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axis, angle));
+        if(rule.stroke)node.position.y += (1-Math.cos(time*3))*rule.stroke*.5;
       } else if (rule.type === 'sweep') {
         const angle = Math.sin(time * rule.speed) * rule.amplitude * gain;
         node.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axis, angle));

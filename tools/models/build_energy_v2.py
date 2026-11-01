@@ -93,7 +93,8 @@ def save_parts(self):
     (base.OUT/(self.name+'.parts.json')).write_text(json.dumps({'vertices':self.vertices,'parts':parts}),encoding='utf-8')
 Model.save=save_parts
 base.Obj=Model
-base.write_materials()
-base.solar_panel()
-base.wind_turbine()
-base.robot_minion()
+if __name__ == '__main__':
+    base.write_materials()
+    base.solar_panel()
+    base.wind_turbine()
+    base.robot_minion()

@@ -133,6 +133,15 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                 "construction_required": building.construction_required}
         if building.team_id == player.team_id:
             item["stock"] = building.stock if building.building_type != "warehouse" else state.team_storage[player.team_id]
+            supplied = any(w.building_type == "warehouse" and w.team_id == building.team_id
+                           and w.construction_status == "completed"
+                           and building.cell_id in planet.cells[w.cell_id].neighbors
+                           for w in state.buildings.values())
+            item["producing"] = state.stage == "running" and building.construction_status == "completed" and (
+                (building.building_type == "drill" and sum(building.stock.values()) < BUILDING_CAPACITY)
+                or (building.building_type == "oxygen_generator" and state.oxygen_percent < OXYGEN_GOAL
+                    and (building.stock.get("water", 0) > 0 or
+                         (supplied and state.team_storage[building.team_id].get("water", 0) > 0))))
         buildings.append(item)
     from .rover import coordinates, office_access, telemetry, COST, CAPACITY, MASSES, EMPTY_MASS
     fleet = [telemetry(r) for r in state.rovers.values() if r["team_id"] == player.team_id]

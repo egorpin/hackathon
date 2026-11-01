@@ -16,6 +16,8 @@ import { DEFAULT_VISUAL_OPTIONS, updateVisualOptions } from './visual-options.js
 import { CHARACTER_SCALE, CHARACTER_HEIGHT_SCALE, EYE_HEIGHT } from './character-scale.js';
 import { BaseRobots } from './base-robots.js';
 import { isPlan, setPlanVisual } from './construction-visual.js';
+import { ProductionParticles } from './production-particles.js';
+import { updateRoverWheels } from './rover-wheels.js';
 
 export function disposeObject(root) {
   const geometries = new Set(), materials = new Set(), textures = new Set();
@@ -550,11 +552,20 @@ export class WorldScene {
         const basis=tangent(sample.position,sample.heading);
         entry.mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(basis.right,basis.up,basis.forward.clone().negate()));
         entry.mesh.visible=surfaceDistance(origin,sample.position,this.radius)<=this.viewRadius;
+        updateRoverWheels(entry.mesh,sample.position,this.visualOptions.animations);
       }
       const loadedCells = new Set([...this.chunks.values()].flatMap(c => c.cells.map(t => t.userData.cell.cell_id)));
       for (const entry of this.buildings.values()) {
         entry.mesh.visible = loadedCells.has(entry.data.cell_id) && surfaceDistance(origin,entry.mesh.position,this.radius) <= this.viewRadius;
-        if(entry.mesh.visible && this.visualOptions.animations)entry.mesh.userData.mechanical?.update(dt,{active:true});
+        const active=entry.mesh.visible && this.visualOptions.animations && this.stage==='running' && !isPlan(entry.data);
+        entry.mesh.userData.mechanical?.update(dt,{active});
+        if(['drill','oxygen_generator'].includes(entry.data.building_type)){
+          if(active&&!entry.effects)entry.effects=new ProductionParticles(entry.mesh,entry.data.building_type);
+          let resource;for(const chunk of this.chunks.values()){const tile=chunk.cells.find(t=>t.userData.cell.cell_id===entry.data.cell_id);if(tile){resource=tile.userData.cell.resource;break;}}
+          const stock=entry.data.stock||{};
+          const producing=entry.data.producing ?? (entry.data.building_type==='drill'?Object.values(stock).reduce((a,b)=>a+b,0)<50:(stock.water||0)>0);
+          entry.effects?.update(dt,active&&producing,resource);
+        }
         if(entry.mesh.visible && this.visualOptions.animations && entry.data.building_type==='wind_turbine' && !isPlan(entry.data))this.models.animate(entry.mesh,'spin',dt);
       }
       if(this.stage==='running'){

@@ -2,6 +2,9 @@ import * as THREE from 'three';
 
 // Split the supplied single-mesh drill once on load, preserving every triangle/UV.
 export function prepareDrillParts(root) {
+  // Hand-authored models already carry the correct pivot and separated parts.
+  // Do not infer regions from individual color-primitive bounds.
+  if(root.getObjectByName('DrillBit'))return;
   const meshes=[];root.traverse(node=>{if(node.isMesh)meshes.push(node);});
   for(const source of meshes) {
     const geometry=source.geometry.index?source.geometry.toNonIndexed():source.geometry.clone();
