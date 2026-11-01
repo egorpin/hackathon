@@ -68,22 +68,23 @@ export class ModelLibrary {
     return this.loading;
   }
   async loadAssets(onLoad) {
-    const response = await fetch('/assets/models/manifest.json', {cache:'no-store'});
+    const response = await fetch('/assets/models/manifest.json', {cache:'no-cache'});
     if(!response.ok)return;
     const manifest=await response.json();
     const approved=MODEL_NAMES.filter(name=>manifest.approved?.includes(name));
     const results = await Promise.allSettled(approved.map(async name => {
       if (this.assets.has(name) || this.disposed) return;
+      const revision = manifest.versions?.[name] || manifest.revision;
       let asset;
       try {
-        const bytes = await this.cache.get(name, manifest.revision);
+        const bytes = await this.cache.get(name, revision);
         asset = await this.loader.parseAsync(bytes, '/assets/models/');
       } catch (error) {
-        const removed = await this.cache.invalidate(name, manifest.revision);
+        const removed = await this.cache.invalidate(name, revision);
         if (!removed) throw error;
-        const bytes = await this.cache.get(name, manifest.revision);
+        const bytes = await this.cache.get(name, revision);
         try { asset = await this.loader.parseAsync(bytes, '/assets/models/'); }
-        catch (retryError) { await this.cache.invalidate(name, manifest.revision); throw retryError; }
+        catch (retryError) { await this.cache.invalidate(name, revision); throw retryError; }
       }
       if(this.disposed) { this.release(asset); return; }
       if(name==='astronaut')reverseJumpLegMotion(asset.scene,asset.animations);
@@ -97,10 +98,14 @@ export class ModelLibrary {
   create(name,color) {
     const asset = this.assets.get(name); if (!asset) return null;
     const root = clone(asset.scene);
+    const materialCopies = new Map();
     root.traverse(node => {
       node.userData.sharedAsset = true;
       if(node.material) {
-        const materials = [node.material].flat().map(m=>m.clone());
+        const materials = [node.material].flat().map(m => {
+          if (!materialCopies.has(m)) materialCopies.set(m, m.clone());
+          return materialCopies.get(m);
+        });
         node.material = Array.isArray(node.material) ? materials : materials[0];
       }
     });
@@ -137,7 +142,12 @@ export class ModelLibrary {
         for(const value of Object.values(material))if(value?.isTexture)resources.add(value);
       }
     });
-    resources.forEach(r=>r.dispose());
+    const bitmaps = new Set();
+    for (const resource of resources) {
+      if (resource.isTexture && typeof resource.source?.data?.close === 'function') bitmaps.add(resource.source.data);
+      resource.dispose();
+    }
+    bitmaps.forEach(bitmap => bitmap.close());
   }
-  dispose(){ this.disposed=true; this.assets.forEach(asset=>this.release(asset));this.assets.clear(); }
+  dispose(){ this.disposed=true; this.cache.clearMemory(); this.assets.forEach(asset=>this.release(asset));this.assets.clear(); }
 }
