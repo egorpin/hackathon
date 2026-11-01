@@ -136,7 +136,7 @@ function setConnection(status){
   updateSelection();
 }
 events.on('connection.status',setConnection);
-events.on('cache.stats', s=>show('cache',`Чанки: ${s.chunks} / ${totalChunks || '—'} · данные: ${s.percent.toFixed(2)}% · предел: 10% · очередь: ${s.queuedBytes} Б`));
+events.on('cache.stats', s=>show('cache',`Чанки: ${s.chunks} / ${totalChunks || '—'} · данные: ${s.percent.toFixed(2)}% · предел: 10% · очередь: ${s.queuedBytes}\u00a0Б`));
 events.on('world.ready', ({totalChunks:count})=>{ totalChunks=count; });
 events.on('performance', s=>{
   show('performance',`FPS: ${Math.round(s.fps)}`);
