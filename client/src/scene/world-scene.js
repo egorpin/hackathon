@@ -623,6 +623,7 @@ export class WorldScene {
         const move = basis.forward.multiplyScalar(axes.forward).addScaledVector(basis.right,axes.right);
         if (move.lengthSq() > 1) move.normalize();
         this.events.emit('player.input',{ axes, heading: this.heading.toArray(), pitch: this.controls.pitch, move:move.toArray(),jump,running });
+        this.events.emit('audio.motion',{position:this.position.toArray(),altitude:this.altitude||0,running,active:this.stage==='running'&&!this.controls.suspended});
       }
       const { up, forward } = tangent(this.position,this.heading);
       if (this.mode === 'first') {
@@ -715,6 +716,17 @@ export class WorldScene {
         this.robots.setState({position:this.position,buildings:[...this.buildings.values()].filter(e=>e.mesh.visible).map(e=>e.data),players:[{position:this.position},...[...this.players.values()].map(e=>e.data)]});
         if(this.visualOptions.animations)this.robots.update(dt);
         for(const e of this.robots.entries.values())e.root.visible=surfaceDistance(origin,e.position,this.radius)<=this.viewRadius;
+      }
+      if(now-(this.lastAudioScene??-Infinity)>=250){
+        this.lastAudioScene=now;const buildings=[];
+        for(const entry of this.buildings.values()){
+          if(!entry.mesh.visible)continue;
+          const distance=surfaceDistance(origin,entry.mesh.position,this.radius),active=this.stage==='running'&&!isPlan(entry.data)&&(entry.data.efficiency??1)>0;
+          buildings.push({type:entry.data.building_type,active,gain:Math.max(0,.14*(1-distance/this.viewRadius))});
+        }
+        const rover=[...this.rovers.values()].some(entry=>entry.mesh.visible)?.07:0;
+        const robots=[...(this.robots?.entries.values()||[])].filter(entry=>entry.root.visible).length;
+        this.events.emit('audio.scene',{buildings,rover,robots});
       }
       if (this.mode === 'first' && now - (this.lastPick ?? -Infinity) >= 50) {
         this.pick(); this.lastPick = now;
