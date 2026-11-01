@@ -89,6 +89,8 @@ test('working oxygen generator emits visible rising mist above its housing and s
   particles.update(.08,true);
   const puff=particles.items.find(item=>item.mesh.visible);
   assert.ok(puff);assert.ok(puff.mesh.position.y>particles.source.y);
+  assert.equal(puff.mesh.material.color.getHex(),0x888888);
+  assert.ok(puff.mesh.scale.x>=.18,'roof exhaust is large enough to see');
   assert.ok(puff.mesh.material.opacity>.4);assert.ok(puff.mesh.scale.x>.09);
   for(let i=0;i<30;i++)particles.update(.1,false);
   assert.ok(particles.items.every(item=>!item.mesh.visible));

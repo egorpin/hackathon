@@ -1,0 +1,5 @@
+#player-transfer-open{position:absolute;right:28px;bottom:100px;z-index:3;background:var(--hud-surface);border-color:var(--hud-accent)}
+#player-transfer-open[hidden]{display:none}
+.player-transfer-panel label{display:grid;gap:6px;margin:14px 0}
+.player-transfer-panel select,.player-transfer-panel input{width:100%;padding:10px;background:#211820;color:#f3e5d8;border:1px solid var(--hud-border);border-radius:6px}
+@media(max-width:740px){#player-transfer-open{right:16px;bottom:180px}}

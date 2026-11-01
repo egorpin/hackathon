@@ -1,8 +1,9 @@
 """Fixed-step simulation; no I/O, clocks, network calls or agent inference."""
 import math
 
-from app.world.geometry import move_on_surface, surface_distance
-from app.world.terrain import ground_position, seed_from_world_id
+from app.world.geometry import surface_distance
+from app.world.terrain import ground_position, seed_from_world_id, terrain_height
+from .collision import collision_shapes, footprint_distance, resolve_player_motion
 from .commands import authorize
 from .energy import energy_balance
 from .state import ENERGY_CONSUMPTION, SOLAR_ENERGY_OUTPUT, WIND_ENERGY_OUTPUT
@@ -26,27 +27,51 @@ def step(world, dt_seconds, planet):
         return []
     events = []
     seed = seed_from_world_id(world.world_id)
+    def ground_radius(point):
+        return planet.radius + terrain_height(point, seed)
+
+    building_shapes = []
+    for building in sorted(world.buildings.values(), key=lambda item: item.building_id):
+        if building.construction_status != "completed":
+            continue
+        center = planet.cells[building.cell_id].center
+        building_shapes.extend({"building_id": building.building_id, "surface_id": shape["id"], **shape}
+                               for shape in collision_shapes(building, center, planet.radius, seed))
     for player in world.players.values():
-        # Old saves may contain roof contacts; all players now follow terrain and gravity.
-        player.roof_building_id = None
-        player.support_building_id = player.support_surface_id = None
         if player.position is None:
             continue
         active = world.tick - player.input_tick < INPUT_TIMEOUT_TICKS
-        if active and player.jump_pending and player.altitude <= 0:
+        grounded = player.altitude <= 1e-5 and player.vertical_speed <= 0
+        if player.support_building_id and player.support_surface_id:
+            support = next((shape for shape in building_shapes
+                            if shape["building_id"] == player.support_building_id
+                            and shape["surface_id"] == player.support_surface_id), None)
+            if support is not None:
+                feet = ground_radius(player.position) + player.altitude
+                grounded = (abs(feet - support["top"]) <= .04
+                            and footprint_distance(support, player.position, planet.radius) < PLAYER_RADIUS
+                            and player.vertical_speed <= 0)
+            else:
+                player.support_building_id = player.support_surface_id = None
+        jumping = bool(active and player.jump_pending and grounded)
+        if jumping:
             player.vertical_speed = JUMP_SPEED
+            player.support_building_id = player.support_surface_id = None
+            player.roof_building_id = None
         player.jump_pending = False
         if not active:
             player.jump_held = False
-        if player.vertical_speed or player.altitude:
-            player.vertical_speed -= GRAVITY * dt_seconds
-            player.altitude = max(0., player.altitude + player.vertical_speed * dt_seconds)
-            if not player.altitude:
-                player.vertical_speed = 0.
         move = player.move if active else (0., 0., 0.)
         speed = SPEED * (1.5 if active and player.running else 1)
-        position = move_on_surface(player.position, move, speed * dt_seconds, planet.radius)
-        position = ground_position(position, planet.radius, player.altitude, seed)
+        position, player.altitude, player.vertical_speed, player.support_building_id, player.support_surface_id = resolve_player_motion(
+            player.position, player.altitude, player.vertical_speed, move,
+            speed * dt_seconds, dt_seconds, planet.radius, ground_radius,
+            building_shapes, grounded=grounded and not jumping,
+            support_building_id=player.support_building_id,
+            support_surface_id=player.support_surface_id,
+            player_radius=PLAYER_RADIUS, player_height=.6, step_height=.3,
+            gravity=GRAVITY)
+        player.roof_building_id = player.support_building_id
         if position != player.position:
             player.position = position
             events.append({"type": "player.moved", "user_id": player.user_id})
@@ -143,6 +168,10 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                 "construction_travel_progress": building.construction_travel_progress,
                 "construction_progress": building.construction_progress,
                 "construction_required": building.construction_required}
+        center = planet.cells[building.cell_id].center
+        item["collision_shapes"] = (collision_shapes(
+            building, center, planet.radius, seed_from_world_id(state.world_id))
+            if building.construction_status == "completed" else [])
         if building.team_id == player.team_id and building.building_type not in ("solar_panel", "wind_turbine"):
             item["stock"] = building.stock if building.building_type != "warehouse" else state.team_storage[player.team_id]
             supplied = any(w.building_type == "warehouse" and w.team_id == building.team_id
@@ -178,6 +207,7 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                         "config": {"rover": {"cost": COST, "capacity": CAPACITY, "empty_mass": EMPTY_MASS, "resource_masses": MASSES, "program_max_bytes": 512, "max_rovers": 4, "max_points": 12, "max_surveys": 16, "point_name_max_length": 24}, "radius": planet.radius, "tick_seconds": TICK_SECONDS, "speed": SPEED,
                                    "interaction_distance": REACH, "view_radius": view_radius,
                                    "building_radius": BUILDING_RADIUS, "player_radius": PLAYER_RADIUS,
+                                   "player_height": .6, "step_height": .3,
                                    "jump_speed": JUMP_SPEED, "gravity": GRAVITY,
                                    "mountain_radius": MOUNTAIN_RADIUS, "recipes": {kind: dict(cost) for kind, cost in RECIPES.items()},
                                    "inventory_capacity": INVENTORY_CAPACITY, "building_capacity": BUILDING_CAPACITY,

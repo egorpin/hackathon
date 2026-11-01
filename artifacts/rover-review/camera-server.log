@@ -1,0 +1,28 @@
+INFO:     Started server process [33576]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:18208 (Press CTRL+C to quit)
+INFO:     127.0.0.1:7617 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:31923 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:31923 - "GET /assets/main-DV3F1GZE.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2710 - "GET /assets/GLTFLoader-D1REEE3W.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:20643 - "GET /assets/building-foundation-BMNOPaVK.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33625 - "GET /assets/model-library-C4utrdY5.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3014 - "GET /assets/first-person-hands-VyRuCoM-.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49889 - "GET /assets/main-DpCsrlVa.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2710 - "GET /assets/models/manifest.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2710 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:2710 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:31923 - "GET /assets/models/astronaut.glb?v=animated-concepts-v18 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:20643 - "GET /assets/models/rover.glb?v=animated-concepts-v18 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49889 - "GET /assets/models/oxygen_generator.glb?v=animated-concepts-v18 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33625 - "GET /assets/models/drill.glb?v=animated-concepts-v18 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3014 - "GET /assets/models/storage.glb?v=animated-concepts-v18 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2710 - "GET /assets/models/dome_base.glb?v=animated-concepts-v18 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:20643 - "GET /assets/models/robot_minion.glb?v=animated-concepts-v18 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3014 - "GET /assets/models/wind_turbine.glb?v=animated-concepts-v18 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33625 - "GET /assets/models/solar_panel.glb?v=animated-concepts-v18 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33625 - "POST /api/auth/register HTTP/1.1" 201 Created
+INFO:     ('127.0.0.1', 4753) - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     connection closed

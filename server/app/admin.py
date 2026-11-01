@@ -180,6 +180,7 @@ def install(app, backend):
             r.update(status='running' if edit.action=='start' else 'idle', pc=0,
                      wait_ticks=0, speed=0., error=None, line=None)
             r['program_revision'] += 1
+            state.admin_version += 1
             state.revision += 1
         return {'ok': True}
 

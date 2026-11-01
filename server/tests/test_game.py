@@ -548,7 +548,7 @@ class GameTests(unittest.TestCase):
             request["payload"] = {"seq": 2, "move": invalid}
             self.assertEqual(apply_command(self.context, request, self.world)["payload"]["code"], "INVALID_ARGUMENT")
 
-    def test_movement_passes_through_buildings_and_mountains(self):
+    def test_movement_blocks_at_buildings_and_still_crosses_mountains(self):
         self.start()
         drill = self.build()
         target = self.planet.cells[self.world.state.buildings[drill].cell_id].center
@@ -558,7 +558,12 @@ class GameTests(unittest.TestCase):
             self.ok(apply_command(self.context, {"type": "player.input", "payload": {"seq": seq, "move": direction}}, self.world))
             self.advance(1)
         position = self.world.state.players["alice"].position
-        self.assertLess(surface_distance(position, target, 30), .3)
+        from app.game.collision import collision_shapes, footprint_distance
+        from app.world.terrain import seed_from_world_id
+        body = next(shape for shape in collision_shapes(
+            self.world.state.buildings[drill], target, self.planet.radius,
+            seed_from_world_id(self.world.state.world_id)) if shape["id"] == "body")
+        self.assertGreaterEqual(footprint_distance(body, position, self.planet.radius), .19)
         from app.world.terrain import seed_from_world_id
         mountain = self.planet.cells[self.world.state.mountains[0]].center
         near = move_on_surface(mountain, unit(cross(mountain, (0, 0, 1))), 1.9, 30)

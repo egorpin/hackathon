@@ -6,7 +6,7 @@ or enqueue for eventual persistence; the backend owns the durability policy.
 """
 from contextlib import contextmanager
 from copy import deepcopy
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from threading import RLock
 
 from app.world.geometry import Planet, surface_distance
@@ -123,6 +123,10 @@ class WorldState:
     admin_version: int = 0
     admin_characters: list = field(default_factory=list)
     admin_active_character: str = "expedition"
+    map_revision: int = 0
+    cell_overrides: dict[str, dict] = field(default_factory=dict)
+    admin_results: dict[str, dict] = field(default_factory=dict)
+    admin_audit: list[dict] = field(default_factory=list)
     economy_version: int = 2
     # Request keys are user_id + ':' + canonical UUID within this world.
     command_results: dict[str, dict] = field(default_factory=dict)
@@ -189,10 +193,21 @@ class UnitOfWork:
     def __init__(self, planet: Planet, state: WorldState, persist=None):
         if state.map_version != planet.version:
             raise ValueError("Saved world uses another map version")
-        self.planet = planet
+        self._planet = planet
         self._state = deepcopy(state)
         self._persist = persist
         self._lock = RLock()
+
+    @property
+    def planet(self):
+        """Per-world persisted cell edits never mutate the shared base map."""
+        with self._lock:
+            if not self._state.cell_overrides:
+                return self._planet
+            cells = dict(self._planet.cells)
+            for cell_id, patch in self._state.cell_overrides.items():
+                cells[cell_id] = replace(cells[cell_id], **patch)
+            return replace(self._planet, cells=cells)
 
     @property
     def state(self):

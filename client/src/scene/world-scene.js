@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { polygonGeometry, shellModel } from './polygon-geometry.js';
 import { smoothSurface, sphericalCellGeometry, sphericalOutline } from './mars-surface.js';
 import { Controls } from './controls.js';
-import { advance, tangent, vector, PlayerTrack, surfaceDistance } from './motion.js';
-import { configureTerrain, projectTerrain, terrainNormal } from './terrain.js';
+import { tangent, vector, PlayerTrack, surfaceDistance } from './motion.js';
+import { configureTerrain, projectTerrain, terrainNormal, terrainHeight } from './terrain.js';
+import { resolveBuildingMotion } from './building-collision.js';
 import { Atmosphere } from './atmosphere.js';
 import { FirstPersonHands } from './first-person-hands.js';
 import { ModelLibrary, recolor } from './model-library.js';
@@ -44,6 +45,26 @@ const material = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, 
 const mesh = (geometry, color) => new THREE.Mesh(geometry, material(color));
 const upAxis = new THREE.Vector3(0,1,0);
 
+function speechTexture(text) {
+  const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 192;
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#fff8e9'; context.strokeStyle = '#26343a'; context.lineWidth = 9;
+  context.beginPath(); context.roundRect(8, 8, 496, 158, 24); context.fill(); context.stroke();
+  context.beginPath(); context.moveTo(224, 160); context.lineTo(240, 186); context.lineTo(264, 160); context.closePath(); context.fill(); context.stroke();
+  context.fillStyle = '#26343a'; context.font = '600 30px system-ui, sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle';
+  const words = text.split(/\s+/); const lines = []; let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && context.measureText(next).width > 450) { lines.push(line); line = word; } else line = next;
+  }
+  if (line) lines.push(line);
+  const shown = lines.slice(0, 4); const top = 87 - (shown.length - 1) * 18;
+  shown.forEach((value, index) => context.fillText(value, 256, top + index * 36, 450));
+  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter; texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
+
 export class WorldScene {
   constructor(host, events) {
     this.visualOptions = { ...DEFAULT_VISUAL_OPTIONS };
@@ -66,7 +87,7 @@ export class WorldScene {
     this.resourceLabelTextures = new ResourceLabelTextures();
     this.modelRequests = new Map(); this.modelRetryAt = new Map();
     this.frameTimes=[]; this.cameraBob=true;
-    this.cellsById = new Map(); this.chunks = new Map(); this.players = new Map(); this.buildings = new Map(); this.rovers = new Map();
+    this.cellsById = new Map(); this.chunks = new Map(); this.players = new Map(); this.speechBubbles = new Map(); this.buildings = new Map(); this.rovers = new Map();
     this.baseMarkers = new Map();
     this.position = new THREE.Vector3(0,100,0); this.heading = new THREE.Vector3(0,0,-1);
     this.radius = 100; this.speed = 4; this.viewRadius = 24; this.buildDistance = 6;
@@ -99,6 +120,7 @@ export class WorldScene {
         }
       }),
       events.on('scene.pointer',e=>{if(this.mode==='top')this.pick(e);}),
+      events.on('chat.message', message => this.showSpeech(message)),
       events.on('graphics.quality', level => this.setQuality(level)),
       events.on('graphics.bob', enabled => { this.cameraBob=enabled; }),
       events.on('graphics.fov', value => {
@@ -111,6 +133,37 @@ export class WorldScene {
     this.resizeObserver = new ResizeObserver(() => this.resize()); this.resizeObserver.observe(host);
     this.previous = performance.now(); this.fpsStart = this.previous; this.frames = 0; this.inputTime = 0;
     this.renderer.setAnimationLoop(now => this.frame(now));
+  }
+  showSpeech({user_id, text}) {
+    if (typeof user_id !== 'string' || typeof text !== 'string') return;
+    const safeText = text.normalize('NFC').replace(/[\u0000-\u001f\u007f-\u009f]/gu, '').trim().slice(0, 120);
+    if (!safeText) return;
+    let entry = this.speechBubbles.get(user_id);
+    const texture = speechTexture(safeText);
+    if (!entry) {
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map:texture, transparent:true, depthWrite:false, toneMapped:false}));
+      sprite.scale.set(1.75, .68, 1); sprite.visible = false; sprite.renderOrder = 10; this.scene.add(sprite);
+      entry = {sprite}; this.speechBubbles.set(user_id, entry);
+    } else {
+      entry.sprite.material.map?.dispose();
+      entry.sprite.material.map = texture; entry.sprite.material.needsUpdate = true;
+    }
+    entry.until = performance.now() + 5000;
+  }
+  updateSpeechBubbles(now) {
+    for (const [userId, bubble] of this.speechBubbles) {
+      if (now >= bubble.until) { disposeObject(bubble.sprite); this.speechBubbles.delete(userId); continue; }
+      let position;
+      if (userId === this.selfId) position = this.position;
+      else {
+        const entry = this.players.get(userId) || [...this.players.values()].find(player => player.data?.user_id === userId);
+        position = entry?.mesh.position;
+      }
+      if (!position) { bubble.sprite.visible = false; continue; }
+      const up = position.clone().normalize();
+      bubble.sprite.position.copy(position).addScaledVector(up, 1);
+      bubble.sprite.visible = this.enabled && surfaceDistance(this.authoritative || this.position, position, this.radius) <= this.viewRadius;
+    }
   }
   setRoverPreview({canvas, roverId, mode = 'camera', points = []}) {
     if (!canvas) return;
@@ -327,6 +380,8 @@ export class WorldScene {
     this.renderer.setSize(width,height); this.camera.aspect = width / Math.max(1,height); this.camera.updateProjectionMatrix();
   }
   reset() {
+    for (const bubble of this.speechBubbles.values()) disposeObject(bubble.sprite);
+    this.speechBubbles.clear();
     for(const {marker} of this.baseMarkers?.values() || [])disposeObject(marker);
     this.baseMarkers?.clear();
     this.selectedRoverId=null;
@@ -354,6 +409,8 @@ export class WorldScene {
     this.gravity = snapshot.config?.gravity ?? 5.5;
     this.playerHeight = snapshot.config?.player_height ?? .6;
     this.stepHeight = snapshot.config?.step_height ?? .3;
+    this.jumpSpeed = snapshot.config?.jump_speed ?? 4.8;
+    this.predictionJumpHeld = false;
     this.selectedRoverMarker.geometry.dispose();
     this.selectedRoverMarker.geometry=new THREE.OctahedronGeometry(Math.max(.35,this.radius*.025),0);
     this.terrain = !!world.terrain;
@@ -410,9 +467,9 @@ export class WorldScene {
         // Server owns position and collision resolution. Prediction is visual only.
         this.position.copy(vector(player.position));
         this.selfColor=player.color; this.altitude=player.altitude || 0; this.verticalSpeed=player.vertical_speed || 0;
-        this.roofBuildingId=null;
-        this.supportBuildingId=null;
-        this.supportSurfaceId=null;
+        this.roofBuildingId=player.roof_building_id ?? null;
+        this.supportBuildingId=player.support_building_id ?? null;
+        this.supportSurfaceId=player.support_surface_id ?? null;
         if (snap && player.heading) this.heading.copy(vector(player.heading));
         this.authoritative = this.position.clone(); this.predictionAge = 0;
         continue;
@@ -669,13 +726,31 @@ export class WorldScene {
       // Bound speculative travel to 150ms; collision and all gameplay remain server-authoritative.
       const predictionDt = Math.min(dt,Math.max(0,.15-(this.predictionAge || 0)));
       this.predictionAge = (this.predictionAge || 0) + dt;
-      if(this.altitude || this.verticalSpeed) {
-        this.verticalSpeed-=this.gravity*predictionDt; this.altitude=Math.max(0,this.altitude+this.verticalSpeed*predictionDt);
-        if(!this.altitude)this.verticalSpeed=0;
-      }
-      const predicted = advance(this.position,this.heading,axes,this.speed*(running?1.5:1),predictionDt,this.radius);
-      projectTerrain(predicted.position,this.radius,this.altitude || 0,this.terrain);
-      this.position.copy(predicted.position); this.heading.copy(predicted.heading);
+      const basis=tangent(this.position,this.heading);
+      const move=basis.forward.multiplyScalar(axes.forward).addScaledVector(basis.right,axes.right);
+      if(move.lengthSq()>1)move.normalize();
+      const jumpPressed=this.stage==='running'&&jump&&!this.predictionJumpHeld;
+      this.predictionJumpHeld=this.stage==='running'&&jump;
+      const groundRadius=point=>this.radius+(this.terrain?terrainHeight(point.x,point.y,point.z):0);
+      const collisionShapes=[];
+      for(const entry of this.buildings.values()) for(const shape of entry.data.collision_shapes||[]) collisionShapes.push({
+        ...shape,building_id:entry.data.building_id,surface_id:shape.id,
+        center:shape.center ?? entry.data.position,
+      });
+      const grounded=(this.altitude||0)<=1e-4&&(this.verticalSpeed||0)===0 ||
+        !!collisionShapes.find(shape=>shape.building_id===this.supportBuildingId&&shape.surface_id===this.supportSurfaceId&&
+          Math.abs(this.position.length()-shape.top)<=.05);
+      const predictionVerticalSpeed=jumpPressed&&grounded?this.jumpSpeed:(this.verticalSpeed||0);
+      const prediction=resolveBuildingMotion(this.position,this.altitude||0,predictionVerticalSpeed,move,
+        this.speed*(running?1.5:1)*predictionDt,predictionDt,this.radius,groundRadius,collisionShapes,{
+          grounded,supportBuildingId:this.supportBuildingId,supportSurfaceId:this.supportSurfaceId,
+          playerRadius:this.playerRadius,playerHeight:this.playerHeight,stepHeight:this.stepHeight,
+          gravity:this.gravity,
+        });
+      const predicted={position:prediction.position,heading:this.heading.clone()};
+      this.altitude=prediction.altitude;this.verticalSpeed=prediction.verticalSpeed;
+      this.supportBuildingId=prediction.supportBuildingId;this.supportSurfaceId=prediction.supportSurfaceId;
+      this.position.copy(predicted.position);
       this.inputTime += dt;
       if (this.inputTime >= .05) {
         this.inputTime = 0;
@@ -744,6 +819,7 @@ export class WorldScene {
           if(entry.mesh.visible && animations)this.models.animate(entry.mesh,entry.data?.altitude>.05?'jump':entry.data?.moving?(entry.data.running?'run':'walk'):'idle',dt);
         }
       }
+      this.updateSpeechBubbles(now);
       for (const entry of this.rovers.values()) {
         const sample = entry.track.sample(now-100,this.radius);
         if (!sample) continue;
@@ -767,13 +843,11 @@ export class WorldScene {
         if(['drill','oxygen_generator'].includes(entry.data.building_type)){
           if(active&&!entry.effects)entry.effects=new ProductionParticles(entry.mesh,entry.data.building_type);
           const resource = this.cellsById.get(entry.data.cell_id)?.resource;
-          const stock=entry.data.stock||{};
-          const producing=entry.data.producing ?? (entry.data.building_type==='drill'?Object.values(stock).reduce((a,b)=>a+b,0)<50:(stock.water||0)>0);
           if(entry.effects){
             entry.effects.root.visible=animations;
-            // Debris follows the rotating drill bit even when its storage is
-            // full; this is cosmetic and never changes resource production.
-            if(animations)entry.effects.update(dt * efficiency,active&&(entry.data.building_type==='drill'||producing),resource);
+            // Cosmetic debris and roof exhaust stay visible while the building
+            // is powered, including while waiting for inputs or empty storage.
+            if(animations)entry.effects.update(dt,active,resource);
           }
         }
         if(entry.mesh.visible && animations && entry.data.building_type==='wind_turbine' && !isPlan(entry.data))this.models.animate(entry.mesh,'spin',dt * efficiency);
