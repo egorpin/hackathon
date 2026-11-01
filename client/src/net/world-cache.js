@@ -1,7 +1,8 @@
 import { Events } from './events.js';
 export const byteSize = value => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 
-// All retained world DTOs (including dynamic state) are accounted once by key.
+// Active world DTOs and incoming reservations share a logical byte budget.
+// The state entry is replaced on updates; it is not a historical state cache.
 // Offers reserve bytes BEFORE a chunk request. Unsolicited chunk payloads are rejected.
 export class WorldCache extends Events {
   constructor() { super(); this.reset(); }
@@ -45,6 +46,7 @@ export class WorldCache extends Events {
     return { bytes: this.used, totalBytes: this.total, percent: this.total ? this.used / this.total * 100 : 0,
       chunks: chunks.filter(([,e]) => e.data).length,
       queuedBytes: [...this.entries.values()].filter(e => e.data === null).reduce((n,e) => n + e.bytes,0),
-      targetPercent: 5, limitPercent: 10 };
+      activeChunkBytes: chunks.filter(([,e]) => e.data).reduce((n,[,e]) => n + e.bytes,0),
+      stateBytes: this.entries.get('state')?.bytes || 0, limitPercent: 10 };
   }
 }

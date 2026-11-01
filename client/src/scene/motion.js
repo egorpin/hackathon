@@ -26,7 +26,9 @@ export class PlayerTrack {
   constructor() { this.samples = []; }
   push(player, now) {
     this.samples.push({ position: vector(player.position), heading: vector(player.heading || [0,0,-1]), time: now });
-    if (this.samples.length > 20) this.samples.shift();
+    // Keep only the short interpolation window, never a movement history.
+    while (this.samples.length > 2 && this.samples[1].time < now - 250) this.samples.shift();
+    if (this.samples.length > 8) this.samples.splice(0, this.samples.length - 8);
   }
   sample(time, radius, preserveAltitude = false) {
     while (this.samples.length > 2 && this.samples[1].time <= time) this.samples.shift();
