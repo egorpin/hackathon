@@ -1,4 +1,5 @@
 import "./rover.css";
+import { kodyashMascot } from './agent-mascot.js';
 
 const fmt = n => Number.isFinite(n) ? n.toFixed(4) : '—';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -18,7 +19,7 @@ export class RoverUI {
     this.panel.innerHTML=`
       <header class="rv-head"><h1>Бортовой блокнот</h1><span data-local-status>Автосохранение включено</span><button data-close aria-label="Закрыть блокнот">Закрыть <kbd>Esc</kbd></button></header>
       <main class="rv-workspace">
-        <aside class="rv-sidebar"><section class="rv-explorer"><div class="rv-section-title">ФАЙЛЫ <span>ЛОКАЛЬНО</span></div><div class="rv-file-actions"><button data-new-folder>＋ Папка</button><button data-new-file>＋ Файл</button></div><nav data-tree aria-label="Файлы экспедиции"></nav></section><div class="rv-split horizontal" data-resize="files" role="separator" tabindex="0" aria-label="Высота файлов и чата" aria-orientation="horizontal"></div><section class="rv-chat"><div class="rv-section-title">ЧАТ <span>ИИ-ПОМОЩНИК</span></div><div data-chat-log role="log" aria-live="polite"><div class="rv-chat-empty"><b>ИИ-помощник</b><p>Здесь появится диалог с помощником по программам и экспедиции.</p></div></div><p data-chat-status role="status">Чат пока не подключён</p><form data-chat-form><textarea data-chat-input aria-label="Сообщение" placeholder="Сообщение помощнику…" maxlength="1000" rows="2" disabled></textarea><button data-chat-send type="submit" disabled>Отправить</button></form></section></aside><div class="rv-split" data-resize="left" role="separator" tabindex="0" aria-label="Ширина файлов и чата" aria-orientation="vertical"></div>
+        <aside class="rv-sidebar"><section class="rv-explorer"><div class="rv-section-title">ФАЙЛЫ <span>ЛОКАЛЬНО</span></div><div class="rv-file-actions"><button data-new-folder>＋ Папка</button><button data-new-file>＋ Файл</button></div><nav data-tree aria-label="Файлы экспедиции"></nav></section><div class="rv-split horizontal" data-resize="files" role="separator" tabindex="0" aria-label="Высота файлов и чата" aria-orientation="horizontal"></div><section class="rv-chat"><div class="rv-section-title">ЧАТ <span>ИИ-ПОМОЩНИК</span></div><div class="rv-chat-agent" data-chat-agent data-state="idle">${kodyashMascot}<div><b>Кодяш</b><small>Помощник по роверам</small><span data-chat-agent-state>Подключается…</span></div></div><div data-chat-log role="log" aria-live="polite"><div class="rv-chat-empty"><b>ИИ-помощник</b><p>Здесь появится диалог с помощником по программам и экспедиции.</p></div></div><p data-chat-status role="status">Чат пока не подключён</p><form data-chat-form><textarea data-chat-input aria-label="Сообщение" placeholder="Сообщение помощнику…" maxlength="1000" rows="2" disabled></textarea><button data-chat-send type="submit" disabled>Отправить</button></form></section></aside><div class="rv-split" data-resize="left" role="separator" tabindex="0" aria-label="Ширина файлов и чата" aria-orientation="vertical"></div>
         <section class="rv-code"><nav class="rv-file-tabs" data-tabs aria-label="Открытые файлы"></nav><div class="rv-toolbar"><label>Имя файла<input data-filename aria-label="Имя файла"></label><div><button data-save>Передать</button><button data-stop>■ Стоп</button><button class="rv-primary" data-run>▶ Запустить</button></div></div><div class="rv-meta"><span data-path></span><span data-feedback role="status" aria-live="polite"></span><span data-bytes></span></div><div class="rv-editor"><div data-lines aria-hidden="true"></div><pre data-highlight aria-hidden="true"></pre><textarea data-program spellcheck="false" aria-label="Программа ровера"></textarea></div></section>
         <div class="rv-split" data-resize="right" role="separator" tabindex="0" aria-label="Ширина карты" aria-orientation="vertical"></div><aside class="rv-mission"><section class="rv-fleet"><div class="rv-section-title">РОВЕР <button data-purchase>＋ Новый</button></div><select data-select aria-label="Выбрать ровер"></select><div data-status class="rv-stats"></div><p data-access></p><p data-line></p></section><section class="rv-vision"><div class="rv-view-tabs"><button data-view="camera">Камера ровера</button><button data-view="map">Карта <kbd>Tab</kbd></button></div><div class="rv-live-view"><canvas data-preview tabindex="0" aria-label="Камера и карта. Tab переключает вид. Нажмите на карту для выбора точки."></canvas><div data-no-signal>Нет сигнала<small>Выберите доступный ровер</small></div><div class="rv-live-hud"><span data-preview-label></span><span data-camera-coords></span></div></div><p data-view-help></p></section><div class="rv-split horizontal" data-resize="vision" role="separator" tabindex="0" aria-label="Высота карты" aria-orientation="horizontal"></div><section class="rv-points"><div class="rv-section-title">ТОЧКИ ЭКСПЕДИЦИИ <button data-map-pick>＋ На карте</button></div><p>Клик по карте запишет координаты в текущий файл.</p><div data-points></div><button data-route class="rv-route-button">Создать программу маршрута</button></section></aside>
       </main>`;
@@ -98,6 +99,10 @@ export class RoverUI {
   q(s){return this.panel.querySelector(s);}
   command(type,payload){this.events.emit('command',{type,payload});}
   feedback(text){this.q('[data-feedback]').textContent=text;}
+  chatActivity(state,label){
+    const agent=this.q('[data-chat-agent]');agent.dataset.state=state;
+    this.q('[data-chat-agent-state]').textContent=label;
+  }
   chatHistory(){
     const log=this.q('[data-chat-log]');
     let history=log.querySelector('.rv-chat-history');
@@ -156,23 +161,23 @@ export class RoverUI {
   async loadKodyash(){
     if(this.chatLoaded||this.chatLoading)return;
     this.chatLoading=true;this.q('.rv-chat .rv-section-title span').textContent='КОДЯШ';
-    this.q('.rv-chat-empty b').textContent='Кодяш';this.q('[data-chat-status]').textContent='Кодяш подключается…';
+    this.q('.rv-chat-empty b').textContent='Кодяш';this.q('[data-chat-status]').textContent='Кодяш подключается…';this.chatActivity('thinking','Подключается…');
     try{
       const response=await fetch('/api/rover-agent/messages',{credentials:'same-origin',cache:'no-store',signal:this.abort.signal});
       const data=await response.json();if(!response.ok)throw Error(data.detail||'Не удалось подключить Кодяша.');
       this.q('[data-chat-log]').replaceChildren();
       for(const message of data.messages)this.chatMessage(message.role,message.text);
       this.chatLoaded=true;this.q('[data-chat-input]').disabled=false;this.q('[data-chat-send]').disabled=false;
-      this.q('[data-chat-input]').placeholder='Спросить Кодяша о ровере…';this.q('[data-chat-status]').textContent='Кодяш готов помочь';
+      this.q('[data-chat-input]').placeholder='Спросить Кодяша о ровере…';this.q('[data-chat-status]').textContent='Кодяш готов помочь';this.chatActivity('idle','Готов к вопросу');
       if(!data.messages.length)await this.askKodyash({event:'notebook_open',text:'Начать обучение'});
-    }catch(error){if(!this.abort.signal.aborted)this.q('[data-chat-status]').textContent=error.message;}
+    }catch(error){if(!this.abort.signal.aborted){this.q('[data-chat-status]').textContent=error.message;this.chatActivity('idle','Нет связи');}}
     finally{this.chatLoading=false;}
   }
   async askKodyash({event=null,text=null,errorCode=null,errorLine=null}={}){
     if(this.chatBusy||!this.chatLoaded&&!event)return;
     const input=this.q('[data-chat-input]');const question=(text??input.value).trim();if(!question)return;
     this.chatBusy=true;input.disabled=true;this.q('[data-chat-send]').disabled=true;
-    this.q('[data-chat-status]').textContent='Кодяш думает…';
+    this.q('[data-chat-status]').textContent='Кодяш думает…';this.chatActivity('thinking','Думает…');
     if(!event){this.chatMessage('user',question);input.value='';}
     const reply=this.chatMessage('assistant','…'),body=reply.body;
     try{
@@ -185,12 +190,12 @@ export class RoverUI {
       while(true){
         const {value,done}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});
         const lines=buffer.split('\n');buffer=done?'':lines.pop();
-        for(const line of lines){if(!line.trim())continue;const packet=JSON.parse(line);if(packet.error)throw Error(packet.error);if(packet.text)answer+=packet.text;}
+        for(const line of lines){if(!line.trim())continue;const packet=JSON.parse(line);if(packet.error)throw Error(packet.error);if(packet.text){if(!answer)this.chatActivity('writing','Пишет…');answer+=packet.text;}}
         if(!scheduled){scheduled=true;requestAnimationFrame(draw);}if(done)break;
       }
       if(buffer.trim()){const packet=JSON.parse(buffer);if(packet.error)throw Error(packet.error);if(packet.text)answer+=packet.text;}
-      draw();this.renderChatBody(body,answer);this.attachProgramActions(reply.item,answer);this.q('[data-chat-status]').textContent='Кодяш готов помочь';
-    }catch(error){reply.item.remove();if(!this.abort.signal.aborted){this.q('[data-chat-status]').textContent=error.message;if(!event)input.value=question;}}
+      draw();this.renderChatBody(body,answer);this.attachProgramActions(reply.item,answer);this.q('[data-chat-status]').textContent='Кодяш готов помочь';this.chatActivity('idle','Готов к вопросу');
+    }catch(error){reply.item.remove();if(!this.abort.signal.aborted){this.q('[data-chat-status]').textContent=error.message;this.chatActivity('idle','Ошибка ответа');if(!event)input.value=question;}}
     finally{this.chatBusy=false;input.disabled=false;this.q('[data-chat-send]').disabled=false;}
   }
   coachProgramError(result){
