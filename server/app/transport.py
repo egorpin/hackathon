@@ -106,6 +106,7 @@ class GameService:
 
     def join(self, identity):
         runtime = self.runtime(identity)
+        planet = runtime.planet
         context = Context(identity['world_id'], identity['user_id'], identity['team_id'])
         runtime.enroll(context)
         # Assign an available landing site; the lobby starts the world only
@@ -113,19 +114,19 @@ class GameService:
         with runtime.transaction() as state:
             player = state.players[context.user_id]
             if player.position is None:
-                cell = next(cell for cell in self.planet.landing_sites if cell not in state.landing_claims)
-                position = self.planet.cells[cell].center
+                cell = next(cell for cell in planet.landing_sites if cell not in state.landing_claims)
+                position = planet.cells[cell].center
                 if state.stage == 'running':
-                    obstacles = [(self.planet.cells[b.cell_id].center, BUILDING_RADIUS + PLAYER_RADIUS)
+                    obstacles = [(planet.cells[b.cell_id].center, BUILDING_RADIUS + PLAYER_RADIUS)
                                  for b in state.buildings.values()]
-                    obstacles += [(self.planet.cells[c].center, MOUNTAIN_RADIUS + PLAYER_RADIUS)
+                    obstacles += [(planet.cells[c].center, MOUNTAIN_RADIUS + PLAYER_RADIUS)
                                   for c in state.mountains if c != cell]
                     obstacles += [(p.position, 2 * PLAYER_RADIUS) for p in state.players.values()
                                   if p.user_id != context.user_id and p.position is not None]
-                    candidates = sorted(self.planet.cells.values(), key=lambda candidate:
-                                        surface_distance(candidate.center, position, self.planet.radius))
+                    candidates = sorted(planet.cells.values(), key=lambda candidate:
+                                        surface_distance(candidate.center, position, planet.radius))
                     position = next(candidate.center for candidate in candidates
-                                    if all(surface_distance(candidate.center, obstacle, self.planet.radius) >= radius
+                                    if all(surface_distance(candidate.center, obstacle, planet.radius) >= radius
                                            for obstacle, radius in obstacles))
                 state.landing_claims[cell] = context.user_id
                 if cell in state.mountains:
@@ -133,7 +134,7 @@ class GameService:
                 player.position = position
                 if state.stage == 'running':
                     from .game.rover import ensure_start
-                    ensure_start(state, self.planet)
+                    ensure_start(state, planet)
                 state.revision += 1
         return context
 
@@ -159,7 +160,9 @@ class GameService:
         message = snapshot(context, self.runtime(identity))
         data = message['payload']
         data['self_id'], data['team_id'] = context.user_id, context.team_id
-        data['generation'] = self.runtime(identity).state.generation
+        state = self.runtime(identity).state
+        data['generation'] = state.generation
+        data['map_revision'] = state.map_revision
         data['simulation_time'] = message['tick'] * .05
         for player in data['players']:
             player['player_id'] = player.pop('user_id')
@@ -186,6 +189,7 @@ class Stream:
         self.next_offer_id = 0
         self.chunk_cache = {}
         self.mountains = None
+        self.cell_overrides = None
 
     async def offer(self, socket):
         if self.pending is not None:
@@ -219,9 +223,10 @@ class Stream:
         player = state.players[self.identity['user_id']]
         position = player.position
         mountains = frozenset(state.mountains)
-        if mountains != self.mountains:
+        if mountains != self.mountains or state.cell_overrides != self.cell_overrides:
             self.chunk_cache.clear()
             self.mountains = mountains
+            self.cell_overrides = state.cell_overrides
         active = state.tick - player.input_tick < INPUT_TIMEOUT_TICKS
         ahead = move_on_surface(position, player.move, 3, self.service.planet.radius) if active else position
         normal, ahead_normal = unit(position), unit(ahead)
@@ -248,8 +253,12 @@ class Stream:
         for distance, key in sorted(candidates):
             if key not in self.chunk_cache:
                 base = self.service.chunks[key]
-                chunk = {**base, 'cells': [{**cell, 'surface': 'mountain' if cell['cell_id'] in mountains else cell['surface']}
-                                           for cell in base['cells']]}
+                chunk = {**base, 'cells': [{**cell, **state.cell_overrides.get(cell['cell_id'], {}),
+                         'surface': ('mountain' if cell['cell_id'] in mountains else
+                                     state.cell_overrides.get(cell['cell_id'], {}).get('terrain', cell['surface']))}
+                         for cell in base['cells']]}
+                for cell in chunk['cells']:
+                    cell.pop('terrain', None)
                 self.chunk_cache[key] = chunk, byte_size(chunk)
             chunk, size = self.chunk_cache[key]
             if used + size > chunk_budget:

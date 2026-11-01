@@ -89,10 +89,113 @@ async def inspect_world():
 Перед записью программы и запуском ровера читайте `program_revision` из
 `get_world.rover_fleet`; передавайте её в `expected_revision`.
 
+## Административный MCP агента «Босс»
+
+Отдельный Streamable HTTP endpoint: `http://127.0.0.1:8000/mcp/admin/`.
+Он запускается в том же процессе, использует тот же мир, транзакции и очередь
+сохранения. Vite и Nginx уже проксируют весь `/mcp`, включая этот путь.
+
+Авторизация: `Authorization: Bearer <MARS_ADMIN_TOKEN>`, либо значение из
+`DATA_DIR/admin.key`, если переменная не задана. Это тот же ключ, что у `/admin`.
+Обычные сессии и cookie не дают доступа к этому endpoint; ключ администратора
+не даёт доступа к игровому `/mcp/`. Каждый запрос проверяет текущий ключ и Origin,
+если он присутствует. Вход игрока и подписка на мир для «Босса» не нужны.
+Ключ передаёт доверенный транспорт агента, его нельзя помещать в промпт.
+
+Сервер представляется как `Mars Colony Boss` и публикует 17 инструментов:
+
+| Инструмент | Действие |
+| --- | --- |
+| `admin_get_overview` | Список миров и подключённых игроков без секретов сессий. |
+| `admin_get_world` | Полное состояние всех команд: игроки с инвентарями, постройки, склады, роверы, персонажи и последние 100 административных действий. |
+| `admin_get_cells` | Вся карта страницами: `offset`, `limit` (1–200), `next_offset`. Геометрия, месторождения, пригодность, горы, ID здания. |
+| `admin_set_world` | `edit`: `paused`, `stage` (`lobby`/`running`), `oxygen_percent` (0–100). Старт без голосования; инициализирует базы и стартовые роверы, уведомляет лобби. |
+| `admin_restart_world` | Сброс игрового состояния всех команд, ресурсов и правок клеток в лобби. Сохраняет персонажей, паузу и квитанции команд; клиенты переподключаются. |
+| `admin_teleport_player` | Любой игрок в любую точку карты; сбрасывает движение, прыжок и опоры. Работает на паузе и в лобби. |
+| `admin_set_player` | `edit`: цвет из игровой палитры, фонарь, pitch, отдельные балансы инвентаря. |
+| `admin_set_resources` | Установить выбранные балансы `resources` в `target` (`team`/`player`/`building`/`rover`) по `target_id`. Склад здания warehouse — общий склад команды. |
+| `admin_create_building` | Бесплатное здание любого типа, включая `dome_base`, по `cell_id`, `creator_id`, `building_type`; `completed=true` по умолчанию. |
+| `admin_edit_building` | `edit`: клетка, тип, создатель (также меняет команду), завершённость, запасы. |
+| `admin_remove_entity` | Удалить здание (включая базу), ровер или гору без возврата ресурсов: `entity_type`, `entity_id` (для горы — ID клетки). |
+| `admin_create_rover` | Бесплатный ровер команды `owner_player_id` в `destination`, без лимита флота. |
+| `admin_teleport_rover` | Телепортация любого ровера с остановкой и сбросом указателя выполнения. |
+| `admin_edit_rover` | `action`: `save`/`start`/`stop`, необязательная `program`; парсер DSL проверяется. `expected_revision` проверяет версию программы, если задана. |
+| `admin_set_rover_point` | Создать/заменить точку для `team_id` по `name`, `latitude`, `longitude` без обследования и офиса. |
+| `admin_edit_cells` | Атомарный список `edits` (1–100): `cell_id`, `buildable`, `resource`, `terrain` (`ground`/`landing`), `mountain`. Явное `resource:null` убирает месторождение. |
+| `admin_set_characters` | `profiles` (формат персонажей из `/api/admin`), `active_character`: поведение существующего игрового ИИ. |
+
+Во всех инструментах, кроме обзора, нужен явный `world_id` (обычно `demo-world`).
+Изменяющим инструментам нужен канонический UUID `request_id`; необязательный
+`expected_version` проверяет `version` из `admin_get_world`. Версия общая с
+админ-панелью, меняется при административной записи, не зависит от обычного tick.
+Успешные операции и их квитанции сохраняются атомарно в `WorldState`, отдельно
+от пространства UUID игровых команд. Повтор с теми же аргументами возвращает
+первый результат, даже после рестарта процесса; другие аргументы дают
+`REQUEST_CONFLICT`. Ошибки не резервируют UUID. Ответ в `structuredContent`:
+`{ok, request_id, version, revision, ...}`. При отказе проверяйте `ok=false`,
+`code` (`VERSION_CONFLICT`, `CELL_NOT_FOUND`, `CELL_OCCUPIED` и т. д.). Ошибки
+схемы/DSL/сохранения и неизвестный мир возвращаются как MCP `isError`.
+
+`destination` задаётся ровно одним способом:
+
+```json
+{"cell_id": "cell-0042"}
+{"position": [10, 20, -5], "altitude": 2}
+{"latitude": 35.5, "longitude": -120}
+{"player_id": "ID другого игрока"}
+```
+
+Вектор задаёт направление от центра планеты; позиция проецируется на поверхность
+с учётом рельефа и `altitude` (0–1000 м над землёй). Роверы требуют `altitude=0`.
+Телепортация намеренно допускает совпадение позиций и пересечение построек.
+
+Администратор обходит дальность, стоимость, владение, голосование, требование
+офиса, лимиты склада/инвентаря и пригодность клетки для постройки. Сохраняются
+структурные инварианты: существующие игроки/клетки/команды, одно здание на клетке,
+отсутствие горы под зданием, месторождение под буром, валидная DSL и масса груза
+ровера ≤50 кг. Ресурсы — целые 0–1 000 000 на тип; опущенные балансы не меняются.
+Нельзя убрать месторождение из-под бура. Прямое выполнение Python/shell не
+предоставляется. Размер тела запроса на административном endpoint — 64 KiB.
+
+Правки клеток сохраняются отдельно для каждого мира, не меняют базовую карту
+других миров и используются игровыми командами и добычей. В DTO игрока добавлен
+`map_revision`: изменение карты вызывает новый offer даже на паузе; затронутые
+чанки перевыдаются через unload/offer с новым `offer_id` и точным `byte_size`.
+Геометрия, радиус планеты и процедурная высота рельефа остаются параметрами генерации.
+Буферизация SQLite такая же, как в игре: штатная остановка сбрасывает очередь,
+аварийное завершение может потерять ещё не записанный буфер.
+
+Пример подключения «Босса» официальным SDK:
+
+```python
+async def boss_teleport(world_id, player_id):
+    import uuid
+    async with httpx.AsyncClient(headers={
+        'Authorization': f'Bearer {os.environ["MARS_ADMIN_TOKEN"]}'
+    }) as http:
+        async with streamable_http_client(
+            'http://127.0.0.1:8000/mcp/admin/', http_client=http
+        ) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool('admin_get_world', {'world_id': world_id})
+                world = result.structuredContent
+                return await session.call_tool('admin_teleport_player', {
+                    'world_id': world_id, 'player_id': player_id,
+                    'destination': {'latitude': 0, 'longitude': 0},
+                    'expected_version': world['version'],
+                    'request_id': str(uuid.uuid4()),
+                })
+```
+
+Контракт и рекомендуемый системный промпт для нового агента: [boss-agent.md](boss-agent.md).
+Настоящий агент с циклом tool calling и UI подключается отдельно; MCP уже готов
+принимать его вызовы, ключи не передаются существующему игровому ИИ автоматически.
+
 ## Проверка
 
 ```bash
-.venv/bin/python -m pytest server/tests/test_mcp.py -q
+.venv/bin/python -m pytest server/tests/test_mcp.py server/tests/test_mcp_admin.py -q
 ```
 
 Тесты используют настоящий MCP HTTP transport и официальный SDK-клиент,
