@@ -20,7 +20,7 @@ root.innerHTML = `
   <aside id="telemetry" aria-label="Показатели производительности" hidden><p id="performance" hidden>FPS: —</p><p id="performance-detail" hidden>Кадр p95: — · Треугольники: — · Вызовы: —</p><p id="cache" hidden>Данные мира: ожидание манифеста</p></aside>
   <section class="build-dock" aria-label="Строительство">
     <div id="build-hotbar" role="group" aria-label="Выбор постройки, клавиши 1–3">${BUILDINGS.map((building,index)=>`<button type="button" class="build-slot" data-building="${building.type}" aria-pressed="false" aria-label="${index+1} · ${building.name}" title="${building.description}"><kbd>${index+1}</kbd><span class="build-icon" aria-hidden="true">${building.icon}</span><span class="build-name">${building.name}</span><span class="build-cost">—</span></button>`).join('')}<button type="button" id="build-rover" class="build-slot" title="Покупка ровера в офисе"><span class="build-icon" aria-hidden="true">▣</span><span class="build-name">Ровер</span><span class="build-cost">Офис</span></button></div>
-    <div id="build-context" hidden><p id="build-info" hidden>Выберите постройку</p><div class="build-actions"><button id="build">Построить · B</button><button id="build-cancel" aria-label="Отменить выбор постройки">Отмена · Esc</button></div></div>
+    <div id="build-context" hidden><p id="build-info" hidden>Выберите постройку</p><div class="build-actions"><button id="build">Построить</button><button id="build-cancel" aria-label="Отменить выбор постройки">Отмена · Esc</button></div></div>
   </section>
   <div id="crosshair" aria-hidden="true">+</div><div id="crosshair-hint" aria-live="off"></div>
   <aside id="notice" role="status" aria-live="polite" hidden></aside>
@@ -81,7 +81,7 @@ function updateSelection(){
   else if(gameState?.buildings?.some(item=>item.cell_id===cell.cell_id)) reason='Клетка занята постройкой; выберите соседнюю.';
   else if(Object.keys(missing).length) reason=`В общем запасе не хватает: ${formatResources(missing)}.`;
   else if(!locallyAllowed) reason='Подойдите ближе к клетке, чтобы строить.';
-  else reason=`Построить · B · ${formatResources(cost)}.`;
+  else reason=`ЛКМ · построить · ${formatResources(cost)}.`;
   selectionHelp=reason;
   updateCrosshairHint();
 }

@@ -42,7 +42,7 @@ const assert=require('node:assert/strict');
     };
     const reply=async()=>{
       assert.ok(requests.length,'request reached mocked endpoint');
-      await requests.shift()({json:{text:'**Бур** добывает ресурсы. Выбери жилу, затем нажми **B**.\n\n- Найди железо\n- Поставь бур'}});
+      await requests.shift()({json:{text:'**Бур** добывает ресурсы. Выбери жилу, затем кликни по ней левой кнопкой мыши.\n\n- Найди железо\n- Поставь бур'}});
     };
     await toggle.click();await page.locator('.assistant button[type=submit]').waitFor();
     await idle();

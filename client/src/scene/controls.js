@@ -14,7 +14,6 @@ export class Controls {
       if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab','Space'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
       if (!e.repeat && e.code === 'Tab') events.emit('camera.toggle');
-      if (!e.repeat && e.code === 'KeyB') events.emit('build.request');
       if (!e.repeat && e.code === 'KeyE') events.emit('interact.request');
     });
     on(window, 'keyup', e => this.keys.delete(e.code));

@@ -78,8 +78,13 @@ export class WorldScene {
         this.orbitRotation.premultiply(turn).normalize();
       }),
       events.on('scene.click', e => {
-        if (this.mode === 'top') this.pick(e);
-        else if (document.pointerLockElement===this.renderer.domElement)this.events.emit('pickup.request');
+        if (this.mode === 'top') {
+          this.pick(e);
+          if (this.buildType) this.events.emit('build.request');
+        } else if (document.pointerLockElement===this.renderer.domElement) {
+          if (this.buildType) this.events.emit('build.request');
+          else this.events.emit('pickup.request');
+        }
       }),
       events.on('scene.pointer',e=>{if(this.mode==='top')this.pick(e);}),
       events.on('graphics.quality', level => this.setQuality(level)),
