@@ -2,6 +2,7 @@ import './assistant.css';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { agentMascot } from './agent-mascot.js';
+import { BUILDINGS } from './buildings.js';
 
 export class Assistant {
   constructor({scene, events}) {
@@ -15,8 +16,12 @@ export class Assistant {
     this.dialog=document.createElement('aside');this.dialog.className='assistant';
     this.dialog.id='assistant-panel';this.dialog.hidden=true;
     this.dialog.setAttribute('aria-labelledby','assistant-title');
-    this.dialog.innerHTML=`<div class="assistant-heading"><h2 id="assistant-title">ИИ-помощник</h2><button type="button" class="assistant-close" aria-label="Закрыть ИИ-помощника">✕</button></div>
-      <div class="assistant-activity" role="status" aria-live="polite" hidden>${agentMascot}<div><strong>Марсик</strong><span class="activity-label"></span></div><span class="activity-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
+    this.dialog.innerHTML=`<div class="assistant-heading assistant-activity" data-state="idle">
+        ${agentMascot}
+        <div class="assistant-agent-identity"><h2 id="assistant-title" class="assistant-agent-name">Марсик</h2><span class="assistant-agent-role">Помощник по экспедиции</span><span class="activity-label" role="status" aria-live="polite">Готов к вопросу</span></div>
+        <select class="assistant-agent" aria-label="Выбрать ИИ-агента"></select>
+        <button type="button" class="assistant-close" aria-label="Закрыть окно агента">✕</button>
+      </div>
       <div class="assistant-messages" role="log" aria-label="Диалог с ИИ" aria-live="polite"></div>
       <p class="assistant-status" role="status"></p>
       <form><label for="assistant-question">Enter — написать / отправить · Shift+Enter — новая строка</label><textarea id="assistant-question" aria-label="Твой вопрос" maxlength="1000" rows="3" placeholder="Как начать освоение Марса?" required></textarea><button type="submit">Отправить</button></form>`;
@@ -25,6 +30,7 @@ export class Assistant {
     this.activity=this.dialog.querySelector('.assistant-activity');
     this.miniActivity=this.button.querySelector('.assistant-button-activity');
     this.form=this.dialog.querySelector('form');this.input=this.dialog.querySelector('textarea');this.send=this.form.querySelector('button');
+    this.agentSelect=this.dialog.querySelector('.assistant-agent');this.agentId='expedition';this.agentName='Марсик';
     window.speechSynthesis?.getVoices();
     const on=(target,name,fn)=>target.addEventListener(name,fn,{signal:this.controller.signal});
     on(this.button,'click',()=>{if(this.dialog.hidden)this.open();else this.close();this.button.blur();});
@@ -44,27 +50,74 @@ export class Assistant {
       }
     });
     on(this.form,'submit',event=>{event.preventDefault();this.ask();});
+    on(this.agentSelect,'change',()=>this.selectAgent());
+    this.unsubs=[
+      events.on('world.state',state=>{this.playerId=state?.self_id||this.playerId;}),
+      events.on('command.result',result=>this.commandResult(result)),
+    ];
   }
   updateActivity() {
     const state=this.speech?.started?'speaking':this.requestPhase||'idle';
     if(this.activity.dataset.state===state)return;
-    const label={thinking:'Думает…',writing:'Пишет…',speaking:'Говорит…',idle:''}[state];
-    for(const element of [this.activity,this.miniActivity]){
-      element.dataset.state=state;element.hidden=state==='idle';
-      element.querySelector('.activity-label').textContent=label;
-    }
+    const label={thinking:'Думает…',writing:'Пишет…',speaking:'Говорит…',idle:'Готов к вопросу'}[state];
+    this.activity.dataset.state=state;this.activity.querySelector('.activity-label').textContent=label;
+    this.miniActivity.dataset.state=state;this.miniActivity.hidden=state==='idle';
+    this.miniActivity.querySelector('.activity-label').textContent=state==='idle'?'':label;
     this.button.querySelector('.assistant-button-label').hidden=state!=='idle';
-    this.button.title=label?`${this.characterName || 'Марсик'} · ${label}`:'ИИ-помощник';
+    this.button.title=label?`${this.agentName} · ${label}`:'ИИ-помощник';
   }
-  async revealReply(item) {
-    // The endpoint returns a complete answer; "writing" is its on-screen reveal.
-    if(document.documentElement.classList.contains('game-reduced-motion') || window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;
-    const animation=this.replyAnimation=item.animate([
-      {clipPath:'inset(0 0 100% 0)',opacity:.4},
-      {clipPath:'inset(0 0 0% 0)',opacity:1},
-    ],{duration:650,easing:'ease-out'});
-    try{await animation.finished;}catch{/* Closing the application cancels the reveal. */}
-    if(this.replyAnimation===animation)this.replyAnimation=null;
+  renderReply(body,text) {
+    body.innerHTML=DOMPurify.sanitize(marked.parse(text,{breaks:true}),{
+      ALLOWED_TAGS:['p','br','strong','em','del','a','ul','ol','li','blockquote','pre','code','h1','h2','h3','h4','h5','h6','hr','table','thead','tbody','tr','th','td'],
+      ALLOWED_ATTR:['href','title','class','start'],
+    });
+    for(const link of body.querySelectorAll('a')){link.target='_blank';link.rel='noopener noreferrer';}
+  }
+  async streamReply(item,text,{buildingId}={}) {
+    const body=item.querySelector('.assistant-markdown');
+    const reduced=document.documentElement.classList.contains('game-reduced-motion')||window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const token={cancelled:false};this.replyAnimation=token;
+    body.setAttribute('aria-hidden','true');
+    const response=await fetch('/api/agent/ask/stream',{method:'POST',credentials:'same-origin',cache:'no-store',signal:this.controller.signal,
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({text,agent_id:this.agentId,building_id:buildingId})});
+    if(!response.ok){
+      const data=await response.json().catch(()=>({}));
+      throw Error(response.status===401?'Сначала войди в игру.':data.detail||'Не удалось отправить вопрос.');
+    }
+    let received='',shown=0,ended=false,streamError='';
+    const animation=new Promise(resolve=>{
+      const frame=()=>{
+        if(token.cancelled||this.controller.signal.aborted){resolve();return;}
+        const remaining=received.length-shown;
+        if(remaining>0){
+          shown=reduced?received.length:shown+Math.min(6,Math.max(1,Math.ceil(remaining*.12)));
+          body.textContent=received.slice(0,shown);this.log.scrollTop=this.log.scrollHeight;
+        }
+        if(!ended||shown<received.length)requestAnimationFrame(frame);else resolve();
+      };
+      requestAnimationFrame(frame);
+    });
+    const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
+    try{
+      while(true){
+        const {value,done}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});
+        const lines=buffer.split('\n');buffer=done?'':lines.pop();
+        for(const line of lines){
+          if(!line.trim())continue;
+          const event=JSON.parse(line);
+          if(event.text){if(!received){this.requestPhase='writing';this.updateActivity();}received+=event.text;}
+          if(event.error)streamError=event.error;
+        }
+        if(done)break;
+      }
+      if(buffer.trim()){
+        const event=JSON.parse(buffer);if(event.text)received+=event.text;if(event.error)streamError=event.error;
+      }
+    }finally{ended=true;}
+    await animation;
+    if(streamError)throw Error(streamError);
+    if(!token.cancelled){this.renderReply(body,received);body.removeAttribute('aria-hidden');item.speakButton.disabled=false;}
+    if(this.replyAnimation===token)this.replyAnimation=null;
   }
   async json(path,options={}) {
     const response=await fetch(path,{credentials:'same-origin',cache:'no-store',signal:this.controller.signal,...options});
@@ -72,30 +125,62 @@ export class Assistant {
     if(!response.ok)throw Error(response.status===401?'Сначала войди в игру.':typeof data.detail==='string'?data.detail:'Не удалось отправить вопрос.');
     return data;
   }
-  message(role,text) {
-    const item=document.createElement('div');item.className='assistant-message '+(role==='user'?'user':'reply');
-    const label=document.createElement('strong');label.textContent=role==='user'?'Ты':(this.characterName || 'ИИ-помощник');
+  message(role,text,{typing=false}={}) {
+    const event=role==='system'||role==='event',user=role==='user';
+    const item=document.createElement('div');item.className=`assistant-message ${user?'user':event?'event':'reply'}`;
+    const label=document.createElement('strong');label.textContent=user?'Ты':event?'Событие мира':this.agentName;
     const body=document.createElement('div');body.className='assistant-markdown';
-    if(role==='user')body.textContent=text;
-    else {
-      body.innerHTML=DOMPurify.sanitize(marked.parse(text,{breaks:true}),{
-        ALLOWED_TAGS:['p','br','strong','em','del','a','ul','ol','li','blockquote','pre','code','h1','h2','h3','h4','h5','h6','hr','table','thead','tbody','tr','th','td'],
-        ALLOWED_ATTR:['href','title','class','start'],
-      });
-      for(const link of body.querySelectorAll('a')){link.target='_blank';link.rel='noopener noreferrer';}
-    }
+    if(user||event)body.textContent=event?text.replace(/^\[tutorial:building:[a-z0-9_-]+\]\s*/,''):text;
+    else if(!typing)this.renderReply(body,text);
     item.append(label,body);this.log.append(item);this.log.scrollTop=this.log.scrollHeight;
-    if(role!=='user') {
+    if(!user&&!event) {
       const actions=document.createElement('div');actions.className='assistant-speech';
       const speak=document.createElement('button');speak.type='button';speak.textContent='Озвучить';
+      speak.disabled=typing;
       const stop=document.createElement('button');stop.type='button';stop.textContent='Стоп';stop.disabled=true;
       const status=document.createElement('span');status.setAttribute('role','status');
       if(!window.speechSynthesis || !window.SpeechSynthesisUtterance){speak.disabled=true;speak.title='Браузер не поддерживает озвучку.';}
       speak.addEventListener('click',()=>this.speak(body,{speak,stop,status}),{signal:this.controller.signal});
       stop.addEventListener('click',()=>this.stopSpeech(),{signal:this.controller.signal});
       actions.append(speak,stop,status);item.append(actions);this.log.scrollTop=this.log.scrollHeight;
+      item.speakButton=speak;
     }
     return item;
+  }
+  commandResult(result) {
+    const command=result?.command;
+    if(!result?.payload?.ok||command?.type!=='building.place')return;
+    const buildingId=result.payload.building_id,type=command.payload?.building_type;
+    const building=BUILDINGS.find(item=>item.type===type);
+    if(!buildingId||!building)return;
+    const key=`mars-agent-tutorial:${this.playerId||'player'}:${type}`;
+    if(localStorage.getItem(key)||this.tutorialPending?.has(type))return;
+    (this.tutorialPending ||= new Set()).add(type);
+    (this.tutorialQueue ||= []).push({buildingId,building,key,type});
+    this.runNextTutorial();
+  }
+  async runNextTutorial() {
+    if(this.busy||this.tutorialRunning||!this.tutorialQueue?.length)return;
+    this.tutorialRunning=true;
+    const tutorial=this.tutorialQueue.shift();
+    let eventItem,reply;
+    try {
+      await this.open();
+      this.busy=true;this.send.disabled=true;this.input.disabled=true;this.agentSelect.disabled=true;
+      this.requestPhase='thinking';this.updateActivity();this.status.textContent='';
+      eventItem=this.message('event',`Мир изменился: началось строительство объекта «${tutorial.building.name}». Марсик запомнит это действие.`);
+      reply=this.message('assistant','',{typing:true});
+      await this.streamReply(reply,'Объясни мне новую постройку и что делать дальше.',{buildingId:tutorial.buildingId});
+      localStorage.setItem(tutorial.key,'shown');
+    }catch(error){
+      eventItem?.remove();reply?.remove();
+      if(!this.controller.signal.aborted&&error.message!=='Подсказка для этой постройки уже показана.')this.status.textContent=error.message;
+      if(error.message==='Подсказка для этой постройки уже показана.')localStorage.setItem(tutorial.key,'shown');
+    }finally{
+      this.tutorialPending.delete(tutorial.type);this.requestPhase=null;this.updateActivity();
+      this.busy=false;this.send.disabled=false;this.input.disabled=false;this.agentSelect.disabled=false;this.tutorialRunning=false;
+      if(this.tutorialQueue.length)queueMicrotask(()=>this.runNextTutorial());
+    }
   }
   speak(body,controls) {
     this.stopSpeech();
@@ -105,7 +190,7 @@ export class Assistant {
     if(!russian.length) {
       controls.status.textContent='Русский голос недоступен. Добавьте его в настройках речи системы.';return;
     }
-    const voice=russian.find(voice=>voice.localService)||russian[0];
+    const voice=this.selectedVoice(russian);
     const chunks=text.match(/[^.!?\n]{1,180}(?:[.!?]+|\n|\s|$)|\S{1,180}/g)||[text];
     const active=this.speech={...controls};
     controls.speak.disabled=true;controls.stop.disabled=false;controls.status.textContent='Озвучивание…';
@@ -113,6 +198,8 @@ export class Assistant {
       if(this.speech!==active)return;
       const chunk=chunks.shift();if(!chunk){this.stopSpeech();return;}
       const utterance=new window.SpeechSynthesisUtterance(chunk);utterance.lang='ru-RU';utterance.voice=voice;
+      // A fixed, calm mechanical delivery inspired by cinematic utility robots.
+      utterance.rate=.86;utterance.pitch=.68;utterance.volume=1;
       active.utterance=utterance;
       utterance.onstart=()=>{if(this.speech===active){active.started=true;this.updateActivity();}};
       utterance.onend=next;
@@ -121,6 +208,16 @@ export class Assistant {
     };
     next();
   }
+  voiceScore(voice) {
+    const name=voice.name.toLowerCase();let score=0;
+    if(/dmitry|pavel|maxim|yuri|александр|михаил|павел|дмитрий/.test(name))score+=100;
+    if(/natural|neural|online/.test(name))score+=30;
+    if(voice.localService)score+=10;
+    return score;
+  }
+  selectedVoice(russian=window.speechSynthesis?.getVoices().filter(voice=>/^ru(?:-|_)/i.test(voice.lang))||[]) {
+    return [...russian].sort((a,b)=>this.voiceScore(b)-this.voiceScore(a))[0];
+  }
   stopSpeech() {
     const active=this.speech;if(!active)return;
     this.speech=null;
@@ -128,13 +225,31 @@ export class Assistant {
     active.speak.disabled=false;active.stop.disabled=true;active.status.textContent='';
     this.updateActivity();
   }
-  setCharacter(character) {
-    const changed=this.characterId && this.characterId!==character?.id;
-    this.characterId=character?.id;this.characterName=character?.name || 'ИИ-помощник';
-    this.dialog.querySelector('#assistant-title').textContent=this.characterName;
-    this.activity.querySelector('strong').textContent=this.characterName;
-    if(changed)this.log.replaceChildren();
-    return changed;
+  async loadAgents() {
+    const data=await this.json('/api/agents');
+    const preferred=localStorage.getItem('mars-assistant-agent')||'expedition';
+    this.agentSelect.replaceChildren(...data.agents.map(item=>new Option(item.name,item.id)));
+    this.agentSelect.value=data.agents.some(item=>item.id===preferred)?preferred:data.agents[0]?.id||'expedition';
+    this.agentId=this.agentSelect.value;
+    this.agentName=data.agents.find(item=>item.id===this.agentId)?.name||'Марсик';
+    this.dialog.querySelector('.assistant-agent-name').textContent=this.agentName;
+    this.agentsLoaded=true;
+  }
+  async loadHistory() {
+    this.send.disabled=true;this.agentSelect.disabled=true;this.status.textContent='Загружаем диалог…';
+    const data=await this.json(`/api/agent/messages?agent_id=${encodeURIComponent(this.agentId)}`);
+    this.stopSpeech();this.log.replaceChildren();
+    for(const item of data.messages)this.message(item.role,item.text);
+    this.status.textContent=data.messages.length?'':'Задай первый вопрос помощнику.';
+    this.send.disabled=false;this.agentSelect.disabled=false;
+  }
+  async selectAgent() {
+    if(this.busy)return;
+    this.agentId=this.agentSelect.value;
+    this.agentName=this.agentSelect.selectedOptions[0]?.textContent||'ИИ-помощник';
+    localStorage.setItem('mars-assistant-agent',this.agentId);
+    this.dialog.querySelector('.assistant-agent-name').textContent=this.agentName;
+    try{await this.loadHistory();}catch(error){this.status.textContent=error.message;this.send.disabled=false;this.agentSelect.disabled=false;}
   }
   async open() {
     if(!this.dialog.hidden)return;
@@ -142,11 +257,9 @@ export class Assistant {
     if(this.busy)return;
     this.send.disabled=true;this.status.textContent='Загружаем диалог…';
     try {
-      const data=await this.json('/api/agent/messages');this.stopSpeech();this.log.replaceChildren();this.setCharacter(data.character);
-      for(const item of data.messages)this.message(item.role,item.text);
-      this.status.textContent=data.messages.length?'':'Задай первый вопрос помощнику.';
-      this.send.disabled=false;
-    }catch(error){this.status.textContent=error.message;}
+      if(!this.agentsLoaded)await this.loadAgents();
+      await this.loadHistory();
+    }catch(error){this.status.textContent=error.message;this.send.disabled=false;this.agentSelect.disabled=false;}
   }
   beginTyping() {
     if(this.typing)return;
@@ -168,22 +281,19 @@ export class Assistant {
       if(this.wasLocked && this.scene.controls.mode==='first')canvas.requestPointerLock()?.catch(()=>{});
     }
   }
-  close() {this.stopSpeech();this.finishTyping(true);this.dialog.hidden=true;this.button.setAttribute('aria-expanded','false');this.button.blur();}
+  close() {this.stopSpeech();if(this.replyAnimation)this.replyAnimation.cancelled=true;this.finishTyping(true);this.dialog.hidden=true;this.button.setAttribute('aria-expanded','false');this.button.blur();}
   async ask() {
     const text=this.input.value.trim();if(!text||this.busy)return;
     this.finishTyping(true);
     this.stopSpeech();
-    this.busy=true;this.send.disabled=true;this.input.disabled=true;
+    this.busy=true;this.send.disabled=true;this.input.disabled=true;this.agentSelect.disabled=true;
     this.requestPhase='thinking';this.updateActivity();
     this.message('user',text);this.input.value='';this.status.textContent='';
+    const reply=this.message('assistant','',{typing:true});
     try {
-      const answer=await this.json('/api/agent/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
-      if(this.controller.signal.aborted)return;
-      if(this.setCharacter(answer.character))this.message('user',text);
-      this.requestPhase='writing';this.updateActivity();
-      await this.revealReply(this.message('assistant',answer.text));this.status.textContent='';
-    }catch(error){if(!this.controller.signal.aborted){this.status.textContent=error.message;this.input.value=text;}}
-    finally{this.requestPhase=null;this.updateActivity();this.busy=false;this.send.disabled=false;this.input.disabled=false;}
+      await this.streamReply(reply,text);this.status.textContent='';
+    }catch(error){if(!this.controller.signal.aborted){reply.remove();this.status.textContent=error.message;this.input.value=text;}}
+    finally{this.requestPhase=null;this.updateActivity();this.busy=false;this.send.disabled=false;this.input.disabled=false;this.agentSelect.disabled=false;this.runNextTutorial();}
   }
-  dispose(){this.stopSpeech();this.finishTyping();this.controller.abort();this.replyAnimation?.cancel();this.dialog.remove();this.button.remove();}
+  dispose(){this.stopSpeech();this.finishTyping();this.controller.abort();this.unsubs.forEach(unsub=>unsub());if(this.replyAnimation)this.replyAnimation.cancelled=true;this.dialog.remove();this.button.remove();}
 }

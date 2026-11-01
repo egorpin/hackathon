@@ -52,7 +52,7 @@ class Telemetry(Model):
 
 
 def characters(state):
-    return state.admin_characters or [dict(id='expedition', name='Помощник экспедиции', enabled=True,
+    return state.admin_characters or [dict(id='expedition', name='Марсик', enabled=True,
                                          prompt=agent.SYSTEM, temperature=.4)]
 
 

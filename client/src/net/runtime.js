@@ -4,6 +4,7 @@ import { aimedBuilding } from '../ui/interaction.js';
 export class Runtime {
   constructor(transport, scene, events) {
     this.transport = transport; this.scene = scene; this.events = events; this.cache = new WorldCache();
+    this.pendingCommands = new Map();
     this.unsubs = [
       events.on('performance', stats => { transport.performanceStats = stats; }),
       transport.on('lobby.state', state => { this.lobbyStage = state.stage; if(state.stage==='lobby'){scene.controls.clear();scene.select(null);scene.targetBuilding(null);events.emit('expedition.lobby');} }),
@@ -29,7 +30,14 @@ export class Runtime {
         if (['connecting', 'reconnecting', 'unauthorized'].includes(status)) { this.cache.reset(); this.state = null; scene.reset(); } events.emit('connection.status',status);
       }),
       transport.on('error', error => events.emit('notice',error)),
-      transport.on('message', message => { events.emit(message.type,message.payload); if(message.type==='action.result') events.emit('command.result',message); }),
+      transport.on('message', message => {
+        events.emit(message.type,message.payload);
+        if(message.type==='action.result') {
+          const command=this.pendingCommands.get(message.request_id);
+          this.pendingCommands.delete(message.request_id);
+          events.emit('command.result',{...message,command});
+        }
+      }),
       events.on('player.input', input => { if (this.state?.stage !== 'lobby' && (!transport.session || this.lobbyStage === 'running')) transport.input(input); }),
       events.on('command', ({type,payload}) => { const requestId=this.command(type,payload); if(type.startsWith('rover.') && requestId) events.emit('rover.command.sent',{requestId,type}); }),
       events.on('build.request', () => {
@@ -130,8 +138,12 @@ export class Runtime {
   command(type,payload) {
     const allowed = new Set(['landing.select','player.color','building.place','building.remove','player.respawn','player.teleport','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release','rover.survey','rover.point.register','rover.purchase','rover.program','rover.start','rover.stop']);
     if (!allowed.has(type)) { this.events.emit('notice','Неизвестная клиентская команда'); return; }
-    try { return this.transport.command(type,payload); }
+    try {
+      const requestId=this.transport.command(type,payload);
+      if(requestId)this.pendingCommands.set(requestId,{type,payload});
+      return requestId;
+    }
     catch (error) { this.events.emit('notice',error.message); }
   }
-  dispose() { this.unsubs.forEach(fn=>fn()); this.transport.close(); this.scene.dispose(); this.cache.reset(); }
+  dispose() { this.unsubs.forEach(fn=>fn()); this.pendingCommands.clear(); this.transport.close(); this.scene.dispose(); this.cache.reset(); }
 }
