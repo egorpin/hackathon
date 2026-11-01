@@ -80,6 +80,8 @@ def step(world, dt_seconds, planet):
             building.stock["water"] -= 1
             world.oxygen_percent = min(OXYGEN_GOAL, round(world.oxygen_percent + OXYGEN_PER_CYCLE, 6))
             events.append({"type": "building.updated", "building_id": building.building_id})
+    from .rover import step_rovers
+    step_rovers(world, planet)
     world.tick += 1
     world.revision += 1
     return events
@@ -115,14 +117,21 @@ def snapshot(context, unit_of_work, view_radius=12.0):
         if building.team_id == player.team_id:
             item["stock"] = building.stock if building.building_type != "warehouse" else state.team_storage[player.team_id]
         buildings.append(item)
+    from .rover import coordinates, office_access, telemetry, COST, CAPACITY, MASSES, EMPTY_MASS
+    fleet = [telemetry(r) for r in state.rovers.values() if r["team_id"] == player.team_id]
+    rovers = [{k:r[k] for k in ("rover_id","team_id","position","heading","color")} for r in state.rovers.values() if visible(r["position"])]
     return {"type": "world.snapshot", "tick": state.tick, "revision": state.revision,
             "payload": {"stage": state.stage, "map_version": planet.version,
                         "players": players, "buildings": buildings, "inventory": player.inventory,
+                        "rovers": rovers, "rover_fleet": fleet, "rover_surveys": state.rover_surveys.get(player.user_id, []),
+                        "rover_points": list(state.rover_points.get(player.team_id, {}).values()),
+                        "office_access": office_access(state, planet, player),
+                        "current_coordinates": coordinates(player.position) if player.position else None,
                         "last_input_seq": player.seq, "team_storage": state.team_storage[player.team_id],
                         "oxygen": state.oxygen_percent, "oxygen_percent": state.oxygen_percent, "oxygen_goal": OXYGEN_GOAL,
                         "landing_sites": planet.landing_sites, "landing_claims": state.landing_claims,
                         "mountains": state.mountains,
-                        "config": {"radius": planet.radius, "tick_seconds": TICK_SECONDS, "speed": SPEED,
+                        "config": {"rover": {"cost": COST, "capacity": CAPACITY, "empty_mass": EMPTY_MASS, "resource_masses": MASSES, "program_max_bytes": 512, "max_rovers": 4, "max_points": 12, "max_surveys": 16, "point_name_max_length": 24}, "radius": planet.radius, "tick_seconds": TICK_SECONDS, "speed": SPEED,
                                    "interaction_distance": REACH, "view_radius": view_radius,
                                    "building_radius": BUILDING_RADIUS, "player_radius": PLAYER_RADIUS,
                                    "mountain_radius": MOUNTAIN_RADIUS, "recipes": {kind: dict(cost) for kind, cost in RECIPES.items()},

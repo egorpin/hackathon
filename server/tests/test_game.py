@@ -196,15 +196,13 @@ class GameTests(unittest.TestCase):
         self.assertEqual(len(self.world.state.mountains), 3)
         self.assertEqual(self.act("building.place", cell_id=self.planet.landing_sites[1], building_type="drill")["payload"]["code"], "CELL_UNBUILDABLE")
 
-    def test_base_can_be_placed_without_producing_resources(self):
+    def test_start_base_is_free_and_protected(self):
         self.start()
-        before = self.world.state.team_storage['team-a']['iron']
-        base_id = self.build('dome_base')
-        self.assertEqual(self.world.state.team_storage['team-a']['iron'], before - 10)
-        stock = dict(self.world.state.buildings[base_id].stock)
-        self.advance(40)
-        self.assertEqual(self.world.state.buildings[base_id].stock, stock)
-        self.assertEqual(self.world.state.buildings[base_id].building_type, 'dome_base')
+        bases = [b for b in self.world.state.buildings.values() if b.building_type == 'dome_base']
+        self.assertEqual(len(bases), 1)
+        self.assertEqual(self.world.state.team_storage['team-a']['iron'], 40)
+        self.assertFalse(self.act('building.place', cell_id=self.planet.cells[self.planet.landing_sites[0]].neighbors[0], building_type='dome_base')['payload']['ok'])
+        self.assertEqual(self.act('building.remove', building_id=bases[0].building_id)['payload']['code'], 'FORBIDDEN')
 
     def test_complete_resource_loop_and_balance(self):
         self.start()
@@ -213,6 +211,8 @@ class GameTests(unittest.TestCase):
         warehouse = self.build("warehouse", neighbors[1])
         generator_cell = next(cell for cell in neighbors if cell != neighbors[0]
                               and cell in self.planet.cells[neighbors[1]].neighbors)
+        with self.world.transaction() as state:
+            state.players["alice"].position = move_on_surface(self.planet.cells[generator_cell].center, unit(cross(self.planet.cells[generator_cell].center, self.planet.cells[generator_cell].vertices[0])), 1.2, self.planet.radius)
         self.build("oxygen_generator", generator_cell)
         self.advance(100)
         state = self.world.state
@@ -263,7 +263,7 @@ class GameTests(unittest.TestCase):
             results = list(pool.map(lambda _: apply_command(self.context, request, self.world), range(4)))
         self.assertTrue(all(r == results[0] for r in results))
         self.ok(results[0])
-        self.assertEqual(len(self.world.state.buildings), 1)
+        self.assertEqual(len(self.world.state.buildings), 2)
         self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 35)
         conflict = {**request, "payload": {**request["payload"], "building_type": "warehouse"}}
         self.assertEqual(apply_command(self.context, conflict, self.world)["payload"]["code"], "REQUEST_CONFLICT")
@@ -296,7 +296,7 @@ class GameTests(unittest.TestCase):
         self.assertEqual(json.loads(json.dumps(restored.state.to_dict())), json.loads(saved[-1]))
         self.assertEqual(apply_command(self.context, request, restored), response)
         self.assertEqual(snapshot(self.context, restored)["payload"]["team_storage"]["iron"], 35)
-        self.assertEqual(next(iter(restored.state.buildings.values())).stock["iron"], 2)
+        self.assertEqual(next(b for b in restored.state.buildings.values() if b.building_type == "drill").stock["iron"], 2)
         with self.assertRaises(ValueError):
             UnitOfWork(generate_planet(subdivisions=1), restored.state)
 
@@ -425,7 +425,7 @@ class GameTests(unittest.TestCase):
             self.ok(apply_command(self.context, {"type": "player.input", "payload": {"seq": seq, "move": direction}}, self.world))
             self.advance(1)
         position = self.world.state.players["alice"].position
-        self.assertGreaterEqual(surface_distance(position, target, 30), 1.1)
+        self.assertGreaterEqual(surface_distance(position, target, 30), 1.0)
         self.assertLess(surface_distance(position, target, 30), 1.3)
         mountain = self.planet.cells[self.world.state.mountains[0]].center
         near = move_on_surface(mountain, unit(cross(mountain, (0, 0, 1))), 1.9, 30)

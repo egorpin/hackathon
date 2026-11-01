@@ -1,0 +1,30 @@
+{
+  "source_page": "https://aihere.ru/ai-voices-fish-audio/pin/",
+  "download_date": "2026-11-01",
+  "files": [
+    {
+      "file": "pin-sample-1.mp3",
+      "url": "https://media.aihere.ru/fish-tts/samples/f010c59f476941ef8c83b77a8cf16250-1.mp3",
+      "bytes": 181393,
+      "sha256": "e31a59b8fc77c5a22d8155a369d104f50e6b73e270d8fd40b3b706211b3b2f14",
+      "page_transcript": "Привет! Это голос «Пин» на сайте AiHere. Послушайте, как он звучит — а теперь представьте, что он читает именно ваш текст.",
+      "synthetic": true
+    },
+    {
+      "file": "pin-sample-2.mp3",
+      "url": "https://media.aihere.ru/fish-tts/samples/f010c59f476941ef8c83b77a8cf16250-2.mp3",
+      "bytes": 201455,
+      "sha256": "20b3f1f6ccb4973ebe7dbd81aa07267cc08b5581393220eb0b988d7d169aac57",
+      "page_transcript": "Голосом «Пин» можно озвучить видео для соцсетей, подкаст, рекламный ролик или целую аудиокнигу — всё онлайн, за считанные секунды.",
+      "synthetic": true
+    },
+    {
+      "file": "pin-sample-3.mp3",
+      "url": "https://media.aihere.ru/fish-tts/samples/f010c59f476941ef8c83b77a8cf16250-3.mp3",
+      "bytes": 200201,
+      "sha256": "77259349b967399caa55e1fe01491ea9bfb1b46b31e0ff17cb8e98c195a9a0be",
+      "page_transcript": "[радостно] Отличная новость! Первые озвучки на AiHere бесплатны: зарегистрируйтесь, получите приветственный бонус и попробуйте голос «Пин» на своём тексте прямо сейчас.",
+      "synthetic": true
+    }
+  ]
+}

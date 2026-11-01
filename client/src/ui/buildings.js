@@ -2,7 +2,6 @@ export const BUILDINGS = Object.freeze([
   {type:'drill', name:'Бур', icon:'⛏', description:'Копит добычу; заберите ресурсы в рюкзак'},
   {type:'oxygen_generator', name:'Генератор O₂', icon:'O₂', description:'Расходует воду из своего запаса или соседнего склада'},
   {type:'warehouse', name:'Склад', icon:'▤', description:'Хранение ресурсов'},
-  {type:'dome_base', name:'База', icon:'⌂', description:'Точка возрождения экспедиции'},
 ]);
 
 export function buildingForKey(code) {

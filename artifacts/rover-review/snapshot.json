@@ -1,0 +1,232 @@
+{
+  "stage": "running",
+  "map_version": "icosphere-v1-s3-r30-c16-resources-v2",
+  "players": [
+    {
+      "team_id": "demo-team",
+      "position": [
+        -14.416024,
+        26.163053,
+        0
+      ],
+      "color": "#ff6b4a",
+      "heading": [
+        0,
+        0,
+        -1
+      ],
+      "altitude": 0,
+      "vertical_speed": 0,
+      "running": false,
+      "moving": false,
+      "player_id": "b3fc7c18-14f2-45d8-86ad-aaa5f77a2cc8"
+    }
+  ],
+  "buildings": [
+    {
+      "building_id": "b9512979-4d41-4224-beb7-10262d4c8312",
+      "cell_id": "cell-0000",
+      "building_type": "dome_base",
+      "team_id": "demo-team",
+      "color": "#ff6b4a",
+      "interaction_distance": 2.242248,
+      "stock": {
+        "ore": 0,
+        "water": 0,
+        "sulfur": 0,
+        "iron": 0,
+        "copper": 0,
+        "oxygen": 0
+      },
+      "position": [
+        -15.661431,
+        25.340727,
+        0
+      ]
+    }
+  ],
+  "inventory": {
+    "ore": 0,
+    "water": 0,
+    "sulfur": 0,
+    "iron": 0,
+    "copper": 0,
+    "oxygen": 0
+  },
+  "rovers": [
+    {
+      "rover_id": "21076edc-23c9-492f-8692-7ad52813a459",
+      "team_id": "demo-team",
+      "position": [
+        -14.582982,
+        26.052539,
+        -0.745709
+      ],
+      "heading": [
+        0,
+        0,
+        -1
+      ],
+      "color": "#ff6b4a"
+    }
+  ],
+  "rover_fleet": [
+    {
+      "rover_id": "21076edc-23c9-492f-8692-7ad52813a459",
+      "team_id": "demo-team",
+      "position": [
+        -14.582982,
+        26.052539,
+        -0.745709
+      ],
+      "heading": [
+        0,
+        0,
+        -1
+      ],
+      "color": "#ff6b4a",
+      "status": "idle",
+      "program": "",
+      "program_revision": 0,
+      "line": null,
+      "cargo": {
+        "ore": 0,
+        "water": 0,
+        "sulfur": 0,
+        "iron": 0,
+        "copper": 0,
+        "oxygen": 0
+      },
+      "speed": 0,
+      "grade": 0,
+      "error": null,
+      "cargo_mass": 0,
+      "total_mass": 100,
+      "capacity": 50
+    }
+  ],
+  "rover_surveys": [
+    {
+      "latitude": 61.1449,
+      "longitude": -180
+    }
+  ],
+  "rover_points": [],
+  "office_access": true,
+  "current_coordinates": {
+    "latitude": 61.1449,
+    "longitude": -180
+  },
+  "last_input_seq": 10,
+  "team_storage": {
+    "ore": 0,
+    "water": 5,
+    "sulfur": 15,
+    "iron": 40,
+    "copper": 0,
+    "oxygen": 0
+  },
+  "oxygen": 0,
+  "oxygen_percent": 0,
+  "oxygen_goal": 100,
+  "landing_sites": [
+    "cell-0000",
+    "cell-0003",
+    "cell-0001",
+    "cell-0002"
+  ],
+  "landing_claims": {
+    "cell-0000": "b3fc7c18-14f2-45d8-86ad-aaa5f77a2cc8"
+  },
+  "mountains": [
+    "cell-0003",
+    "cell-0001",
+    "cell-0002"
+  ],
+  "config": {
+    "rover": {
+      "cost": {
+        "iron": 10,
+        "copper": 5
+      },
+      "capacity": 50,
+      "empty_mass": 100,
+      "resource_masses": {
+        "ore": 1,
+        "iron": 1,
+        "copper": 1.5,
+        "water": 1,
+        "sulfur": 0.5,
+        "oxygen": 1
+      },
+      "program_max_bytes": 512,
+      "max_rovers": 4,
+      "max_points": 12,
+      "max_surveys": 16,
+      "point_name_max_length": 24
+    },
+    "radius": 30,
+    "tick_seconds": 0.05,
+    "speed": 4,
+    "interaction_distance": 4.5,
+    "view_radius": 12,
+    "building_radius": 0.8,
+    "player_radius": 0.2,
+    "mountain_radius": 1.5,
+    "recipes": {
+      "drill": {
+        "iron": 5
+      },
+      "warehouse": {
+        "iron": 10,
+        "sulfur": 5
+      },
+      "oxygen_generator": {
+        "iron": 15,
+        "sulfur": 5
+      },
+      "dome_base": {
+        "iron": 10
+      }
+    },
+    "inventory_capacity": 50,
+    "building_capacity": 50,
+    "storage_capacity": 300,
+    "warehouse_capacity": 200,
+    "starting_resources": {
+      "iron": 40,
+      "sulfur": 15,
+      "water": 5
+    },
+    "starting_ore": 0,
+    "oxygen_per_cycle": 0.1,
+    "drill_auto_transfer": false,
+    "warehouse_supply": "neighbors",
+    "oxygen_inputs": {
+      "water": 1
+    },
+    "production_ticks": 20,
+    "oxygen_enabled": true
+  },
+  "self_id": "b3fc7c18-14f2-45d8-86ad-aaa5f77a2cc8",
+  "team_id": "demo-team",
+  "generation": 0,
+  "simulation_time": 0.8,
+  "world": {
+    "radius": 30,
+    "move_speed": 4,
+    "view_radius": 12,
+    "build_distance": 4.5,
+    "total_bytes": 276949,
+    "terrain": true,
+    "terrain_seed": 1114773559,
+    "total_chunks": 43,
+    "shell": {
+      "radius": 29.85,
+      "detail": 2
+    }
+  },
+  "removed_players": [],
+  "removed_buildings": [],
+  "removed_rovers": []
+}

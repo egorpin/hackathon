@@ -149,14 +149,25 @@ def test_two_clients_receive_authoritative_movement(client):
         subscribe(a)
         subscribe(b)
         runtime = main.app.state.game.runtime(alice)
-        # Place both authenticated players within the same interest area.
-        with runtime.transaction() as state:
-            position = state.players[alice['user_id']].position
-            state.players[bob['user_id']].position = position
         a.send_json({'type': 'lobby.ready', 'payload': {'ready': True}})
         b.send_json({'type': 'lobby.ready', 'payload': {'ready': True}})
         while read_state(a, 'lobby.state')['payload']['stage'] != 'running':
             pass
+        # Startup places players by their own domes. Move Bob nearby only after
+        # that placement, outside every building and player collision radius.
+        from app.game.rover import spawn_position
+        from app.game.state import BUILDING_RADIUS, MOUNTAIN_RADIUS, PLAYER_RADIUS
+        from app.world.terrain import ground_position, seed_from_world_id
+        with runtime.transaction() as state:
+            alice_position = state.players[alice['user_id']].position
+            obstacles = [(runtime.planet.cells[item.cell_id].center, BUILDING_RADIUS + PLAYER_RADIUS + .05)
+                         for item in state.buildings.values()]
+            obstacles += [(runtime.planet.cells[cell].center, MOUNTAIN_RADIUS + PLAYER_RADIUS + .05)
+                          for cell in state.mountains]
+            obstacles.append((alice_position, 2 * PLAYER_RADIUS + .05))
+            state.players[bob['user_id']].position = spawn_position(alice_position, runtime.planet, obstacles)
+            position = ground_position(alice_position, runtime.planet.radius,
+                                       seed=seed_from_world_id(state.world_id))
         a.send_json({'type': 'player.input', 'payload': {'seq': 1, 'move': [0, 0, 1]}})
         for _ in range(20):
             delta = read_state(b, 'world.delta')
@@ -356,13 +367,7 @@ def test_build_remove_and_respawn_commands_over_websocket(client):
                     return message['payload']
             raise AssertionError('No action result')
         site = next(cell for cell, user in runtime.state.landing_claims.items() if user == identity['user_id'])
-        cell = runtime.planet.cells[site].neighbors[0]
-        building = action('building.place', cell_id=cell, building_type='dome_base')['building_id']
+        building = next(b.building_id for b in runtime.state.buildings.values() if b.cell_id == site and b.building_type == 'dome_base')
         assert action('player.respawn')['building_id'] == building
-        assert action('building.remove', expected_ok=False, building_id=building)['code'] == 'OUT_OF_RANGE'
-        target = runtime.planet.cells[cell]
-        direction = unit(cross(target.center, target.vertices[0]))
-        with runtime.transaction() as state:
-            state.players[identity['user_id']].position = move_on_surface(target.center, direction, 1.1, runtime.planet.radius)
-        assert action('building.remove', building_id=building)['refunded'] == {'iron': 10}
-        assert action('player.respawn')['building_id'] is None
+        assert action('building.remove', expected_ok=False, building_id=building)['code'] == 'FORBIDDEN'
+        assert action('player.respawn')['building_id'] == building

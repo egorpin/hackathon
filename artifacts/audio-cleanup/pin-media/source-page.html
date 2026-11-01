@@ -1,0 +1,3435 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <style id="fp">
+/* Мгновенный тёмный фон + фирменный прелоадер, пока не загрузились стили:
+   убирает «голый» HTML на медленном интернете */
+html:not(.aih-styles-ready){background:#0d0817}
+html:not(.aih-styles-ready) body{visibility:hidden!important}
+html:not(.aih-styles-ready)::before{
+    content:'';position:fixed;inset:0;z-index:2147483646;
+    background:radial-gradient(900px 500px at 50% 38%, rgba(139,92,246,.16), transparent 65%), #0d0817;
+}
+html:not(.aih-styles-ready)::after{
+    content:'';position:fixed;left:50%;top:38%;z-index:2147483647;
+    width:88px;height:88px;margin:-44px 0 0 -44px;border-radius:26px;
+    background:url(/assets/images/logo-64.png) center/56px 56px no-repeat rgba(139,92,246,.10);
+    box-shadow:0 0 70px rgba(139,92,246,.35), inset 0 0 0 1px rgba(139,92,246,.25);
+    animation:aih-pl-pulse 1.6s ease-in-out infinite;
+}
+@keyframes aih-pl-pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.07);opacity:.82}}
+</style>
+<script>
+(function(){
+    function ready(){
+        if (document.documentElement.classList.contains('aih-styles-ready')) return;
+        document.documentElement.classList.add('aih-styles-ready');
+    }
+    // DOMContentLoaded наступает ДО загрузки CSS, если после <link> нет
+    // блокирующего скрипта, — тогда на медленной сети и мелькает «голое» меню.
+    // Снимаем вуаль только когда таблицы стилей реально загрузились.
+    function whenStylesLoaded(){
+        var links = document.querySelectorAll('link[rel="stylesheet"]');
+        var pending = 0;
+        function done(){ if (--pending <= 0) ready(); }
+        Array.prototype.forEach.call(links, function(link){
+            if (link.sheet) return; // уже загружен
+            pending++;
+            link.addEventListener('load', done, {once:true});
+            link.addEventListener('error', done, {once:true});
+        });
+        if (!pending) ready();
+    }
+    if (document.readyState !== 'loading') whenStylesLoaded();
+    else document.addEventListener('DOMContentLoaded', whenStylesLoaded, {once:true});
+    window.addEventListener('load', ready, {once:true});
+    // Страховка от навсегда зависшего CSS: вуаль не должна быть вечной
+    setTimeout(ready, 8000);
+})();
+</script>
+<noscript><style>html body{visibility:visible!important}html::before,html::after{display:none!important}</style></noscript>
+<script>
+(function(){
+    var ua = navigator.userAgent;
+    var isWebView = ua.indexOf('wv') > -1 || ua.indexOf('WebView') > -1;
+    var isAndroid = ua.indexOf('Android') > -1;
+    var isLowEnd = navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4;
+    var saveData = navigator.connection && navigator.connection.saveData;
+    if ((isWebView && isAndroid) || isLowEnd || saveData) {
+        document.documentElement.classList.add('perf-mode');
+    }
+    if (isWebView && isAndroid) {
+        document.documentElement.classList.add('android-webview');
+        window.AiHereApp = window.AiHereApp || {};
+        document.addEventListener('DOMContentLoaded', function() {
+            var initialHeight = window.innerHeight;
+            var keyboardVisible = false;
+            // Флаг: уже прокрутили к полю для текущего фокуса — не делаем второй раз.
+            // Без флага visualViewport-handler (t+100мс) и handleInputFocus (t+350мс)
+            // оба запускают scrollIntoView и страница дважды дёргается.
+            var kbScrollDone = false;
+
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', function() {
+                    var heightDiff = initialHeight - window.visualViewport.height;
+                    keyboardVisible = heightDiff > 150;
+                    document.documentElement.classList.toggle('keyboard-open', keyboardVisible);
+                    if (keyboardVisible && document.activeElement) {
+                        var tag = document.activeElement.tagName.toLowerCase();
+                        if (tag === 'input' || tag === 'textarea') {
+                            kbScrollDone = true; // первым успел visualViewport — блокируем handleInputFocus
+                            setTimeout(function() {
+                                // block:'nearest' — минимальный скролл, кнопка отправки остаётся видимой
+                                document.activeElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                            }, 100);
+                        }
+                    }
+                });
+            }
+            function handleInputFocus(e) {
+                var input = e.target;
+                kbScrollDone = false; // сброс флага при каждом новом фокусе
+                setTimeout(function() {
+                    // Прокручиваем только если visualViewport-handler ещё не сделал это.
+                    // Так работает на WebView без поддержки visualViewport resize.
+                    if (kbScrollDone) return;
+                    kbScrollDone = true;
+                    input.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                    var chatMessages = input.closest('.chat-main, .support-chat-container');
+                    if (chatMessages) {
+                        var messagesScroll = chatMessages.querySelector('.chat-messages-container, .support-chat-messages');
+                        if (messagesScroll) {
+                            messagesScroll.scrollTop = messagesScroll.scrollHeight;
+                        }
+                    }
+                }, 350);
+            }
+            var inputs = document.querySelectorAll('input, textarea');
+            inputs.forEach(function(input) { input.addEventListener('focus', handleInputFocus); });
+            var observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    mutation.addedNodes.forEach(function(node) {
+                        if (node.nodeType === 1) {
+                            var newInputs = node.querySelectorAll ? node.querySelectorAll('input, textarea') : [];
+                            if (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
+                                newInputs = [node];
+                            }
+                            newInputs.forEach(function(input) { input.addEventListener('focus', handleInputFocus); });
+                        }
+                    });
+                });
+            });
+            try { if (document.body) { observer.observe(document.body, { childList: true, subtree: true }); } } catch(e) {}
+        });
+    }
+})();
+</script>
+<script type="text/javascript">
+window.ym=window.ym||function(){(window.ym.a=window.ym.a||[]).push(arguments)};
+window.ym.l=1*new Date();
+function _loadMetrika(){
+    if(window._metrikaLoaded)return;window._metrikaLoaded=true;
+    var s=document.createElement('script');s.async=true;s.src='https://mc.yandex.ru/metrika/tag.js?id=105344110';
+    document.head.appendChild(s);
+    ym(105344110,'init',{ssr:true,webvisor:true,clickmap:true,ecommerce:"dataLayer",accurateTrackBounce:true,trackLinks:true});
+}
+if(typeof requestIdleCallback!=='undefined'){requestIdleCallback(_loadMetrika,{timeout:3500});}
+else{setTimeout(_loadMetrika,2500);}
+</script>
+<noscript><div><img src="https://mc.yandex.ru/watch/105344110" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+<meta charset="UTF-8">
+<!-- interactive-widget=resizes-content: Android Chrome 108+ по умолчанию НЕ сжимает
+     страницу под экранную клавиатуру (resizes-visual), из-за чего клавиатура
+     перекрывает поле промта. Явно просим сжимать layout. iOS этот параметр игнорирует. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+<script>
+// Нижняя граница ширины вёрстки. При крупном «Масштабе экрана»/шрифте Android
+// (Huawei, Samsung) CSS-ширина падает до 280–300px, и интерфейс, рассчитанный
+// на телефоны от 320px, ломается. Ниже 320px просим браузер рисовать страницу
+// шириной 320 и уменьшить её под экран — всё влезает, ничего не обрезается.
+(function(){
+    try {
+        var w = Math.min(screen.width || 9999, document.documentElement.clientWidth || 9999);
+        if (w > 0 && w < 320) {
+            var m = document.querySelector('meta[name=viewport]');
+            if (m) m.setAttribute('content', 'width=320, interactive-widget=resizes-content');
+        }
+    } catch (e) {}
+})();
+</script>
+<title>Озвучить текст голосом Пин онлайн — нейросеть Fish Audio | AiHere</title>
+<meta name="description" content="Озвучьте любой текст голосом «Пин» нейросетью Fish Audio: слушайте примеры звучания, первые генерации бесплатно — приветственный бонус 75 монет при регистрации. Copyright [C] 2003-2026 Smeshariki
+All Rights Reserved.">
+<link rel="canonical" href="https://aihere.ru/ai-voices-fish-audio/pin/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Озвучить текст голосом Пин онлайн — нейросеть Fish Audio | AiHere">
+<meta name="twitter:description" content="Озвучьте любой текст голосом «Пин» нейросетью Fish Audio: слушайте примеры звучания, первые генерации бесплатно — приветственный бонус 75 монет при регистрации. Copyright [C] 2003-2026 Smeshariki
+All Rights Reserved.">
+<meta name="twitter:image" content="https://aihere.ru/assets/images/og-default.png">
+
+<link rel="icon" type="image/x-icon" href="https://aihere.ru/favicon.ico">
+<link rel="shortcut icon" type="image/x-icon" href="https://aihere.ru/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="https://aihere.ru/assets/images/favicon.png">
+<link rel="icon" type="image/png" sizes="16x16" href="https://aihere.ru/assets/images/favicon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="https://aihere.ru/assets/images/apple-touch-icon.png">
+
+<link href="/assets/css/bootstrap.min.css" rel="stylesheet">
+
+<link rel="stylesheet" href="/assets/css/style.css?v=1789580025">
+<link rel="stylesheet" href="/assets/css/mobile-nav.css?v=1791361276">
+<link rel="stylesheet" href="/assets/css/support-widget.css">
+
+<style>
+lottie-player:not(:defined) { display: none !important; }
+lottie-player { display: inline-block; overflow: hidden; max-width: 100%; max-height: 100%; vertical-align: middle; contain: strict; }
+lottie-player svg, lottie-player canvas { width: 100% !important; height: 100% !important; max-width: 100% !important; max-height: 100% !important; display: block; }
+.aihere-nav-icon { width: 22px; height: 22px; flex-shrink: 0; }
+.aihere-chevron { width: 12px; height: 12px; flex-shrink: 0; }
+.aihere-dropdown-icon { width: 18px; height: 18px; flex-shrink: 0; }
+.aihere-logo-mark { width: 32px; height: 32px; flex-shrink: 0; }
+.aihere-balance-coin { width: 16px; height: 16px; display: inline-block; flex-shrink: 0; }
+.aihere-bell-btn svg, .aihere-topup svg, .aihere-profile-button svg,
+.aihere-balance svg, .aihere-actions > * svg:not(.aihere-chevron):not(.aihere-dropdown-icon) { max-width: 24px; max-height: 24px; }
+.mega-icon svg { width: 14px; height: 14px; }
+.mobile-bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 9998; }
+.mbn-ico svg { width: 23px; height: 23px; }
+.mbn-sheet { position: fixed; inset: 0; visibility: hidden; pointer-events: none; z-index: 10000; }
+@media (min-width: 992px) { .mobile-bottom-nav, .mbn-sheet { display: none !important; } }
+svg:not([width]):not([height]) { max-width: 100%; max-height: 100%; }
+</style>
+<script defer src="/assets/js/vendor/lottie-player.js?v=1789580039"></script>
+
+    
+    <meta property="og:title" content="Озвучить текст голосом Пин онлайн — нейросеть Fish Audio | AiHere">
+    <meta property="og:description" content="Озвучьте любой текст голосом «Пин» нейросетью Fish Audio: слушайте примеры звучания, первые генерации бесплатно — приветственный бонус 75 монет при регистрации. Copyright [C] 2003-2026 Smeshariki
+All Rights Reserved.">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://aihere.ru/ai-voices-fish-audio/pin/">
+    <meta property="og:locale" content="ru_RU">
+    <meta property="og:site_name" content="AiHere">
+
+    <script type="application/ld+json">
+    {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+        {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Главная",
+            "item": "https://aihere.ru/"
+        },
+        {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Голоса для озвучки",
+            "item": "https://aihere.ru/ai-voices-fish-audio/"
+        },
+        {
+            "@type": "ListItem",
+            "position": 3,
+            "name": "Голос Пин"
+        }
+    ]
+}    </script>
+    <script type="application/ld+json">
+    {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+        {
+            "@type": "Question",
+            "name": "Как озвучить текст голосом Пин?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Нажмите кнопку «Озвучить текст этим голосом», зарегистрируйтесь — голос Пин уже будет выбран в форме. Вставьте свой текст и нажмите «Озвучить»: готовый MP3 появится через 5–20 секунд."
+            }
+        },
+        {
+            "@type": "Question",
+            "name": "Можно ли озвучить голосом Пин бесплатно?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Да. При регистрации начисляется приветственный бонус 75 монет — его хватает на первые озвучки. Дальше стоимость считается по длине текста, копейки за тысячу знаков, без подписок."
+            }
+        },
+        {
+            "@type": "Question",
+            "name": "В каком формате скачивать готовую озвучку?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Результат доступен в MP3 сразу после генерации — файл сохраняется в истории заказов и доступен для скачивания в любой момент."
+            }
+        },
+        {
+            "@type": "Question",
+            "name": "А если мне нужен не голос Пин, а свой собственный?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "На AiHere можно клонировать любой голос: загрузите чистую запись от 10 секунд — нейросеть создаст цифровую копию. Также доступна библиотека из сотен готовых голосов на русском и других языках."
+            }
+        }
+    ]
+}    </script>
+
+    <link rel="stylesheet" href="/assets/css/fish-tts.css?v=1792901014">
+</head>
+<body>
+    <!-- SVG градиент для иконок (legacy) -->
+<svg width="0" height="0" style="position: absolute;">
+    <defs>
+        <linearGradient id="gradient-hover" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#8b5cf6;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#ec4899;stop-opacity:1" />
+        </linearGradient>
+    </defs>
+</svg>
+
+<script>document.documentElement.classList.add('aihere-guest');document.addEventListener('DOMContentLoaded',function(){document.body.classList.add('guest-mobile-header-pad');});</script>
+<header class="aihere-header aihere-header--guest">
+    <div class="aihere-header-inner">
+        <a href="/" class="aihere-logo">
+            <img src="/assets/images/logo-64.png" alt="" class="aihere-logo-mark">
+            <span class="aihere-logo-text">AIHERE</span>
+        </a>
+        <nav class="aihere-nav">
+            <a href="/templates/" class="aihere-nav-item"><span>Шаблоны</span></a>
+<style>
+/* === Нейросети v2 (scoped под .nm2) === */
+.aihere-mega-menu.nm2 {
+    width: 920px;
+    max-width: calc(100vw - 40px);
+    max-height: none;
+    padding: 0 !important;
+    overflow: hidden;
+    display: none;
+}
+@media (min-width: 992px) {
+    .aihere-mega-menu.nm2 { display: block !important; }
+}
+.nm2-inner { display: flex; flex-direction: column; max-height: min(78vh, 760px); }
+
+/* Поиск */
+.nm2-search { padding: 16px 18px 12px; border-bottom: 1px solid rgba(255,255,255,.07); }
+.nm2-search-box {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.10);
+    border-radius: 14px; padding: 0 12px; height: 44px;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+.nm2-search-box:focus-within { border-color: rgba(139,92,246,.55); box-shadow: 0 0 0 3px rgba(139,92,246,.14); }
+.nm2-search-box svg { color: rgba(255,255,255,.45); flex: none; }
+.nm2-search-box input {
+    flex: 1; min-width: 0; background: none; border: none; outline: none;
+    color: #fff; font-size: 14px; font-family: inherit;
+}
+.nm2-search-box input::placeholder { color: rgba(255,255,255,.38); }
+.nm2-kbd {
+    flex: none; display: inline-flex; align-items: center; gap: 4px;
+    color: rgba(255,255,255,.5); font-size: 11px; font-weight: 700;
+    background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 7px; padding: 3px 7px;
+}
+
+/* Тело: сайдбар + контент */
+.nm2-body { display: flex; min-height: 0; flex: 1; }
+.nm2-side {
+    width: 208px; flex: none; padding: 14px 10px;
+    border-right: 1px solid rgba(255,255,255,.07);
+    display: flex; flex-direction: column; gap: 2px;
+    overflow-y: auto;
+}
+.nm2-tab {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 11px; border: none; background: none; cursor: pointer;
+    color: rgba(255,255,255,.72); font-size: 13.5px; font-weight: 600; font-family: inherit;
+    text-align: left; transition: background .14s ease, color .14s ease;
+}
+.nm2-tab svg { flex: none; opacity: .8; }
+.nm2-tab:hover { background: rgba(139,92,246,.12); color: #fff; }
+.nm2-tab.active {
+    background: linear-gradient(135deg, rgba(139,92,246,.30), rgba(217,70,239,.18));
+    color: #fff; box-shadow: inset 0 0 0 1px rgba(139,92,246,.35);
+}
+.nm2-tab .nm2-tab-chev { margin-left: auto; opacity: .45; }
+.nm2-side-sep { height: 1px; background: rgba(255,255,255,.08); margin: 8px 6px; }
+
+.nm2-content { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 18px 18px; }
+.nm2-panel { display: none; }
+.nm2-panel.active { display: block; }
+
+.nm2-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 2px 2px 12px; }
+.nm2-sec-title { color: #fff; font-size: 16.5px; font-weight: 800; letter-spacing: -0.01em; }
+.nm2-sec-sub { color: rgba(255,255,255,.45); font-size: 12.5px; margin: 2px 2px 14px; margin-top: -8px; }
+.nm2-sec-link {
+    display: inline-flex; align-items: center; gap: 5px;
+    color: #c4b5fd; font-size: 12.5px; font-weight: 700; text-decoration: none;
+}
+.nm2-sec-link:hover { color: #ddd6fe; text-decoration: underline; }
+
+/* Популярное: карточки с фоном */
+.nm2-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.nm2-card {
+    position: relative; display: block; min-height: 176px;
+    border-radius: 16px; overflow: hidden; text-decoration: none;
+    border: 1px solid rgba(255,255,255,.10);
+    background-size: cover; background-position: center;
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.nm2-card:hover { transform: translateY(-2px); border-color: rgba(139,92,246,.5); box-shadow: 0 10px 30px rgba(139,92,246,.22); }
+.nm2-card::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(200deg, rgba(10,8,24,.10) 0%, rgba(10,8,24,.42) 42%, rgba(8,6,20,.92) 100%);
+}
+.nm2-card-top {
+    position: absolute; top: 12px; left: 12px; right: 12px;
+    display: flex; align-items: center; gap: 8px;
+}
+.nm2-card-icon {
+    width: 40px; height: 40px; border-radius: 12px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 17px; font-weight: 800;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 4px 14px rgba(0,0,0,.35);
+}
+.nm2-card-body { position: absolute; left: 14px; right: 52px; bottom: 12px; }
+.nm2-card-name { color: #fff; font-size: 16.5px; font-weight: 800; letter-spacing: -0.01em; display: flex; align-items: center; gap: 7px; }
+.nm2-card-vendor { color: rgba(255,255,255,.62); font-size: 12px; font-weight: 600; margin-top: 1px; }
+.nm2-card-desc {
+    color: rgba(255,255,255,.72); font-size: 12px; line-height: 1.35; margin-top: 5px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.nm2-card-tags { display: flex; gap: 6px; margin-top: 8px; }
+.nm2-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(0,0,0,.42); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 999px; padding: 3px 9px;
+    color: rgba(255,255,255,.82); font-size: 11px; font-weight: 600;
+    backdrop-filter: blur(4px);
+}
+.nm2-card-go {
+    position: absolute; right: 12px; bottom: 12px;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.18);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; transition: background .15s ease, transform .15s ease;
+    backdrop-filter: blur(4px);
+}
+.nm2-card:hover .nm2-card-go { background: rgba(139,92,246,.65); transform: translateX(2px); }
+
+/* Продолжить работу */
+.nm2-recent-head { display: flex; align-items: center; justify-content: space-between; margin: 20px 2px 10px; }
+.nm2-recent-title { color: #fff; font-size: 14.5px; font-weight: 800; }
+.nm2-clear {
+    display: inline-flex; align-items: center; gap: 5px; border: none; background: none; cursor: pointer;
+    color: rgba(255,255,255,.45); font-size: 12px; font-weight: 600; font-family: inherit;
+}
+.nm2-clear:hover { color: #fca5a5; }
+.nm2-recents { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.nm2-recent {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-radius: 13px; text-decoration: none; min-width: 0;
+    background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09);
+    transition: border-color .15s ease, background .15s ease;
+}
+.nm2-recent:hover { border-color: rgba(139,92,246,.45); background: rgba(139,92,246,.10); }
+.nm2-recent-icon {
+    width: 34px; height: 34px; border-radius: 10px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 14px; font-weight: 800;
+}
+.nm2-recent-info { min-width: 0; }
+.nm2-recent-name { color: #fff; font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nm2-recent-meta { color: rgba(255,255,255,.45); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nm2-empty { color: rgba(255,255,255,.42); font-size: 12.5px; padding: 10px 2px; }
+
+/* Списки моделей (категории, избранное, поиск) */
+.nm2-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; }
+.nm2-row { position: relative; display: flex; align-items: center; }
+.nm2-row-link {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px;
+    padding: 8px 34px 8px 10px; border-radius: 12px; text-decoration: none;
+    border: 1px solid transparent; transition: background .14s ease, border-color .14s ease;
+}
+.nm2-row-link:hover { background: linear-gradient(90deg, rgba(139,92,246,.14), rgba(217,70,239,.06)); border-color: rgba(139,92,246,.22); }
+.nm2-row-icon {
+    width: 34px; height: 34px; min-width: 34px; border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 14px; color: #fff;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+}
+.nm2-row-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nm2-row-name { display: flex; align-items: center; gap: 6px; color: rgba(255,255,255,.92); font-size: 13.5px; font-weight: 700; white-space: nowrap; }
+.nm2-row-vendor { color: rgba(255,255,255,.45); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nm2-row-type { margin-left: auto; color: rgba(255,255,255,.35); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; flex: none; }
+.nm2-fav {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    width: 24px; height: 24px; border: none; border-radius: 8px; background: none; cursor: pointer;
+    color: rgba(255,255,255,.30); display: flex; align-items: center; justify-content: center;
+    transition: color .14s ease, background .14s ease;
+}
+.nm2-fav:hover { color: #f472b6; background: rgba(236,72,153,.12); }
+.nm2-fav.active { color: #f472b6; }
+.nm2-fav.active svg { fill: #f472b6; }
+.nm2-cat-title {
+    grid-column: 1 / -1; color: rgba(255,255,255,.48);
+    font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
+    margin: 12px 4px 8px;
+}
+.nm2-cat-title:first-child { margin-top: 2px; }
+
+/* Мобильный: панель на весь экран */
+@media (max-width: 991.98px) {
+    .aihere-mega-menu.nm2 {
+        position: fixed !important;
+        top: 68px !important; left: 8px !important; right: 8px !important;
+        transform: none !important;
+        width: auto; max-width: none; max-height: calc(100vh - 84px);
+        z-index: 1300;
+    }
+    .aihere-mega-menu.nm2.show { display: block !important; }
+    .nm2-body { flex-direction: column; }
+    .nm2-side {
+        width: auto; flex-direction: row; flex-wrap: nowrap;
+        overflow-x: auto; border-right: none; border-bottom: 1px solid rgba(255,255,255,.07);
+        padding: 10px; gap: 6px;
+    }
+    .nm2-tab { white-space: nowrap; padding: 8px 12px; }
+    .nm2-side-sep { display: none; }
+    .nm2-cards, .nm2-rows, .nm2-recents { grid-template-columns: 1fr; }
+}
+</style>
+
+            <div class="aihere-nav-item-wrap dropdown dropdown-hover">
+                <a href="#" class="aihere-nav-item dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" id="aihereNeuralToggle">
+                    <svg class="aihere-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="12" cy="12" r="2.6"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M7.6 7.4 10.4 10.4M16.4 7.4 13.6 10.4M7.6 16.6 10.4 13.6M16.4 16.6 13.6 13.6"/>
+                    </svg>
+                    <span>Нейросети</span>
+                    <svg class="aihere-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                </a>
+                <div class="dropdown-menu mega-menu aihere-mega-menu nm2" id="aihereNeuralMenu">
+                    <div class="nm2-inner">
+                        <div class="nm2-search">
+                            <div class="nm2-search-box">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                                <input type="text" id="nm2Search" placeholder="Найти нейросеть или задачу..." autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="nm2-body">
+                            <div class="nm2-side" role="tablist">
+                                <button type="button" class="nm2-tab active" data-nm2-tab="foryou">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                                    Для вас
+                                    <svg class="nm2-tab-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                                </button>
+                                <button type="button" class="nm2-tab" data-nm2-tab="favorites">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                                    Избранное
+                                </button>
+                                <button type="button" class="nm2-tab" data-nm2-tab="recent">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                    Недавние
+                                </button>
+                                <div class="nm2-side-sep"></div>
+                                <button type="button" class="nm2-tab" data-nm2-tab="images">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                                    Изображения
+                                </button>
+                                <button type="button" class="nm2-tab" data-nm2-tab="video">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
+                                    Видео
+                                </button>
+                                <button type="button" class="nm2-tab" data-nm2-tab="chat">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                    Чат
+                                </button>
+                                <button type="button" class="nm2-tab" data-nm2-tab="audio">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                                    Озвучка
+                                </button>
+                                <button type="button" class="nm2-tab" data-nm2-tab="music">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                                    Музыка
+                                </button>
+                                <div class="nm2-side-sep"></div>
+                                <button type="button" class="nm2-tab" data-nm2-tab="all">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                                    Все модели
+                                    <svg class="nm2-tab-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                                </button>
+                            </div>
+                            <div class="nm2-content">
+                                <!-- Для вас -->
+                                <div class="nm2-panel active" data-nm2-panel="foryou">
+                                    <div class="nm2-sec-head">
+                                        <span class="nm2-sec-title">Популярное</span>
+                                        <a href="#" class="nm2-sec-link" data-nm2-goto="all">Смотреть все
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                                        </a>
+                                    </div>
+                                    <div class="nm2-sec-sub">Самые востребованные нейросети прямо сейчас</div>
+                                    <div class="nm2-cards">
+                                                                                <a href="/gemini-image.php" class="nm2-card" data-nm2-bg="/assets/img/menu/nano-banana-2-1.jpg?v=2">
+                                            <div class="nm2-card-top">
+                                                <span class="nm2-card-icon" style="background: linear-gradient(135deg, #ec4899, #db2777);">G</span>
+                                                                                            </div>
+                                            <div class="nm2-card-body">
+                                                <div class="nm2-card-name">Nano Banana 2.1</div>
+                                                <div class="nm2-card-vendor">Gemini</div>
+                                                <div class="nm2-card-desc">Новая версия: генерация и редактирование изображений</div>
+                                                <div class="nm2-card-tags">
+                                                    <span class="nm2-chip">Фото</span>
+                                                    <span class="nm2-chip">Gemini</span>
+                                                </div>
+                                            </div>
+                                            <span class="nm2-card-go">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                                            </span>
+                                        </a>
+                                                                                <a href="/gpt-image-2" class="nm2-card" data-nm2-bg="/assets/img/menu/gpt-image-2-5.jpg">
+                                            <div class="nm2-card-top">
+                                                <span class="nm2-card-icon" style="background: linear-gradient(135deg, #10b981, #047857);">G</span>
+                                                                                            </div>
+                                            <div class="nm2-card-body">
+                                                <div class="nm2-card-name">GPT Image 2.5</div>
+                                                <div class="nm2-card-vendor">OpenAI</div>
+                                                <div class="nm2-card-desc">Фотореалистичные изображения и сложные визуальные сцены</div>
+                                                <div class="nm2-card-tags">
+                                                    <span class="nm2-chip">Фото</span>
+                                                    <span class="nm2-chip">OpenAI</span>
+                                                </div>
+                                            </div>
+                                            <span class="nm2-card-go">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                                            </span>
+                                        </a>
+                                                                                <a href="/seedance-video.php" class="nm2-card" data-nm2-bg="/assets/img/menu/seedance-2-5.jpg">
+                                            <div class="nm2-card-top">
+                                                <span class="nm2-card-icon" style="background: linear-gradient(135deg, #06b6d4, #2563eb);">S</span>
+                                                                                            </div>
+                                            <div class="nm2-card-body">
+                                                <div class="nm2-card-name">Seedance 2.5</div>
+                                                <div class="nm2-card-vendor">ByteDance</div>
+                                                <div class="nm2-card-desc">Генерация видео с кинематографичным качеством и плавной анимацией</div>
+                                                <div class="nm2-card-tags">
+                                                    <span class="nm2-chip">Видео</span>
+                                                    <span class="nm2-chip">ByteDance</span>
+                                                </div>
+                                            </div>
+                                            <span class="nm2-card-go">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                                            </span>
+                                        </a>
+                                                                                <a href="/wan-video.php" class="nm2-card" data-nm2-bg="/assets/img/menu/wan-3-0.jpg">
+                                            <div class="nm2-card-top">
+                                                <span class="nm2-card-icon" style="background: linear-gradient(135deg, #f97316, #dc2626);">W</span>
+                                                                                            </div>
+                                            <div class="nm2-card-body">
+                                                <div class="nm2-card-name">Wan 3.0</div>
+                                                <div class="nm2-card-vendor">Alibaba</div>
+                                                <div class="nm2-card-desc">Мощная генерация видео с высокой детализацией</div>
+                                                <div class="nm2-card-tags">
+                                                    <span class="nm2-chip">Видео</span>
+                                                    <span class="nm2-chip">Alibaba</span>
+                                                </div>
+                                            </div>
+                                            <span class="nm2-card-go">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                                            </span>
+                                        </a>
+                                                                            </div>
+                                    <div id="nm2RecentWrap" style="display:none;">
+                                        <div class="nm2-recent-head">
+                                            <span class="nm2-recent-title">Продолжить работу</span>
+                                        </div>
+                                        <div class="nm2-recents" id="nm2Recents">
+                                                                                    </div>
+                                    </div>
+                                </div>
+
+                                <!-- Избранное -->
+                                <div class="nm2-panel" data-nm2-panel="favorites">
+                                    <div class="nm2-sec-head"><span class="nm2-sec-title">Избранное</span></div>
+                                    <div class="nm2-rows" id="nm2FavList"></div>
+                                    <div class="nm2-empty" id="nm2FavEmpty">Пока пусто — нажмите на сердечко рядом с моделью, чтобы добавить её сюда.</div>
+                                </div>
+
+                                <!-- Недавние -->
+                                <div class="nm2-panel" data-nm2-panel="recent">
+                                    <div class="nm2-sec-head"><span class="nm2-sec-title">Недавние</span></div>
+                                    <div class="nm2-rows" id="nm2RecentList">
+                                                                            </div>
+                                    <div class="nm2-empty" id="nm2RecentEmpty">Войдите в аккаунт — здесь появятся нейросети, в которых вы делали заказы.</div>
+                                </div>
+
+                                <!-- Категории -->
+                                                                <div class="nm2-panel" data-nm2-panel="video">
+                                    <div class="nm2-sec-head"><span class="nm2-sec-title">Видео</span></div>
+                                    <div class="nm2-rows">
+                                                <div class="nm2-row" data-nm2-url="/veo3-video.php" data-nm2-search="veo 3.1 google">
+            <a href="/veo3-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">V</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Veo 3.1</span>
+                    <span class="nm2-row-vendor">Google</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/veo3-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/sora2-video.php" data-nm2-search="sora 2 openai">
+            <a href="/sora2-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #10b981, #059669);">S</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Sora 2</span>
+                    <span class="nm2-row-vendor">OpenAI</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/sora2-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/kling-video.php" data-nm2-search="kling 4.0 kling">
+            <a href="/kling-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">K</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Kling 4.0<span class="mega-new-badge">NEW</span></span>
+                    <span class="nm2-row-vendor">Kling</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/kling-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/motion-control.php" data-nm2-search="motion control kling">
+            <a href="/motion-control.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">K</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Motion Control</span>
+                    <span class="nm2-row-vendor">Kling</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/motion-control.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/kling-avatar.php" data-nm2-search="kling avatar kling">
+            <a href="/kling-avatar.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #8b5cf6, #d946ef);">K</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Kling Avatar</span>
+                    <span class="nm2-row-vendor">Kling</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/kling-avatar.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/seedance-video.php" data-nm2-search="seedance 2.5 bytedance">
+            <a href="/seedance-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #06b6d4, #2563eb);">S</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Seedance 2.5</span>
+                    <span class="nm2-row-vendor">ByteDance</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/seedance-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/wan-video.php" data-nm2-search="wan 3.0 alibaba">
+            <a href="/wan-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #f97316, #dc2626);">W</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Wan 3.0</span>
+                    <span class="nm2-row-vendor">Alibaba</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/wan-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/ojivit-foto" data-nm2-search="оживление фото kling 3.0">
+            <a href="/ojivit-foto" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #d946ef, #8b5cf6);">О</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Оживление фото</span>
+                    <span class="nm2-row-vendor">Kling 3.0</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/ojivit-foto" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/gemini-omni-video.php" data-nm2-search="gemini omni google">
+            <a href="/gemini-omni-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #4285f4, #34a853);">G</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Gemini Omni</span>
+                    <span class="nm2-row-vendor">Google</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/gemini-omni-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                                            </div>
+                                </div>
+                                                                <div class="nm2-panel" data-nm2-panel="images">
+                                    <div class="nm2-sec-head"><span class="nm2-sec-title">Фото</span></div>
+                                    <div class="nm2-rows">
+                                                <div class="nm2-row" data-nm2-url="/gemini-image.php" data-nm2-search="nano banana 2.1 gemini">
+            <a href="/gemini-image.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #ec4899, #db2777);">G</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Nano Banana 2.1</span>
+                    <span class="nm2-row-vendor">Gemini</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/gemini-image.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/flux2-image" data-nm2-search="flux 2 black forest labs">
+            <a href="/flux2-image" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #3b82f6, #8b5cf6);">F</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Flux 2</span>
+                    <span class="nm2-row-vendor">Black Forest Labs</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/flux2-image" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/gpt-image-2" data-nm2-search="gpt image 2.5 openai">
+            <a href="/gpt-image-2" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #10b981, #047857);">G</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">GPT Image 2.5</span>
+                    <span class="nm2-row-vendor">OpenAI</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/gpt-image-2" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/grok-image-2" data-nm2-search="grok imagine 2.0 xai">
+            <a href="/grok-image-2" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #0ea5e9, #6366f1);">G</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Grok Imagine 2.0</span>
+                    <span class="nm2-row-vendor">xAI</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/grok-image-2" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/qwen-image-3" data-nm2-search="qwen image 2.1 alibaba">
+            <a href="/qwen-image-3" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #a855f7, #7c3aed);">Q</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Qwen Image 2.1</span>
+                    <span class="nm2-row-vendor">Alibaba</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/qwen-image-3" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/seedream-5-0-pro" data-nm2-search="seedream 5.0 pro bytedance">
+            <a href="/seedream-5-0-pro" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #06b6d4, #3b82f6);">S</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Seedream 5.0 Pro</span>
+                    <span class="nm2-row-vendor">ByteDance</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/seedream-5-0-pro" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/wan-2-7-image" data-nm2-search="wan 2.7 image alibaba">
+            <a href="/wan-2-7-image" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #fbbf24, #f97316);">W</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Wan 2.7 Image</span>
+                    <span class="nm2-row-vendor">Alibaba</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/wan-2-7-image" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                                            </div>
+                                </div>
+                                                                <div class="nm2-panel" data-nm2-panel="music">
+                                    <div class="nm2-sec-head"><span class="nm2-sec-title">Музыка</span></div>
+                                    <div class="nm2-rows">
+                                                <div class="nm2-row" data-nm2-url="/suno-music.php" data-nm2-search="suno suno ai">
+            <a href="/suno-music.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #ec4899, #06b6d4);">S</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Suno</span>
+                    <span class="nm2-row-vendor">Suno AI</span>
+                </span>
+                <span class="nm2-row-type">Музыка</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/suno-music.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                                            </div>
+                                </div>
+                                                                <div class="nm2-panel" data-nm2-panel="audio">
+                                    <div class="nm2-sec-head"><span class="nm2-sec-title">Озвучка</span></div>
+                                    <div class="nm2-rows">
+                                                <div class="nm2-row" data-nm2-url="/text-to-dialogue.php" data-nm2-search="elevenlabs v3 аудио-диалоги">
+            <a href="/text-to-dialogue.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #ec4899, #f59e0b);">E</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">ElevenLabs v3</span>
+                    <span class="nm2-row-vendor">Аудио-диалоги</span>
+                </span>
+                <span class="nm2-row-type">Озвучка</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/text-to-dialogue.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/text-to-speech" data-nm2-search="fish audio озвучка текста">
+            <a href="/text-to-speech" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #06b6d4, #14b8a6);">F</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Fish Audio</span>
+                    <span class="nm2-row-vendor">Озвучка текста</span>
+                </span>
+                <span class="nm2-row-type">Озвучка</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/text-to-speech" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                                            </div>
+                                </div>
+                                                                <div class="nm2-panel" data-nm2-panel="chat">
+                                    <div class="nm2-sec-head"><span class="nm2-sec-title">Чат</span></div>
+                                    <div class="nm2-rows">
+                                                <div class="nm2-row" data-nm2-url="/chat.php" data-nm2-search="ai чат gpt, claude, gemini">
+            <a href="/chat.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #8b5cf6, #6366f1);">C</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">AI Чат</span>
+                    <span class="nm2-row-vendor">GPT, Claude, Gemini</span>
+                </span>
+                <span class="nm2-row-type">Чат</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/chat.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                                            </div>
+                                </div>
+                                
+                                <!-- Все модели -->
+                                <div class="nm2-panel" data-nm2-panel="all">
+                                    <div class="nm2-sec-head"><span class="nm2-sec-title">Все модели</span></div>
+                                    <div class="nm2-rows">
+                                                                                    <div class="nm2-cat-title">Видео</div>
+                                                    <div class="nm2-row" data-nm2-url="/veo3-video.php" data-nm2-search="veo 3.1 google">
+            <a href="/veo3-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">V</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Veo 3.1</span>
+                    <span class="nm2-row-vendor">Google</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/veo3-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/sora2-video.php" data-nm2-search="sora 2 openai">
+            <a href="/sora2-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #10b981, #059669);">S</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Sora 2</span>
+                    <span class="nm2-row-vendor">OpenAI</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/sora2-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/kling-video.php" data-nm2-search="kling 4.0 kling">
+            <a href="/kling-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">K</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Kling 4.0<span class="mega-new-badge">NEW</span></span>
+                    <span class="nm2-row-vendor">Kling</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/kling-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/motion-control.php" data-nm2-search="motion control kling">
+            <a href="/motion-control.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">K</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Motion Control</span>
+                    <span class="nm2-row-vendor">Kling</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/motion-control.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/kling-avatar.php" data-nm2-search="kling avatar kling">
+            <a href="/kling-avatar.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #8b5cf6, #d946ef);">K</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Kling Avatar</span>
+                    <span class="nm2-row-vendor">Kling</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/kling-avatar.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/seedance-video.php" data-nm2-search="seedance 2.5 bytedance">
+            <a href="/seedance-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #06b6d4, #2563eb);">S</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Seedance 2.5</span>
+                    <span class="nm2-row-vendor">ByteDance</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/seedance-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/wan-video.php" data-nm2-search="wan 3.0 alibaba">
+            <a href="/wan-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #f97316, #dc2626);">W</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Wan 3.0</span>
+                    <span class="nm2-row-vendor">Alibaba</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/wan-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/ojivit-foto" data-nm2-search="оживление фото kling 3.0">
+            <a href="/ojivit-foto" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #d946ef, #8b5cf6);">О</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Оживление фото</span>
+                    <span class="nm2-row-vendor">Kling 3.0</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/ojivit-foto" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/gemini-omni-video.php" data-nm2-search="gemini omni google">
+            <a href="/gemini-omni-video.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #4285f4, #34a853);">G</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Gemini Omni</span>
+                    <span class="nm2-row-vendor">Google</span>
+                </span>
+                <span class="nm2-row-type">Видео</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/gemini-omni-video.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                                                                                            <div class="nm2-cat-title">Фото</div>
+                                                    <div class="nm2-row" data-nm2-url="/gemini-image.php" data-nm2-search="nano banana 2.1 gemini">
+            <a href="/gemini-image.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #ec4899, #db2777);">G</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Nano Banana 2.1</span>
+                    <span class="nm2-row-vendor">Gemini</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/gemini-image.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/flux2-image" data-nm2-search="flux 2 black forest labs">
+            <a href="/flux2-image" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #3b82f6, #8b5cf6);">F</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Flux 2</span>
+                    <span class="nm2-row-vendor">Black Forest Labs</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/flux2-image" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/gpt-image-2" data-nm2-search="gpt image 2.5 openai">
+            <a href="/gpt-image-2" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #10b981, #047857);">G</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">GPT Image 2.5</span>
+                    <span class="nm2-row-vendor">OpenAI</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/gpt-image-2" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/grok-image-2" data-nm2-search="grok imagine 2.0 xai">
+            <a href="/grok-image-2" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #0ea5e9, #6366f1);">G</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Grok Imagine 2.0</span>
+                    <span class="nm2-row-vendor">xAI</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/grok-image-2" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/qwen-image-3" data-nm2-search="qwen image 2.1 alibaba">
+            <a href="/qwen-image-3" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #a855f7, #7c3aed);">Q</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Qwen Image 2.1</span>
+                    <span class="nm2-row-vendor">Alibaba</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/qwen-image-3" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/seedream-5-0-pro" data-nm2-search="seedream 5.0 pro bytedance">
+            <a href="/seedream-5-0-pro" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #06b6d4, #3b82f6);">S</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Seedream 5.0 Pro</span>
+                    <span class="nm2-row-vendor">ByteDance</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/seedream-5-0-pro" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/wan-2-7-image" data-nm2-search="wan 2.7 image alibaba">
+            <a href="/wan-2-7-image" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #fbbf24, #f97316);">W</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Wan 2.7 Image</span>
+                    <span class="nm2-row-vendor">Alibaba</span>
+                </span>
+                <span class="nm2-row-type">Фото</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/wan-2-7-image" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                                                                                            <div class="nm2-cat-title">Музыка</div>
+                                                    <div class="nm2-row" data-nm2-url="/suno-music.php" data-nm2-search="suno suno ai">
+            <a href="/suno-music.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #ec4899, #06b6d4);">S</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Suno</span>
+                    <span class="nm2-row-vendor">Suno AI</span>
+                </span>
+                <span class="nm2-row-type">Музыка</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/suno-music.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                                                                                            <div class="nm2-cat-title">Озвучка</div>
+                                                    <div class="nm2-row" data-nm2-url="/text-to-dialogue.php" data-nm2-search="elevenlabs v3 аудио-диалоги">
+            <a href="/text-to-dialogue.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #ec4899, #f59e0b);">E</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">ElevenLabs v3</span>
+                    <span class="nm2-row-vendor">Аудио-диалоги</span>
+                </span>
+                <span class="nm2-row-type">Озвучка</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/text-to-dialogue.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                <div class="nm2-row" data-nm2-url="/text-to-speech" data-nm2-search="fish audio озвучка текста">
+            <a href="/text-to-speech" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #06b6d4, #14b8a6);">F</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">Fish Audio</span>
+                    <span class="nm2-row-vendor">Озвучка текста</span>
+                </span>
+                <span class="nm2-row-type">Озвучка</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/text-to-speech" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                                                                                            <div class="nm2-cat-title">Чат</div>
+                                                    <div class="nm2-row" data-nm2-url="/chat.php" data-nm2-search="ai чат gpt, claude, gemini">
+            <a href="/chat.php" class="nm2-row-link">
+                <span class="nm2-row-icon" style="background: linear-gradient(135deg, #8b5cf6, #6366f1);">C</span>
+                <span class="nm2-row-info">
+                    <span class="nm2-row-name">AI Чат</span>
+                    <span class="nm2-row-vendor">GPT, Claude, Gemini</span>
+                </span>
+                <span class="nm2-row-type">Чат</span>
+            </a>
+            <button type="button" class="nm2-fav" data-nm2-fav="/chat.php" aria-label="В избранное" title="В избранное">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+                                                                                    </div>
+                                </div>
+
+                                <!-- Результаты поиска -->
+                                <div class="nm2-panel" data-nm2-panel="search">
+                                    <div class="nm2-sec-head"><span class="nm2-sec-title" id="nm2SearchTitle">Результаты поиска</span></div>
+                                    <div class="nm2-rows" id="nm2SearchResults"></div>
+                                    <div class="nm2-empty" id="nm2SearchEmpty" style="display:none;">Ничего не найдено — попробуйте другое название.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+<script>
+(function () {
+    var NM2_MODELS = {"/veo3-video.php":{"name":"Veo 3.1","vendor":"Google","url":"/veo3-video.php","letter":"V","grad":"linear-gradient(135deg, #8b5cf6, #7c3aed)","cat":"video"},"/sora2-video.php":{"name":"Sora 2","vendor":"OpenAI","url":"/sora2-video.php","letter":"S","grad":"linear-gradient(135deg, #10b981, #059669)","cat":"video"},"/kling-video.php":{"name":"Kling 4.0","vendor":"Kling","url":"/kling-video.php","letter":"K","grad":"linear-gradient(135deg, #f59e0b, #d97706)","cat":"video"},"/motion-control.php":{"name":"Motion Control","vendor":"Kling","url":"/motion-control.php","letter":"K","grad":"linear-gradient(135deg, #f59e0b, #d97706)","cat":"video"},"/kling-avatar.php":{"name":"Kling Avatar","vendor":"Kling","url":"/kling-avatar.php","letter":"K","grad":"linear-gradient(135deg, #8b5cf6, #d946ef)","cat":"video"},"/seedance-video.php":{"name":"Seedance 2.5","vendor":"ByteDance","url":"/seedance-video.php","letter":"S","grad":"linear-gradient(135deg, #06b6d4, #2563eb)","cat":"video"},"/wan-video.php":{"name":"Wan 3.0","vendor":"Alibaba","url":"/wan-video.php","letter":"W","grad":"linear-gradient(135deg, #f97316, #dc2626)","cat":"video"},"/ojivit-foto":{"name":"Оживление фото","vendor":"Kling 3.0","url":"/ojivit-foto","letter":"О","grad":"linear-gradient(135deg, #d946ef, #8b5cf6)","cat":"video"},"/gemini-omni-video.php":{"name":"Gemini Omni","vendor":"Google","url":"/gemini-omni-video.php","letter":"G","grad":"linear-gradient(135deg, #4285f4, #34a853)","cat":"video"},"/gemini-image.php":{"name":"Nano Banana 2.1","vendor":"Gemini","url":"/gemini-image.php","letter":"G","grad":"linear-gradient(135deg, #ec4899, #db2777)","cat":"images"},"/flux2-image":{"name":"Flux 2","vendor":"Black Forest Labs","url":"/flux2-image","letter":"F","grad":"linear-gradient(135deg, #3b82f6, #8b5cf6)","cat":"images"},"/gpt-image-2":{"name":"GPT Image 2.5","vendor":"OpenAI","url":"/gpt-image-2","letter":"G","grad":"linear-gradient(135deg, #10b981, #047857)","cat":"images"},"/grok-image-2":{"name":"Grok Imagine 2.0","vendor":"xAI","url":"/grok-image-2","letter":"G","grad":"linear-gradient(135deg, #0ea5e9, #6366f1)","cat":"images"},"/qwen-image-3":{"name":"Qwen Image 2.1","vendor":"Alibaba","url":"/qwen-image-3","letter":"Q","grad":"linear-gradient(135deg, #a855f7, #7c3aed)","cat":"images"},"/seedream-5-0-pro":{"name":"Seedream 5.0 Pro","vendor":"ByteDance","url":"/seedream-5-0-pro","letter":"S","grad":"linear-gradient(135deg, #06b6d4, #3b82f6)","cat":"images"},"/wan-2-7-image":{"name":"Wan 2.7 Image","vendor":"Alibaba","url":"/wan-2-7-image","letter":"W","grad":"linear-gradient(135deg, #fbbf24, #f97316)","cat":"images"},"/suno-music.php":{"name":"Suno","vendor":"Suno AI","url":"/suno-music.php","letter":"S","grad":"linear-gradient(135deg, #ec4899, #06b6d4)","cat":"music"},"/text-to-dialogue.php":{"name":"ElevenLabs v3","vendor":"Аудио-диалоги","url":"/text-to-dialogue.php","letter":"E","grad":"linear-gradient(135deg, #ec4899, #f59e0b)","cat":"audio"},"/text-to-speech":{"name":"Fish Audio","vendor":"Озвучка текста","url":"/text-to-speech","letter":"F","grad":"linear-gradient(135deg, #06b6d4, #14b8a6)","cat":"audio"},"/chat.php":{"name":"AI Чат","vendor":"GPT, Claude, Gemini","url":"/chat.php","letter":"C","grad":"linear-gradient(135deg, #8b5cf6, #6366f1)","cat":"chat"}};
+    var LS_FAV = 'aihere_menu_favs';
+    try { localStorage.removeItem('aihere_menu_recent'); } catch (e) {} /* клик-история больше не используется: недавние = заказы из БД */
+
+    function lsGet(key) {
+        try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { return []; }
+    }
+    function lsSet(key, val) {
+        try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+    }
+    function esc(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function initNeuralMenu() {
+        var menu = document.getElementById('aihereNeuralMenu');
+        var toggle = document.getElementById('aihereNeuralToggle');
+        if (!menu || menu.dataset.nm2Init) return;
+        menu.dataset.nm2Init = '1';
+
+        var searchInput = document.getElementById('nm2Search');
+        var panels = menu.querySelectorAll('.nm2-panel');
+        var tabs = menu.querySelectorAll('.nm2-tab');
+
+        /* --- Фоны карточек грузим лениво: иначе ~640КБ картинок тянулись на каждой странице --- */
+        var nm2BgsLoaded = false;
+        function loadCardBgs() {
+            if (nm2BgsLoaded) return;
+            nm2BgsLoaded = true;
+            menu.querySelectorAll('[data-nm2-bg]').forEach(function (el) {
+                el.style.backgroundImage = "url('" + el.getAttribute('data-nm2-bg') + "')";
+            });
+        }
+        new MutationObserver(function () {
+            if (menu.classList.contains('show')) loadCardBgs();
+        }).observe(menu, { attributes: true, attributeFilter: ['class'] });
+        window.addEventListener('load', function () {
+            if (window.innerWidth <= 991) return; /* на мобильном меню скрыто — не тратим трафик */
+            (window.requestIdleCallback || function (cb) { setTimeout(cb, 2500); })(loadCardBgs);
+        });
+
+        function activateTab(name) {
+            tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.nm2Tab === name); });
+            panels.forEach(function (p) { p.classList.toggle('active', p.dataset.nm2Panel === name); });
+            if (name === 'favorites') renderFavorites();
+        }
+
+        tabs.forEach(function (t) {
+            t.addEventListener('click', function () { activateTab(t.dataset.nm2Tab); });
+        });
+        menu.querySelectorAll('[data-nm2-goto]').forEach(function (el) {
+            el.addEventListener('click', function (e) { e.preventDefault(); activateTab(el.dataset.nm2Goto); });
+        });
+
+        /* --- Поиск --- */
+        function runSearch() {
+            var q = (searchInput.value || '').trim().toLowerCase();
+            if (!q) {
+                var cur = menu.querySelector('.nm2-tab.active');
+                activateTab(cur ? cur.dataset.nm2Tab : 'foryou');
+                return;
+            }
+            var results = [];
+            Object.keys(NM2_MODELS).forEach(function (url) {
+                var m = NM2_MODELS[url];
+                if ((m.name + ' ' + m.vendor).toLowerCase().indexOf(q) !== -1) results.push(m);
+            });
+            var box = document.getElementById('nm2SearchResults');
+            box.innerHTML = results.map(function (m) {
+                return '<div class="nm2-row"><a href="' + esc(m.url) + '" class="nm2-row-link">'
+                    + '<span class="nm2-row-icon" style="background:' + esc(m.grad) + ';">' + esc(m.letter) + '</span>'
+                    + '<span class="nm2-row-info"><span class="nm2-row-name">' + esc(m.name) + '</span>'
+                    + '<span class="nm2-row-vendor">' + esc(m.vendor) + '</span></span></a></div>';
+            }).join('');
+            document.getElementById('nm2SearchEmpty').style.display = results.length ? 'none' : '';
+            tabs.forEach(function (t) { t.classList.remove('active'); });
+            panels.forEach(function (p) { p.classList.toggle('active', p.dataset.nm2Panel === 'search'); });
+        }
+        if (searchInput) {
+            searchInput.addEventListener('input', runSearch);
+            searchInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    var first = document.querySelector('#nm2SearchResults a');
+                    if (first) window.location.href = first.getAttribute('href');
+                }
+                if (e.key === 'Escape') { searchInput.value = ''; runSearch(); }
+            });
+        }
+
+        /* --- Избранное --- */
+        function syncFavButtons() {
+            var favs = lsGet(LS_FAV);
+            menu.querySelectorAll('[data-nm2-fav]').forEach(function (btn) {
+                btn.classList.toggle('active', favs.indexOf(btn.dataset.nm2Fav) !== -1);
+            });
+        }
+        function renderFavorites() {
+            var favs = lsGet(LS_FAV);
+            var box = document.getElementById('nm2FavList');
+            var empty = document.getElementById('nm2FavEmpty');
+            var rows = [];
+            favs.forEach(function (url) {
+                var m = NM2_MODELS[url];
+                if (!m) return;
+                rows.push('<div class="nm2-row"><a href="' + esc(m.url) + '" class="nm2-row-link">'
+                    + '<span class="nm2-row-icon" style="background:' + esc(m.grad) + ';">' + esc(m.letter) + '</span>'
+                    + '<span class="nm2-row-info"><span class="nm2-row-name">' + esc(m.name) + '</span>'
+                    + '<span class="nm2-row-vendor">' + esc(m.vendor) + '</span></span></a>'
+                    + '<button type="button" class="nm2-fav active" data-nm2-fav="' + esc(m.url) + '" aria-label="Убрать из избранного">'
+                    + '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></button></div>');
+            });
+            box.innerHTML = rows.join('');
+            empty.style.display = rows.length ? 'none' : '';
+        }
+        menu.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-nm2-fav]');
+            if (!btn) return;
+            e.preventDefault();
+            e.stopPropagation();
+            var url = btn.dataset.nm2Fav;
+            var favs = lsGet(LS_FAV);
+            var i = favs.indexOf(url);
+            if (i === -1) favs.push(url); else favs.splice(i, 1);
+            lsSet(LS_FAV, favs);
+            syncFavButtons();
+            if (menu.querySelector('.nm2-panel[data-nm2-panel="favorites"].active')) renderFavorites();
+        });
+
+        /* --- Недавние теперь рендерятся на сервере из заказов пользователя (см. PHP-блок выше) --- */
+
+        /* --- Открытие: ⌘K / Ctrl+K и тап на мобильном --- */
+        function openMenu() {
+            menu.classList.add('show');
+            syncFavButtons();
+            if (searchInput && window.innerWidth > 991) {
+                setTimeout(function () { searchInput.focus(); }, 60);
+            }
+        }
+        document.addEventListener('keydown', function (e) {
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K' || e.key === 'л' || e.key === 'Л')) {
+                e.preventDefault();
+                openMenu();
+            }
+            if (e.key === 'Escape') menu.classList.remove('show');
+        });
+        if (toggle) {
+            // На тач-устройствах hover не срабатывает — первый тап открывает панель
+            toggle.addEventListener('click', function (e) {
+                if (window.innerWidth <= 991) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (menu.classList.contains('show')) menu.classList.remove('show');
+                    else openMenu();
+                }
+            }, true);
+        }
+        syncFavButtons();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initNeuralMenu);
+    } else {
+        initNeuralMenu();
+    }
+})();
+</script>
+            <a href="/blog/" class="aihere-nav-item"><span>Блог</span></a>
+        </nav>
+        <div class="aihere-actions">
+            <a href="/login.php" class="aihere-nav-item">Вход</a>
+            <a href="/register.php" class="aihere-topup"><span>Регистрация</span></a>
+        </div>
+    </div>
+</header>
+
+
+<style>
+:root {
+    --aihere-header-h: 86px;        /* высота внутренней glass-панели */
+    --aihere-header-pad-top: 16px;  /* верхний отступ shell */
+    --aihere-header-total: 102px;   /* суммарно для отступов под шапку */
+}
+
+/* === Sticky shell (внешний контейнер, рисует фоновый radial glow) === */
+.aihere-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    width: 100%;
+    padding: var(--aihere-header-pad-top) 24px 0;
+    background: transparent;
+    pointer-events: none;
+    /* shell не должен резать выпадающие меню */
+    overflow: visible;
+}
+
+/* === Внутренняя glass-панель: единый «дорогой» контейнер === */
+.aihere-header-inner {
+    max-width: 1760px;
+    height: var(--aihere-header-h);
+    margin: 0 auto;
+    padding: 0 30px;
+    display: grid;
+    grid-template-columns: 260px 1fr 420px;
+    align-items: center;
+    border-radius: 24px;
+    border: 1px solid rgba(139, 92, 246, 0.28);
+    background:
+        radial-gradient(circle at 12% 0%, rgba(139, 92, 246, 0.18), transparent 30%),
+        radial-gradient(circle at 78% 0%, rgba(217, 70, 239, 0.16), transparent 32%),
+        linear-gradient(180deg, rgba(15, 13, 34, 0.94), rgba(7, 6, 18, 0.90));
+    box-shadow:
+        0 18px 60px rgba(0, 0, 0, 0.42),
+        0 0 34px rgba(139, 92, 246, 0.10),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    overflow: visible;
+    pointer-events: auto;
+}
+
+/* === Logo === */
+.aihere-logo {
+    justify-self: start;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    color: #fff;
+    text-decoration: none;
+}
+.aihere-logo-mark {
+    width: 40px;
+    height: 40px;
+    filter: drop-shadow(0 0 12px rgba(139, 92, 246, 0.52)) drop-shadow(0 0 24px rgba(217, 70, 239, 0.16));
+}
+.aihere-logo-text {
+    font-family: var(--font-logo, inherit);
+    font-size: 25px;
+    line-height: 1;
+    font-weight: 850;
+    letter-spacing: -0.035em;
+    color: #fff;
+}
+
+/* === Nav (центрированная зона) === */
+.aihere-nav {
+    justify-self: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+}
+.aihere-nav-item-wrap {
+    position: relative;
+}
+.aihere-nav-item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    height: 44px;
+    padding: 0 15px;
+    border-radius: 15px;
+    border: 1px solid transparent;
+    color: rgba(255, 255, 255, 0.66);
+    font-size: 15px;
+    font-weight: 650;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.aihere-nav-item:hover,
+.aihere-nav-item:focus-visible {
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(255, 255, 255, 0.055);
+    border-color: rgba(255, 255, 255, 0.07);
+}
+.aihere-nav-item.active {
+    color: #fff;
+    background:
+        radial-gradient(circle at 50% 0%, rgba(217, 70, 239, 0.20), transparent 52%),
+        linear-gradient(180deg, rgba(139, 92, 246, 0.20), rgba(139, 92, 246, 0.10));
+    border-color: rgba(139, 92, 246, 0.42);
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.16), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+.aihere-nav-item.active::after {
+    content: "";
+    position: absolute;
+    left: 24px;
+    right: 24px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #8b5cf6, #d946ef);
+    box-shadow: 0 0 10px rgba(217, 70, 239, 0.48);
+}
+/* подсветка пункта при открытом dropdown */
+.aihere-nav-item-wrap.show .aihere-nav-item.dropdown-toggle,
+.aihere-nav-item.open {
+    color: #fff;
+    background: linear-gradient(180deg, rgba(139, 92, 246, 0.18), rgba(139, 92, 246, 0.10));
+    border-color: rgba(139, 92, 246, 0.36);
+}
+.aihere-nav-icon {
+    width: 18px;
+    height: 18px;
+    opacity: 0.76;
+    flex: 0 0 auto;
+}
+.aihere-nav-item:hover .aihere-nav-icon,
+.aihere-nav-item.active .aihere-nav-icon { opacity: 1; }
+.aihere-nav-item.dropdown-toggle::after { display: none; }
+.aihere-chevron { opacity: 0.7; flex-shrink: 0; }
+.aihere-nav-item:hover .aihere-chevron,
+.aihere-nav-item.active .aihere-chevron { opacity: 1; }
+
+/* === Actions (правая зона) === */
+.aihere-actions {
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+/* Balance pill */
+.aihere-balance {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 44px;
+    padding: 0 16px;
+    border-radius: 15px;
+    background: linear-gradient(180deg, rgba(139, 92, 246, 0.13), rgba(139, 92, 246, 0.07));
+    border: 1px solid rgba(139, 92, 246, 0.30);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 760;
+    text-decoration: none;
+    white-space: nowrap;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 0 18px rgba(139, 92, 246, 0.10);
+    transition: background .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.aihere-balance:hover {
+    background: linear-gradient(180deg, rgba(139, 92, 246, 0.18), rgba(139, 92, 246, 0.10));
+    border-color: rgba(139, 92, 246, 0.46);
+    color: #fff;
+}
+.aihere-balance-coin { width: 16px; height: 16px; }
+
+/* Top-up CTA */
+.aihere-topup {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 44px;
+    padding: 0 20px;
+    border: 0;
+    border-radius: 15px;
+    background: linear-gradient(135deg, #8b5cf6 0%, #c084fc 42%, #ec4899 100%);
+    color: #fff !important;
+    -webkit-text-fill-color: #fff !important;
+    font-size: 15px;
+    font-weight: 820;
+    text-decoration: none;
+    white-space: nowrap;
+    background-clip: padding-box;
+    -webkit-background-clip: padding-box;
+    box-shadow:
+        0 0 18px rgba(217, 70, 239, 0.34),
+        0 10px 28px rgba(139, 92, 246, 0.24),
+        inset 0 1px 0 rgba(255, 255, 255, 0.30);
+    transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+}
+.aihere-topup:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.06);
+    color: #fff !important;
+    box-shadow:
+        0 0 24px rgba(217, 70, 239, 0.44),
+        0 12px 34px rgba(139, 92, 246, 0.30),
+        inset 0 1px 0 rgba(255, 255, 255, 0.36);
+}
+.aihere-topup:active { transform: translateY(0); filter: brightness(0.98); }
+
+/* Bell button (компактный, в стиле шапки) */
+.aihere-bell-btn {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 15px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.78);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background .18s, border-color .18s, color .18s;
+}
+.aihere-bell-btn:hover {
+    background: rgba(139,92,246,0.12);
+    border-color: rgba(139,92,246,0.32);
+    color: #fff;
+}
+
+/* === Profile === */
+.aihere-profile { position: relative; }
+.aihere-profile-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    height: 44px;
+    padding: 0 14px 0 10px;
+    border-radius: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.030));
+    color: #fff;
+    font-size: 15px;
+    font-weight: 680;
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    transition: background .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.aihere-profile-button:hover,
+.aihere-profile.open .aihere-profile-button {
+    background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.045));
+    border-color: rgba(139, 92, 246, 0.36);
+    box-shadow: 0 0 18px rgba(139, 92, 246, 0.12), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.aihere-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 25%, #f0abfc 0%, #d946ef 24%, #7c3aed 58%, #111827 100%);
+    box-shadow: 0 0 9px rgba(139, 92, 246, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+    filter: saturate(0.92);
+    flex-shrink: 0;
+}
+.aihere-profile-name {
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Profile dropdown */
+.aihere-profile-dropdown {
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 0;
+    width: 250px;
+    padding: 10px;
+    border-radius: 20px;
+    background:
+        radial-gradient(circle at 80% 0%, rgba(217, 70, 239, 0.10), transparent 42%),
+        linear-gradient(180deg, rgba(18, 14, 42, 0.97), rgba(9, 7, 22, 0.97));
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(139, 92, 246, 0.30);
+    box-shadow:
+        0 24px 70px rgba(0, 0, 0, 0.56),
+        0 0 32px rgba(139, 92, 246, 0.16),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    display: none;
+    z-index: 10003;
+}
+.aihere-profile.open .aihere-profile-dropdown { display: block; }
+
+.aihere-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 46px;
+    padding: 0 13px;
+    border-radius: 13px;
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 15px;
+    font-weight: 620;
+    text-decoration: none;
+    transition: background .16s ease, color .16s ease;
+}
+.aihere-dropdown-item:hover {
+    color: #fff;
+    background: linear-gradient(90deg, rgba(139, 92, 246, 0.16), rgba(217, 70, 239, 0.08));
+}
+.aihere-dropdown-icon {
+    width: 18px;
+    height: 18px;
+    opacity: 0.82;
+    flex-shrink: 0;
+}
+.aihere-dropdown-item:hover .aihere-dropdown-icon { opacity: 1; }
+.aihere-dropdown-divider {
+    height: 1px;
+    margin: 8px 4px;
+    background: rgba(255, 255, 255, 0.08);
+}
+.aihere-dropdown-item.logout { color: #fb7185; }
+.aihere-dropdown-item.logout:hover { color: #fb7185; background: rgba(244, 63, 94, 0.12); }
+
+/* === Premium mega menu «Нейросети» === */
+.aihere-mega-menu {
+    position: absolute !important;
+    top: calc(100% + 12px) !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    width: 660px;
+    max-width: calc(100vw - 48px);
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 18px !important;
+    border-radius: 22px !important;
+    background:
+        radial-gradient(circle at 25% 0%, rgba(139, 92, 246, 0.16), transparent 34%),
+        radial-gradient(circle at 80% 10%, rgba(217, 70, 239, 0.10), transparent 34%),
+        linear-gradient(180deg, rgba(18, 14, 42, 0.97), rgba(8, 7, 22, 0.97)) !important;
+    border: 1px solid rgba(139, 92, 246, 0.30) !important;
+    box-shadow:
+        0 26px 80px rgba(0, 0, 0, 0.58),
+        0 0 36px rgba(139, 92, 246, 0.16),
+        inset 0 1px 0 rgba(255, 255, 255, 0.055) !important;
+    -webkit-backdrop-filter: blur(22px);
+    backdrop-filter: blur(22px);
+    margin-top: 0 !important;
+    z-index: 1200;
+}
+.aihere-mega-menu::-webkit-scrollbar { width: 6px; }
+.aihere-mega-menu::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.42); border-radius: 999px; }
+.aihere-mega-menu::-webkit-scrollbar-track { background: transparent; }
+
+.aihere-mega-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px 22px;
+}
+.aihere-mega-section-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: rgba(255, 255, 255, 0.48);
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0 0 10px;
+    padding: 0 4px;
+}
+.aihere-mega-section-title--spaced { margin-top: 14px; }
+
+.mega-item {
+    min-height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 9px 10px;
+    border-radius: 14px;
+    border: 1px solid transparent;
+    color: #fff;
+    text-decoration: none;
+    transition: background .16s ease, border-color .16s ease, transform .16s ease;
+    margin-bottom: 2px;
+}
+.mega-item:hover {
+    background: linear-gradient(90deg, rgba(139, 92, 246, 0.15), rgba(217, 70, 239, 0.07));
+    border-color: rgba(139, 92, 246, 0.22);
+    color: #fff;
+}
+.mega-item.active {
+    background: linear-gradient(90deg, rgba(139, 92, 246, 0.20), rgba(217, 70, 239, 0.10));
+    border-color: rgba(139, 92, 246, 0.36);
+    box-shadow: 0 0 18px rgba(139, 92, 246, 0.12), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.mega-icon {
+    width: 34px; height: 34px; min-width: 34px;
+    border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 15px; color: #fff;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 0 12px rgba(139,92,246,0.12);
+}
+.mega-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.mega-name {
+    display: flex; align-items: center; gap: 7px;
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 15px; line-height: 1.1; font-weight: 760;
+}
+.mega-desc {
+    color: rgba(255, 255, 255, 0.46);
+    font-size: 12px; line-height: 1.1; font-weight: 560;
+}
+.mega-new-badge {
+    height: 18px; padding: 0 6px;
+    display: inline-flex; align-items: center;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #8b5cf6, #ec4899);
+    color: #fff;
+    font-size: 10px; line-height: 1; font-weight: 800;
+    box-shadow: 0 0 10px rgba(217, 70, 239, 0.24);
+}
+
+/* Hover-driven dropdown for mega menu (desktop) */
+@media (min-width: 992px) {
+    .dropdown-mega .mega-menu,
+    .aihere-nav-item-wrap .aihere-mega-menu {
+        opacity: 0;
+        visibility: hidden;
+        transform: translateX(-50%) translateY(8px) !important;
+        transition: opacity .18s ease, visibility .18s ease, transform .18s ease;
+        display: block !important;
+        pointer-events: none;
+    }
+    .dropdown-mega .mega-menu.show,
+    .aihere-nav-item-wrap .aihere-mega-menu.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translateX(-50%) translateY(0) !important;
+        pointer-events: auto;
+    }
+}
+
+/* === Adaptive (squeeze) === */
+@media (max-width: 1440px) {
+    .aihere-header-inner {
+        grid-template-columns: 220px 1fr 380px;
+        padding: 0 22px;
+    }
+    .aihere-nav { gap: 5px; }
+    .aihere-nav-item { padding: 0 12px; font-size: 14.5px; }
+}
+@media (max-width: 1200px) {
+    .aihere-header-inner {
+        grid-template-columns: 200px 1fr 360px;
+        padding: 0 18px;
+    }
+    .aihere-nav-item { padding: 0 10px; font-size: 14px; gap: 7px; }
+    .aihere-actions { gap: 8px; }
+    .aihere-profile-name { max-width: 90px; }
+    .aihere-balance { padding: 0 12px; font-size: 14.5px; }
+    .aihere-topup { padding: 0 16px; font-size: 14.5px; }
+}
+@media (max-width: 1100px) {
+    .aihere-balance { padding: 0 12px; }
+}
+/* Узкий десктоп: прячем подписи в навигации, остаются только иконки — чтобы кнопки не наезжали друг на друга */
+@media (min-width: 992px) and (max-width: 1300px) {
+    .aihere-nav-item .aihere-nav-text,
+    .aihere-nav-item-wrap > .aihere-nav-item > span:not(.aihere-chevron):not(.coin-icon):not(.aihere-badge) {
+        display: none !important;
+    }
+    .aihere-nav-item { padding: 0 9px !important; gap: 0 !important; }
+    .aihere-nav { gap: 2px !important; }
+    .aihere-profile-name { display: none !important; }
+}
+/* Доп. защита: при экстремально узких десктопах — переносим элементы строкой */
+@media (min-width: 992px) and (max-width: 1050px) {
+    .aihere-header-inner {
+        grid-template-columns: auto 1fr auto !important;
+        column-gap: 8px !important;
+    }
+    .aihere-nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+    .aihere-nav::-webkit-scrollbar { display: none; }
+}
+
+/* === Mobile === */
+@media (max-width: 991.98px) {
+    /* Авторизованным шапка скрыта — есть нижний mobile-nav */
+    .aihere-header:not(.aihere-header--guest) { display: none !important; }
+
+    /* Гостям оставляем компактную верхнюю шапку без shell-padding */
+    .aihere-header.aihere-header--guest {
+        padding: 0;
+        background: rgba(3, 3, 8, 0.94);
+    }
+    .aihere-header.aihere-header--guest .aihere-header-inner {
+        height: 60px;
+        padding: 0 14px;
+        display: flex;
+        gap: 10px;
+        border-radius: 0;
+        border: 0;
+        border-bottom: 1px solid rgba(139, 92, 246, 0.16);
+        background: transparent;
+        box-shadow: none;
+        max-width: none;
+    }
+    .aihere-header.aihere-header--guest .aihere-nav { display: none; }
+    .aihere-header.aihere-header--guest .aihere-actions { margin-left: auto; gap: 8px; }
+    .aihere-header.aihere-header--guest .aihere-logo-text { font-size: 18px; }
+    .aihere-header.aihere-header--guest .aihere-logo-mark { width: 30px; height: 30px; }
+    .aihere-header.aihere-header--guest .aihere-actions .aihere-nav-item {
+        height: 38px; padding: 0 12px; font-size: 14px;
+    }
+    .aihere-header.aihere-header--guest .aihere-topup {
+        height: 38px; padding: 0 14px; font-size: 14px;
+    }
+    body.guest-mobile-header-pad { padding-top: 60px !important; }
+}
+
+/* Hide legacy 2-row header chrome remnants if any class collisions */
+.main-navbar, .submenu-navbar { display: none !important; }
+</style>
+
+<script>
+(function () {
+    function initProfileMenu() {
+        var profileMenu = document.getElementById('aihereProfileMenu');
+        if (!profileMenu) return;
+        var btn = profileMenu.querySelector('.aihere-profile-button');
+        if (!btn) return;
+
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var open = profileMenu.classList.toggle('open');
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        document.addEventListener('click', function (e) {
+            if (!profileMenu.contains(e.target)) {
+                profileMenu.classList.remove('open');
+                btn.setAttribute('aria-expanded', 'false');
+            }
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                profileMenu.classList.remove('open');
+                btn.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+
+    function initMegaHover() {
+        if (window.innerWidth <= 991) return;
+        var hovers = document.querySelectorAll('.dropdown-hover');
+        hovers.forEach(function (dropdown) {
+            var menu = dropdown.querySelector('.dropdown-menu');
+            if (!menu) return;
+            var t;
+            dropdown.addEventListener('mouseenter', function () {
+                clearTimeout(t);
+                menu.classList.add('show');
+            });
+            dropdown.addEventListener('mouseleave', function () {
+                t = setTimeout(function () { menu.classList.remove('show'); }, 120);
+            });
+        });
+        // Prevent default jump on "Нейросети" link
+        var neuralToggle = document.getElementById('aihereNeuralToggle');
+        if (neuralToggle) {
+            neuralToggle.addEventListener('click', function (e) { e.preventDefault(); });
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () {
+            initProfileMenu();
+            initMegaHover();
+        });
+    } else {
+        initProfileMenu();
+        initMegaHover();
+    }
+})();
+</script>
+<style>
+/* ---- Единая ширина контента статей на ПК ---- */
+@media (min-width: 1280px) {
+    body.article-page .article-container { max-width: 1240px; }
+    body.article-page .article-content {
+        max-width: 960px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+}
+
+/* ---- Компактное превью в начале статьи ---- */
+body.article-page article > .article-header + img,
+body.article-page article > img:first-of-type {
+    max-width: 720px !important;
+    display: block;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+/* ---- Плавный скролл с учётом фиксированной шапки ---- */
+body.article-page .article-content h2[id] { scroll-margin-top: 110px; }
+
+/* ---- Отступ между контентом статьи и футером ---- */
+body.article-page .article-container { margin-bottom: 4rem; }
+
+/* ---- Мобильная навигация: блок вверху статьи (если в статье нет toc-box) ---- */
+.blog-mobile-toc { display: none; }
+@media (max-width: 1279px) {
+    .blog-mobile-toc {
+        display: block;
+        background: rgba(139, 92, 246, 0.08);
+        border: 1px solid rgba(139, 92, 246, 0.25);
+        border-radius: 12px;
+        padding: 0.9rem 1.25rem;
+        margin: 0 0 1.5rem 0;
+    }
+    .blog-mobile-toc summary {
+        color: #fff; font-weight: 700; font-size: 0.95rem; cursor: pointer;
+        list-style: none; display: flex; align-items: center; gap: 0.5rem;
+    }
+    .blog-mobile-toc summary::before { content: '☰'; color: #a78bfa; }
+    .blog-mobile-toc summary::-webkit-details-marker { display: none; }
+    .blog-mobile-toc ol { margin: 0.75rem 0 0 0; padding-left: 1.25rem; }
+    .blog-mobile-toc li { margin-bottom: 0.45rem; }
+    .blog-mobile-toc a { color: #c4b5fd; text-decoration: none; font-size: 0.92rem; }
+    .blog-mobile-toc a:hover { color: #ec4899; }
+}
+</style>
+<script>
+(function () {
+    function initBlogToc() {
+        if (!document.body || !document.body.classList.contains('article-page')) return;
+        var content = document.querySelector('.article-content');
+        if (!content) return;
+        var heads = Array.prototype.slice.call(content.querySelectorAll('h2[id]'));
+        if (heads.length < 3) return;
+
+        var listHtml = heads.map(function (h) {
+            return '<li><a href="#' + h.id + '">' + h.textContent.trim() + '</a></li>';
+        }).join('');
+
+        // --- Мобильная навигация: если в статье нет своего toc-box, добавляем сверху ---
+        if (!content.querySelector('.toc-box')) {
+            var mob = document.createElement('details');
+            mob.className = 'blog-mobile-toc';
+            mob.innerHTML = '<summary>Содержание статьи</summary><ol>' + listHtml + '</ol>';
+            mob.addEventListener('click', function (e) {
+                var a = e.target.closest('a[href^="#"]');
+                if (!a) return;
+                var target = document.getElementById(a.getAttribute('href').slice(1));
+                if (!target) return;
+                e.preventDefault();
+                mob.removeAttribute('open');
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+            content.insertBefore(mob, content.firstChild);
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initBlogToc);
+    } else {
+        initBlogToc();
+    }
+})();
+</script>
+
+    <main class="container my-4 vseo-shell">
+
+        <nav class="vseo-crumbs" aria-label="Хлебные крошки">
+            <a href="/">Главная</a><span>/</span><a href="/ai-voices-fish-audio/">Голоса для озвучки</a><span>/</span><b>Голос Пин</b>
+        </nav>
+
+        <!-- Hero -->
+        <div class="ft-hero vseo-hero">
+            <div class="ft-hero-deco">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2" />
+</svg>
+</div>
+            <h1>Озвучить текст голосом Пин</h1>
+            <p class="ft-hero-sub">
+                                Нейросеть Fish Audio озвучит любой ваш текст голосом Пин — реалистично, с эмоциями и готовым MP3 за секунды.
+                Первые генерации бесплатно: при регистрации начисляем приветственный бонус 75&nbsp;<span class="coin-icon"></span>.
+                            </p>
+            <div class="ft-pills">
+                                                <span class="ft-pill">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
+  <path d="M20 2v4" />
+  <path d="M22 4h-4" />
+  <circle cx="4" cy="20" r="2" />
+</svg>
+мужской</span>
+                                <span class="ft-pill">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
+  <path d="M20 2v4" />
+  <path d="M22 4h-4" />
+  <circle cx="4" cy="20" r="2" />
+</svg>
+пожилой</span>
+                                <span class="ft-pill">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 6v6l4 2" />
+</svg>
+MP3 за 5–20 секунд</span>
+            </div>
+            <a href="/register.php?next=%2Ftext-to-speech%3Fvoice%3Df010c59f476941ef8c83b77a8cf16250%26from%3Dseo&amp;from=seo" class="btn btn-gradient vseo-cta-main">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M9 18V5l12-2v13" />
+  <circle cx="6" cy="18" r="3" />
+  <circle cx="18" cy="16" r="3" />
+</svg>
+Озвучить текст этим голосом</a>
+        </div>
+
+        <!-- Примеры озвучки -->
+                <section class="vseo-section" id="samples">
+            <div class="vseo-head-row">
+                <h2 class="vseo-h2">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />
+</svg>
+Как звучит голос Пин</h2>
+                <div class="vseo-volume">
+                    
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2" />
+</svg>
+                    <input type="range" id="vseoVolume" min="0" max="100" value="80" aria-label="Громкость">
+                    <span class="vseo-volume-val" id="vseoVolumeVal">80%</span>
+                </div>
+            </div>
+            <div class="vseo-samples">
+                                <div class="ft-card vseo-sample">
+                    <div class="vseo-sample-num">Пример 1</div>
+                    <div class="ft-player vseo-player">
+                        <button type="button" class="ft-play" aria-label="Слушать пример 1">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <polygon points="6 3 20 12 6 21 6 3" />
+</svg>
+</button>
+                        <div class="wf"><span style="height:35%"></span><span style="height:68%"></span><span style="height:69%"></span><span style="height:78%"></span><span style="height:59%"></span><span style="height:36%"></span><span style="height:61%"></span><span style="height:66%"></span><span style="height:67%"></span><span style="height:68%"></span><span style="height:37%"></span><span style="height:50%"></span><span style="height:39%"></span><span style="height:60%"></span><span style="height:73%"></span><span style="height:58%"></span><span style="height:63%"></span><span style="height:28%"></span><span style="height:81%"></span><span style="height:58%"></span><span style="height:55%"></span><span style="height:24%"></span></div>
+                        <span class="ft-dur">--:--</span>
+                        <audio preload="metadata" src="https://media.aihere.ru/fish-tts/samples/f010c59f476941ef8c83b77a8cf16250-1.mp3"></audio>
+                    </div>
+                    <p class="vseo-sample-text">«Привет! Это голос «Пин» на сайте AiHere. Послушайте, как он звучит — а теперь представьте, что он читает именно ваш текст.»</p>
+                </div>
+                                <div class="ft-card vseo-sample">
+                    <div class="vseo-sample-num">Пример 2</div>
+                    <div class="ft-player vseo-player">
+                        <button type="button" class="ft-play" aria-label="Слушать пример 2">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <polygon points="6 3 20 12 6 21 6 3" />
+</svg>
+</button>
+                        <div class="wf"><span style="height:33%"></span><span style="height:30%"></span><span style="height:43%"></span><span style="height:68%"></span><span style="height:65%"></span><span style="height:70%"></span><span style="height:43%"></span><span style="height:64%"></span><span style="height:77%"></span><span style="height:74%"></span><span style="height:35%"></span><span style="height:56%"></span><span style="height:65%"></span><span style="height:58%"></span><span style="height:47%"></span><span style="height:44%"></span><span style="height:57%"></span><span style="height:54%"></span><span style="height:71%"></span><span style="height:64%"></span><span style="height:33%"></span><span style="height:78%"></span></div>
+                        <span class="ft-dur">--:--</span>
+                        <audio preload="metadata" src="https://media.aihere.ru/fish-tts/samples/f010c59f476941ef8c83b77a8cf16250-2.mp3"></audio>
+                    </div>
+                    <p class="vseo-sample-text">«Голосом «Пин» можно озвучить видео для соцсетей, подкаст, рекламный ролик или целую аудиокнигу — всё онлайн, за считанные секунды.»</p>
+                </div>
+                                <div class="ft-card vseo-sample">
+                    <div class="vseo-sample-num">Пример 3</div>
+                    <div class="ft-player vseo-player">
+                        <button type="button" class="ft-play" aria-label="Слушать пример 3">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <polygon points="6 3 20 12 6 21 6 3" />
+</svg>
+</button>
+                        <div class="wf"><span style="height:35%"></span><span style="height:24%"></span><span style="height:69%"></span><span style="height:78%"></span><span style="height:55%"></span><span style="height:52%"></span><span style="height:65%"></span><span style="height:50%"></span><span style="height:43%"></span><span style="height:28%"></span><span style="height:77%"></span><span style="height:66%"></span><span style="height:55%"></span><span style="height:32%"></span><span style="height:25%"></span><span style="height:54%"></span><span style="height:51%"></span><span style="height:76%"></span><span style="height:61%"></span><span style="height:74%"></span><span style="height:59%"></span><span style="height:32%"></span></div>
+                        <span class="ft-dur">--:--</span>
+                        <audio preload="metadata" src="https://media.aihere.ru/fish-tts/samples/f010c59f476941ef8c83b77a8cf16250-3.mp3"></audio>
+                    </div>
+                    <p class="vseo-sample-text">«[радостно] Отличная новость! Первые озвучки на AiHere бесплатны: зарегистрируйтесь, получите приветственный бонус и попробуйте голос «Пин» на своём тексте прямо сейчас.»</p>
+                </div>
+                            </div>
+        </section>
+        
+        
+        
+        <!-- Варианты (дубли того же имени) -->
+        
+        <!-- Как это работает -->
+        <section class="vseo-section">
+            <h2 class="vseo-h2">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
+  <path d="M20 2v4" />
+  <path d="M22 4h-4" />
+  <circle cx="4" cy="20" r="2" />
+</svg>
+Как озвучить текст — 3 шага</h2>
+            <div class="ft-feats vseo-steps">
+                <div class="ft-feat">
+                    <div class="ft-feat-icon">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M5 12h14" />
+  <path d="M12 5v14" />
+</svg>
+</div>
+                    <b>1. Регистрация</b>
+                                        <span>Бесплатно, за минуту. Сразу начислим приветственный бонус 75&nbsp;<span class="coin-icon"></span> — первые озвучки за наш счёт.</span>
+                                    </div>
+                <div class="ft-feat">
+                    <div class="ft-feat-icon">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 19v3" />
+  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+  <rect x="9" y="2" width="6" height="13" rx="3" />
+</svg>
+</div>
+                    <b>2. Вставьте текст</b>
+                    <span>Голос Пин уже будет выбран в форме. Добавьте эмоции тегами: [радостно], [шёпотом], [пауза].</span>
+                </div>
+                <div class="ft-feat">
+                    <div class="ft-feat-icon"><svg class="icon-svg" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+</div>
+                    <b>3. Скачайте MP3</b>
+                    <span>Готовая озвучка через 5–20 секунд. Файл останется в истории заказов навсегда.</span>
+                </div>
+            </div>
+            <a href="/register.php?next=%2Ftext-to-speech%3Fvoice%3Df010c59f476941ef8c83b77a8cf16250%26from%3Dseo&amp;from=seo" class="btn btn-gradient vseo-cta-mid">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M9 18V5l12-2v13" />
+  <circle cx="6" cy="18" r="3" />
+  <circle cx="18" cy="16" r="3" />
+</svg>
+Озвучить текст этим голосом</a>
+        </section>
+
+        <!-- Клонирование + библиотека -->
+        <section class="vseo-section vseo-two-col">
+            <div class="ft-card">
+                <h2 class="vseo-h3">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 19v3" />
+  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+  <rect x="9" y="2" width="6" height="13" rx="3" />
+</svg>
+Клонируйте любой голос</h2>
+                <p class="vseo-muted">Нужен не Пин, а свой голос или голос близкого человека? Загрузите чистую запись от 10 секунд — нейросеть создаст точную цифровую копию, которой можно озвучивать любые тексты.</p>
+                <a href="/text-to-speech" class="vseo-link">Клонировать голос →</a>
+            </div>
+            <div class="ft-card">
+                <h2 class="vseo-h3">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />
+</svg>
+Сотни голосов в библиотеке</h2>
+                <p class="vseo-muted">Мужские и женские, дикторские и персонажные, на русском и десятках других языков — выбирайте голос под озвучку видео, подкастов, аудиокниг и рекламы.</p>
+                <a href="/text-to-speech" class="vseo-link">Открыть библиотеку голосов →</a>
+            </div>
+        </section>
+
+        <!-- SEO-текст (у страниц с voice-extras свой уникальный текст выше) -->
+                <section class="vseo-section ft-card">
+            <h2 class="vseo-h3">Озвучка голосом Пин нейросетью</h2>
+            <p class="vseo-muted">
+                Голос Пин работает на моделях Fish Audio Drama 3 и S2.1 Pro — самых реалистичных нейросетей синтеза речи с полной поддержкой русского языка.
+                Она передаёт интонацию, эмоции и паузы живой речи: добавьте в текст теги [радостно], [грустно], [шёпотом] или [смеётся], и голос изменит подачу.
+                Copyright [C] 2003-2026 Smeshariki
+All Rights Reserved.            </p>
+            <p class="vseo-muted" style="margin-bottom:0;">
+                Озвучка голосом Пин подходит для видео на YouTube и в соцсетях, подкастов, аудиокниг, обучающих курсов, рекламных роликов и автоответчиков.
+                Оплата — только за длину текста, без подписок и скрытых платежей; первые генерации бесплатны благодаря приветственному бонусу.
+                Всё работает онлайн, в России без VPN, с оплатой в рублях.
+            </p>
+        </section>
+        
+        <!-- FAQ -->
+        <section class="vseo-section">
+            <h2 class="vseo-h2">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="11" cy="11" r="8" />
+  <path d="m21 21-4.3-4.3" />
+</svg>
+Частые вопросы</h2>
+            <div class="vseo-faq">
+                                <details class="ft-card vseo-faq-item">
+                    <summary>Как озвучить текст голосом Пин?</summary>
+                    <p>Нажмите кнопку «Озвучить текст этим голосом», зарегистрируйтесь — голос Пин уже будет выбран в форме. Вставьте свой текст и нажмите «Озвучить»: готовый MP3 появится через 5–20 секунд.</p>
+                </details>
+                                <details class="ft-card vseo-faq-item">
+                    <summary>Можно ли озвучить голосом Пин бесплатно?</summary>
+                    <p>Да. При регистрации начисляется приветственный бонус 75 монет — его хватает на первые озвучки. Дальше стоимость считается по длине текста, копейки за тысячу знаков, без подписок.</p>
+                </details>
+                                <details class="ft-card vseo-faq-item">
+                    <summary>В каком формате скачивать готовую озвучку?</summary>
+                    <p>Результат доступен в MP3 сразу после генерации — файл сохраняется в истории заказов и доступен для скачивания в любой момент.</p>
+                </details>
+                                <details class="ft-card vseo-faq-item">
+                    <summary>А если мне нужен не голос Пин, а свой собственный?</summary>
+                    <p>На AiHere можно клонировать любой голос: загрузите чистую запись от 10 секунд — нейросеть создаст цифровую копию. Также доступна библиотека из сотен готовых голосов на русском и других языках.</p>
+                </details>
+                            </div>
+        </section>
+
+        <!-- Финальный CTA -->
+        <div class="guest-cta-banner vseo-final">
+                        <h3>Попробуйте голос Пин бесплатно</h3>
+                        <p>Регистрация за минуту · приветственный бонус 75&nbsp;<span class="coin-icon"></span> · первая озвучка через пару минут</p>
+            <a href="/register.php?next=%2Ftext-to-speech%3Fvoice%3Df010c59f476941ef8c83b77a8cf16250%26from%3Dseo&amp;from=seo" class="btn btn-gradient">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M9 18V5l12-2v13" />
+  <circle cx="6" cy="18" r="3" />
+  <circle cx="18" cy="16" r="3" />
+</svg>
+Озвучить текст этим голосом</a>
+        </div>
+
+    </main>
+
+        <!-- CTA-модалка: показывается гостю при первом прослушивании примера -->
+    <div class="vseo-modal" id="vseoCtaModal" role="dialog" aria-modal="true" aria-labelledby="vseoModalTitle" style="display:none;">
+        <div class="vseo-modal-overlay" data-close></div>
+        <div class="vseo-modal-card">
+            <button type="button" class="vseo-modal-close" data-close aria-label="Закрыть">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 6 6 18" />
+  <path d="m6 6 12 12" />
+</svg>
+</button>
+            <div class="wf vseo-modal-wf"><span style="height:31%"></span><span style="height:60%"></span><span style="height:45%"></span><span style="height:42%"></span><span style="height:75%"></span><span style="height:28%"></span><span style="height:69%"></span><span style="height:74%"></span><span style="height:43%"></span><span style="height:76%"></span><span style="height:45%"></span><span style="height:50%"></span><span style="height:59%"></span><span style="height:40%"></span><span style="height:25%"></span><span style="height:50%"></span><span style="height:83%"></span><span style="height:68%"></span><span style="height:49%"></span><span style="height:70%"></span><span style="height:27%"></span><span style="height:80%"></span></div>
+            <h2 id="vseoModalTitle">Раскройте весь потенциал голоса Пин</h2>
+            <ul class="vseo-modal-feats">
+                <li>
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
+  <path d="M20 2v4" />
+  <path d="M22 4h-4" />
+  <circle cx="4" cy="20" r="2" />
+</svg>
+<span><b>Пробные генерации бесплатно</b> — приветственный бонус 75&nbsp;<span class="coin-icon"></span> при регистрации</span></li>
+                <li>
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 19v3" />
+  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+  <rect x="9" y="2" width="6" height="13" rx="3" />
+</svg>
+<span><b>Клонирование любого голоса</b> — достаточно записи от 10 секунд</span></li>
+                <li>
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 6v6l4 2" />
+</svg>
+<span><b>Очень быстрая генерация</b> — готовый MP3 за 5–20 секунд</span></li>
+                <li>
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+  <path d="M16 3.128a4 4 0 0 1 0 7.744" />
+  <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+  <circle cx="9" cy="7" r="4" />
+</svg>
+<span><b>Более 1000 голосов</b> в библиотеке — дикторы, персонажи, знаменитости</span></li>
+                <li>
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2" />
+</svg>
+<span><b>Последняя версия ИИ</b> — Fish Audio Drama 3 с эмоциями и точными ударениями</span></li>
+            </ul>
+            <a href="/register.php?next=%2Ftext-to-speech%3Fvoice%3Df010c59f476941ef8c83b77a8cf16250%26from%3Dseo&amp;from=seo" class="btn btn-gradient vseo-modal-cta">
+<svg class="icon-svg" aria-hidden="true"
+ 
+  xmlns="http://www.w3.org/2000/svg"
+ 
+ 
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M9 18V5l12-2v13" />
+  <circle cx="6" cy="18" r="3" />
+  <circle cx="18" cy="16" r="3" />
+</svg>
+Попробовать бесплатно</a>
+        </div>
+    </div>
+    
+    <link rel="stylesheet" href="/assets/css/site-footer.css?v=1792361550">
+<footer class="footer sf mt-auto">
+    <div class="sf-wrap">
+        <div class="sf-hero">
+            <div class="sf-brand">
+                <a href="/" class="sf-logo" aria-label="AiHere — на главную">
+                    <img src="/assets/images/logo-64.png" alt="" width="34" height="34" loading="lazy">
+                    <span>AIHERE</span>
+                </a>
+                                <p class="sf-slogan">Nano Banana 2.1, Veo 3.1, Kling, Seedance 2.5, GPT Image 2.5, Flux 2 и Suno в России без VPN. Оплата СБП и картами МИР.</p>
+                            </div>
+            <div class="sf-side">
+                <div class="sf-actions">
+                    <a href="/app" class="sf-btn">
+                        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>
+                        Скачать приложение
+                    </a>
+                    <a href="/support" class="sf-btn sf-btn--accent">
+                        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="13.5" width="4" height="6" rx="1.5"/><rect x="17" y="13.5" width="4" height="6" rx="1.5"/></svg>
+                        Поддержка
+                    </a>
+                </div>
+                <a href="mailto:support@aihere.ru" class="sf-mail">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg>
+                    support@aihere.ru                </a>
+            </div>
+        </div>
+
+        <nav class="sf-cols" aria-label="Разделы сайта">
+                        <details class="sf-col" open>
+                <summary>Нейросети<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+                <ul>
+                                        <li><a href="/seedance-video.php">Seedance 2.5</a></li>
+                                        <li><a href="/kling-video.php">Kling 4.0</a></li>
+                                        <li><a href="/veo3-video.php">Veo 3.1</a></li>
+                                        <li><a href="/gemini-image.php">Nano Banana 2.1</a></li>
+                                        <li><a href="/gpt-image-2">GPT Image 2.5</a></li>
+                                        <li><a href="/suno-music.php">Suno — музыка</a></li>
+                                        <li><a href="/text-to-speech">Озвучка текста</a></li>
+                                        <li><a href="/chat.php">AI Чат</a></li>
+                                        <li><a href="/ai-tools/">AI-инструменты</a></li>
+                                        <li><a href="/ai/" class="sf-more">Каталог нейросетей →</a></li>
+                                    </ul>
+            </details>
+                        <details class="sf-col" open>
+                <summary>Идеи и шаблоны<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+                <ul>
+                                        <li><a href="/templates/">Готовые промпты</a></li>
+                                        <li><a href="/collections/">Подборки промптов</a></li>
+                                        <li><a href="/pesnya-pozdravlenie/">Песня-поздравление</a></li>
+                                        <li><a href="/suno-music/zhanry/">Жанры песен</a></li>
+                                        <li><a href="/ai-voices-fish-audio/">Голоса озвучки</a></li>
+                                        <li><a href="/blog">Блог</a></li>
+                                    </ul>
+            </details>
+                        <details class="sf-col" open>
+                <summary>Сервис<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+                <ul>
+                                        <li><a href="/pricing">Цены</a></li>
+                                        <li><a href="/add-funds">Пополнить баланс</a></li>
+                                        <li><a href="/app">Мобильное приложение</a></li>
+                                        <li><a href="/partner">Партнёрская программа</a></li>
+                                        <li><a href="/developer">API для разработчиков</a></li>
+                                        <li><a href="/support">Поддержка</a></li>
+                                    </ul>
+            </details>
+                        <details class="sf-col" open>
+                <summary>Документы<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+                <ul>
+                                        <li><a href="/terms">Публичная оферта</a></li>
+                                        <li><a href="/privacy">Политика конфиденциальности</a></li>
+                                        <li><a href="/personal-data-consent">Согласие на обработку ПД</a></li>
+                                        <li><a href="/recurring-payments">Рекуррентные платежи</a></li>
+                                        <li><a href="/subscription-terms">Управление подпиской</a></li>
+                                        <li><a href="/rekvizity">Реквизиты</a></li>
+                                        <li><a href="/delete-account">Удаление аккаунта</a></li>
+                                    </ul>
+            </details>
+                    </nav>
+
+        <div class="sf-bottom">
+            <div class="sf-legal">
+                <span>&copy; 2026 <strong>AiHere</strong>. Все права защищены.</span>
+                <span>ООО «Байтерек Ко» · ИНН 01901202610443 · <a href="/rekvizity">Реквизиты</a></span>
+            </div>
+            <div class="sf-pay" aria-label="Способы оплаты">
+                <span>Оплата:</span>
+                <span class="sf-chip">СБП</span>
+                <span class="sf-chip">МИР</span>
+            </div>
+        </div>
+    </div>
+</footer>
+<script>
+(function () {
+    // Телефон: колонки подвала — аккордеон (свёрнуты); десктоп — всегда раскрыты
+    var mq = window.matchMedia('(max-width: 767px)');
+    function sync() {
+        document.querySelectorAll('.sf-col').forEach(function (d) { d.open = !mq.matches; });
+    }
+    sync();
+    if (mq.addEventListener) mq.addEventListener('change', sync); else if (mq.addListener) mq.addListener(sync);
+})();
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var videos = document.querySelectorAll('.header-bg-video');
+    videos.forEach(function(video) {
+        video.play().catch(function() {});
+        document.addEventListener('touchstart', function() {
+            video.play().catch(function() {});
+        }, {once: true});
+    });
+});
+if (typeof window.AiHereApp !== 'undefined' && window.AiHereApp.logout) {
+    try {
+        window.AiHereApp.logout();
+    } catch(e) {}
+}
+</script>
+<!-- Мобильное нижнее меню -->
+<!-- Support Widget -->
+<div class="support-widget">
+    <span class="support-hint" id="supportHint">Нужна помощь?</span>
+    <a href="/bonuses.php" class="support-button bonus-button" aria-label="Бонусы">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M20 12V22H4V12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M22 7H2V12H22V7Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 22V7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 7H7.5C6.83696 7 6.20107 6.73661 5.73223 6.26777C5.26339 5.79893 5 5.16304 5 4.5C5 3.83696 5.26339 3.20107 5.73223 2.73223C6.20107 2.26339 6.83696 2 7.5 2C11 2 12 7 12 7Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 7H16.5C17.163 7 17.7989 6.73661 18.2678 6.26777C18.7366 5.79893 19 5.16304 19 4.5C19 3.83696 18.7366 3.20107 18.2678 2.73223C17.7989 2.26339 17.163 2 16.5 2C13 2 12 7 12 7Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    </a>
+    <button class="support-button" id="supportWidgetBtn" aria-label="Помощь">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M21 15C21 15.5304 20.7893 16.0391 20.4142 16.4142C20.0391 16.7893 19.5304 17 19 17H7L3 21V5C3 4.46957 3.21071 3.96086 3.58579 3.58579C3.96086 3.21071 4.46957 3 5 3H19C19.5304 3 20.0391 3.21071 20.4142 3.58579C20.7893 3.96086 21 4.46957 21 5V15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M9 9H15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M9 13H15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+            </button>
+    
+    <div class="support-menu" id="supportMenu">
+                <a href="/login.php" class="support-menu-item">
+            <div class="support-menu-icon support-icon">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>
+                </svg>
+            </div>
+            <div class="support-menu-text">
+                <span class="support-menu-title">Войти</span>
+                <span class="support-menu-desc">Для доступа к чатам</span>
+            </div>
+        </a>
+        <a href="https://t.me/aihererubot" target="_blank" rel="noopener noreferrer" class="support-menu-item">
+            <div class="support-menu-icon tg-icon">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM16.64 8.8C16.49 10.38 15.84 14.22 15.51 15.99C15.37 16.74 15.09 16.99 14.83 17.02C14.25 17.07 13.81 16.64 13.25 16.27C12.37 15.69 11.87 15.33 11.02 14.77C10.03 14.12 10.67 13.76 11.24 13.18C11.39 13.03 13.95 10.7 14 10.49C14.0069 10.4582 14.006 10.4252 13.9973 10.3938C13.9886 10.3624 13.9724 10.3337 13.95 10.31C13.89 10.26 13.81 10.28 13.74 10.29C13.65 10.31 12.25 11.24 9.52 13.08C9.12 13.35 8.76 13.49 8.44 13.48C8.08 13.47 7.4 13.28 6.89 13.11C6.26 12.91 5.77 12.8 5.81 12.45C5.83 12.27 6.08 12.09 6.55 11.9C9.47 10.63 11.41 9.79 12.38 9.39C15.16 8.23 15.73 8.03 16.11 8.03C16.19 8.03 16.38 8.05 16.5 8.15C16.6 8.23 16.63 8.34 16.64 8.42C16.63 8.48 16.65 8.66 16.64 8.8Z"/>
+                </svg>
+            </div>
+            <div class="support-menu-text">
+                <span class="support-menu-title">Telegram</span>
+                <span class="support-menu-desc">@aihererubot</span>
+            </div>
+        </a>
+            </div>
+</div>
+
+<style>
+.support-widget {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+.support-widget .bonus-button {
+    text-decoration: none;
+    /* Premium violet/magenta вместо кричащего orange/pink */
+    background: linear-gradient(135deg, #8b5cf6, #d946ef);
+    box-shadow: 0 0 16px rgba(217,70,239,.24);
+}
+
+.support-widget .bonus-button:hover {
+    box-shadow: 0 0 22px rgba(217,70,239,.32);
+}
+
+.support-button {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    /* Спокойный фирменный violet с мягким glow */
+    background: rgba(139,92,246,.82);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 14px rgba(139,92,246,.22);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    position: relative;
+}
+
+.support-button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px rgba(139,92,246,.30);
+}
+
+.support-hint {
+    position: absolute;
+    right: 64px;
+    bottom: 14px;
+    background: rgba(22, 33, 62, 0.95);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 8px 12px;
+    border-radius: 8px;
+    white-space: nowrap;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    animation: hintPulse 0.3s ease 2s forwards;
+    cursor: pointer;
+}
+
+.support-hint::after {
+    content: '';
+    position: absolute;
+    right: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 6px solid transparent;
+    border-left-color: rgba(22, 33, 62, 0.95);
+}
+
+.support-hint.hidden {
+    display: none;
+}
+
+@keyframes hintPulse {
+    0% { opacity: 0; transform: translateX(10px); }
+    100% { opacity: 1; transform: translateX(0); }
+}
+
+.support-button svg {
+    width: 24px;
+    height: 24px;
+    color: white;
+}
+
+.support-unread-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #ef4444;
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 20px;
+    height: 20px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 5px;
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.5);
+}
+
+.support-menu {
+    position: absolute;
+    bottom: 70px;
+    right: 0;
+    background: rgba(22, 33, 62, 0.98);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    border-radius: 16px;
+    padding: 8px;
+    min-width: 260px;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(10px) scale(0.95);
+    transition: all 0.2s ease;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+.support-menu.active {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) scale(1);
+}
+
+.support-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 12px;
+    text-decoration: none;
+    color: #fff;
+    transition: all 0.2s ease;
+}
+
+.support-menu-item:hover {
+    background: rgba(139, 92, 246, 0.15);
+}
+
+.support-menu-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.support-menu-icon.support-icon {
+    background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+}
+
+.support-menu-icon.ai-icon {
+    background: linear-gradient(135deg, #06b6d4, #22d3ee);
+}
+
+.support-menu-icon.tg-icon {
+    background: linear-gradient(135deg, #0088cc, #00a8e8);
+}
+
+.support-menu-icon svg {
+    width: 20px;
+    height: 20px;
+    color: white;
+}
+
+.support-menu-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.support-menu-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: #fff;
+}
+
+.support-menu-desc {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-top: 2px;
+}
+
+.support-menu-badge {
+    background: #ef4444;
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 20px;
+    height: 20px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+}
+
+@media (max-width: 480px) {
+    .support-widget {
+        bottom: 80px;
+        right: 15px;
+    }
+    
+    .support-button {
+        width: 40px;
+        height: 40px;
+        box-shadow: none;
+    }
+
+    .support-button:hover {
+        box-shadow: none;
+    }
+
+    .support-widget .bonus-button {
+        box-shadow: none;
+    }
+
+    .support-widget .bonus-button:hover {
+        box-shadow: none;
+    }
+
+    .support-button svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .support-menu {
+        right: -10px;
+        min-width: 240px;
+    }
+    
+    .support-hint {
+        right: 48px;
+        font-size: 11px;
+        padding: 6px 10px;
+    }
+}
+
+/* Всплывающее окно чата поддержки */
+.support-popup {
+    position: fixed;
+    right: 90px;
+    bottom: 20px;
+    width: min(480px, calc(100vw - 120px));
+    height: min(720px, calc(100vh - 40px));
+    z-index: 10050;
+    background: #13112a;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+    animation: supportPopupIn 0.18s ease;
+}
+.support-popup[hidden] { display: none; }
+.support-popup iframe {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: transparent;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+.support-popup.is-loaded iframe { opacity: 1; }
+.support-popup-loader {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+.support-popup.is-loaded .support-popup-loader { display: none; }
+.support-popup-loader span {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 3px solid rgba(139, 92, 246, 0.25);
+    border-top-color: #8b5cf6;
+    animation: supportPopupSpin 0.8s linear infinite;
+}
+@keyframes supportPopupIn {
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+}
+@keyframes supportPopupSpin { to { transform: rotate(360deg); } }
+html.support-popup-open .support-hint { display: none; }
+@media (max-width: 768px), (max-height: 540px) {
+    /* На телефоне — на весь экран; высоту под клавиатуру подгоняет JS (visualViewport) */
+    .support-popup {
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: auto;
+        width: auto;
+        height: 100dvh;
+        border: 0;
+        border-radius: 0;
+        padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+        animation: none;
+    }
+    html.support-popup-open,
+    html.support-popup-open body { overflow: hidden; }
+}
+</style>
+
+<script>
+(function() {
+    'use strict';
+    
+    const supportBtn = document.getElementById('supportWidgetBtn');
+    const supportMenu = document.getElementById('supportMenu');
+    
+    if (!supportBtn || !supportMenu) return;
+
+    // ---- Всплывающее окно чата поддержки (только для вошедших) ----
+    const popup = document.getElementById('supportPopup');
+    const frame = document.getElementById('supportPopupFrame');
+    const fullscreenMq = window.matchMedia('(max-width: 768px), (max-height: 540px)');
+    let popupOpen = false;
+
+    function isSupportLink(a) {
+        if (!a) return false;
+        const href = a.getAttribute('href');
+        if (!href || a.target === '_blank' || a.hasAttribute('download')) return false;
+        let url;
+        try { url = new URL(href, location.href); } catch (e) { return false; }
+        return url.origin === location.origin && !url.search &&
+            (url.pathname === '/support.php' || url.pathname === '/support');
+    }
+
+    function postToFrame(visible) {
+        try {
+            if (frame.contentWindow) {
+                frame.contentWindow.postMessage({ type: 'aihere-support-visibility', visible: visible }, location.origin);
+            }
+        } catch (e) {}
+    }
+
+    function fitPopup() {
+        if (!popupOpen) return;
+        const vv = window.visualViewport;
+        if (fullscreenMq.matches && vv) {
+            popup.style.top = vv.offsetTop + 'px';
+            popup.style.height = vv.height + 'px';
+        } else {
+            popup.style.top = '';
+            popup.style.height = '';
+        }
+    }
+
+    function openPopup() {
+        if (!popup) return false;
+        closeMenu();
+        hideHint();
+        document.querySelectorAll('.support-unread-badge, .support-menu-badge').forEach(function(el) { el.remove(); });
+        if (popupOpen) return true;
+        popupOpen = true;
+        if (!frame.getAttribute('src')) {
+            frame.setAttribute('src', '/support?embed=1');
+        } else {
+            postToFrame(true);
+        }
+        popup.hidden = false;
+        document.documentElement.classList.add('support-popup-open');
+        fitPopup();
+        return true;
+    }
+
+    function closePopup() {
+        if (!popup || !popupOpen) return;
+        popupOpen = false;
+        popup.hidden = true;
+        popup.style.top = '';
+        popup.style.height = '';
+        document.documentElement.classList.remove('support-popup-open');
+        postToFrame(false);
+        supportBtn.focus({ preventScroll: true });
+    }
+
+    if (popup) {
+        frame.addEventListener('load', function() {
+            if (!frame.getAttribute('src')) return;
+            // Сессия истекла / редирект на вход — открываем эту страницу целиком, а не в окне
+            try {
+                const path = frame.contentWindow.location.pathname;
+                if (path !== '/support.php' && path !== '/support') {
+                    const target = frame.contentWindow.location.href;
+                    closePopup();
+                    frame.removeAttribute('src');
+                    location.href = target;
+                    return;
+                }
+            } catch (e) {}
+            popup.classList.add('is-loaded');
+            if (!popupOpen) postToFrame(false);
+        });
+
+        // Любая ссылка на поддержку на странице (меню виджета, шапка, модалки) открывает окно
+        document.addEventListener('click', function(e) {
+            if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            const a = e.target.closest ? e.target.closest('a[href]') : null;
+            if (!isSupportLink(a)) return;
+            e.preventDefault();
+            openPopup();
+        }, true);
+
+        window.addEventListener('message', function(e) {
+            if (e.origin !== location.origin || !e.data) return;
+            if (e.data.type === 'aihere-support-close') closePopup();
+        });
+
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', fitPopup);
+            window.visualViewport.addEventListener('scroll', fitPopup);
+        }
+        window.addEventListener('resize', fitPopup);
+
+        window.openSupportChat = openPopup;
+    }
+    
+    function toggleMenu() {
+        supportMenu.classList.toggle('active');
+        if (navigator.vibrate) navigator.vibrate(10);
+    }
+    
+    function closeMenu() {
+        supportMenu.classList.remove('active');
+    }
+    
+    const supportHint = document.getElementById('supportHint');
+    
+    function hideHint() {
+        if (supportHint) supportHint.classList.add('hidden');
+    }
+    
+    supportBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        hideHint();
+        if (popupOpen) {
+            closePopup();
+            return;
+        }
+        toggleMenu();
+    });
+    
+    // На телефоне постоянная подпись «Нужна помощь?» перекрывает карточки над
+    // нижним меню: показываем её один раз за сессию на несколько секунд.
+    if (supportHint && window.matchMedia && window.matchMedia('(max-width: 767px)').matches) {
+        var hintSeen = false;
+        try { hintSeen = sessionStorage.getItem('supHintSeen') === '1'; sessionStorage.setItem('supHintSeen', '1'); } catch (e) {}
+        if (hintSeen) hideHint(); else setTimeout(hideHint, 6000);
+    }
+
+    if (supportHint) {
+        supportHint.addEventListener('click', function(e) {
+            e.stopPropagation();
+            hideHint();
+            toggleMenu();
+        });
+    }
+    
+    document.addEventListener('click', function(e) {
+        if (!supportMenu.contains(e.target) && !supportBtn.contains(e.target)) {
+            closeMenu();
+        }
+    });
+    
+    document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Escape') return;
+        if (popupOpen) {
+            closePopup();
+        } else if (supportMenu.classList.contains('active')) {
+            closeMenu();
+        }
+    });
+})();
+</script>
+<script src="/assets/js/content-error-logger.js?v=1791358486" defer></script>
+<script src="/assets/js/download-helper.js?v=1791463863"></script>
+<script src="/assets/js/prompt-expand.js" defer></script>
+
+    <script>
+    (function() {
+        // CTA-модалка для гостя: один раз за сессию при первом прослушивании
+        var ctaModal = document.getElementById('vseoCtaModal');
+        var lastFocused = null;
+        function showCtaModal() {
+            if (!ctaModal) return;
+            try {
+                if (sessionStorage.getItem('vseoCtaShown')) return;
+                sessionStorage.setItem('vseoCtaShown', '1');
+            } catch (e) {}
+            lastFocused = document.activeElement;
+            ctaModal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+            var closeBtn = ctaModal.querySelector('.vseo-modal-close');
+            if (closeBtn) closeBtn.focus();
+        }
+        function hideCtaModal() {
+            if (!ctaModal || ctaModal.style.display === 'none') return;
+            ctaModal.style.display = 'none';
+            document.body.style.overflow = '';
+            if (lastFocused && lastFocused.focus) lastFocused.focus();
+            lastFocused = null;
+        }
+        if (ctaModal) {
+            ctaModal.querySelectorAll('[data-close]').forEach(function(el) {
+                el.addEventListener('click', hideCtaModal);
+            });
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') hideCtaModal();
+            });
+        }
+
+        var PLAY_ICON = "\n<svg class=\"icon-svg\" aria-hidden=\"true\"\n \n  xmlns=\"http:\/\/www.w3.org\/2000\/svg\"\n \n \n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <polygon points=\"6 3 20 12 6 21 6 3\" \/>\n<\/svg>\n";
+        var PAUSE_ICON = '<svg class="icon-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+
+        // Громкость: один ползунок на все плееры страницы, по умолчанию 80%, выбор запоминается
+        var volInput = document.getElementById('vseoVolume');
+        var volVal = document.getElementById('vseoVolumeVal');
+        var pageAudios = document.querySelectorAll('.vseo-player audio');
+        var savedVol = null;
+        try { savedVol = localStorage.getItem('vseoVolume'); } catch (e) {}
+        var vol = parseFloat(savedVol);
+        if (isNaN(vol)) vol = 0.8;
+        vol = Math.min(1, Math.max(0, vol));
+        pageAudios.forEach(function(a) { a.volume = vol; });
+        if (volInput) {
+            volInput.value = Math.round(vol * 100);
+            if (volVal) volVal.textContent = Math.round(vol * 100) + '%';
+            volInput.addEventListener('input', function() {
+                var v = volInput.value / 100;
+                pageAudios.forEach(function(a) { a.volume = v; });
+                if (volVal) volVal.textContent = volInput.value + '%';
+                try { localStorage.setItem('vseoVolume', String(v)); } catch (e) {}
+            });
+        }
+        function fmt(s) {
+            if (!isFinite(s)) return '--:--';
+            s = Math.round(s);
+            return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+        }
+        document.querySelectorAll('.vseo-player').forEach(function(player) {
+            var btn = player.querySelector('.ft-play');
+            var audio = player.querySelector('audio');
+            var dur = player.querySelector('.ft-dur');
+            var wf = player.querySelector('.wf');
+            if (!audio || !btn) return;
+            audio.addEventListener('loadedmetadata', function() { dur.textContent = fmt(audio.duration); });
+            btn.addEventListener('click', function() {
+                if (audio.paused) {
+                    document.querySelectorAll('.vseo-player audio').forEach(function(a) { if (a !== audio) a.pause(); });
+                    audio.play().catch(function(){});
+                    showCtaModal();
+                } else {
+                    audio.pause();
+                }
+            });
+            audio.addEventListener('play', function() {
+                btn.innerHTML = PAUSE_ICON;
+                wf.classList.add('wf-playing');
+            });
+            function resetBtn() {
+                btn.innerHTML = PLAY_ICON;
+                wf.classList.remove('wf-playing');
+            }
+            audio.addEventListener('pause', resetBtn);
+            audio.addEventListener('ended', function() {
+                resetBtn();
+                wf.querySelectorAll('span').forEach(function(b) { b.classList.remove('wf-done'); });
+            });
+            audio.addEventListener('timeupdate', function() {
+                if (!audio.duration) return;
+                var bars = wf.querySelectorAll('span');
+                var done = Math.floor((audio.currentTime / audio.duration) * bars.length);
+                bars.forEach(function(b, i) { b.classList.toggle('wf-done', i < done); });
+            });
+        });
+    })();
+    </script>
+</body>
+</html>

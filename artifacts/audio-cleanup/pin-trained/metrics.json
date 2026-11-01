@@ -1,0 +1,79 @@
+{
+  "baseline_validation_loss": 4.042526125907898,
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 4.08464989066124,
+      "validation_loss": 3.9742437601089478,
+      "elapsed_seconds": 3.6739768650004407,
+      "peak_gpu_gib": 16.524367809295654,
+      "selected_best": true
+    },
+    {
+      "epoch": 2,
+      "train_loss": 3.4622234404087067,
+      "validation_loss": 3.9276444911956787,
+      "elapsed_seconds": 9.208644377002202,
+      "peak_gpu_gib": 16.524367809295654,
+      "selected_best": true
+    },
+    {
+      "epoch": 3,
+      "train_loss": 3.0801438093185425,
+      "validation_loss": 3.8924161195755005,
+      "elapsed_seconds": 14.69227534699894,
+      "peak_gpu_gib": 16.524367809295654,
+      "selected_best": true
+    },
+    {
+      "epoch": 4,
+      "train_loss": 2.776401937007904,
+      "validation_loss": 3.891371726989746,
+      "elapsed_seconds": 19.922414942004252,
+      "peak_gpu_gib": 16.524367809295654,
+      "selected_best": true
+    },
+    {
+      "epoch": 5,
+      "train_loss": 2.530975729227066,
+      "validation_loss": 3.9026732444763184,
+      "elapsed_seconds": 25.513635436000186,
+      "peak_gpu_gib": 16.524367809295654
+    },
+    {
+      "epoch": 6,
+      "train_loss": 2.325488343834877,
+      "validation_loss": 3.9358527660369873,
+      "elapsed_seconds": 28.79609266100306,
+      "peak_gpu_gib": 16.524367809295654
+    },
+    {
+      "epoch": 7,
+      "train_loss": 2.1417940109968185,
+      "validation_loss": 3.9822607040405273,
+      "elapsed_seconds": 32.37129877600091,
+      "peak_gpu_gib": 16.524367809295654
+    },
+    {
+      "epoch": 8,
+      "train_loss": 1.9799646586179733,
+      "validation_loss": 4.052397012710571,
+      "elapsed_seconds": 35.71250423700258,
+      "peak_gpu_gib": 16.524367809295654
+    },
+    {
+      "epoch": 9,
+      "train_loss": 1.8321896195411682,
+      "validation_loss": 4.1428751945495605,
+      "elapsed_seconds": 39.01436848800222,
+      "peak_gpu_gib": 16.524367809295654
+    },
+    {
+      "epoch": 10,
+      "train_loss": 1.7144910544157028,
+      "validation_loss": 4.246318459510803,
+      "elapsed_seconds": 42.67047056699812,
+      "peak_gpu_gib": 16.524367809295654
+    }
+  ]
+}

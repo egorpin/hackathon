@@ -7,6 +7,7 @@ import { Runtime } from './net/runtime.js';
 import { WorldScene } from './scene/world-scene.js';
 import { BUILDINGS } from './ui/buildings.js';
 import { Settings } from './ui/settings.js';
+import { RoverUI } from './ui/rover.js';
 import { EconomyHUD } from './ui/economy-hud.js';
 import { AimResources } from './ui/aim-resources.js';
 import { inInteractionRange } from './ui/interaction.js';
@@ -18,7 +19,7 @@ root.innerHTML = `
   <header><div class="brand" id="connection" role="status" data-connected="false" aria-label="ОЖИДАНИЕ СЕТИ"><div class="brand-title"><span class="network-dot" aria-hidden="true"></span>MARS</div><span class="brand-subtitle">COLONY / ЭКСПЕДИЦИЯ 01</span><span id="network-wait">ОЖИДАНИЕ СЕТИ</span></div><div class="header-actions"></div></header>
   <aside id="telemetry" aria-label="Показатели производительности" hidden><p id="performance" hidden>FPS: —</p><p id="performance-detail" hidden>Кадр p95: — · Треугольники: — · Вызовы: —</p><p id="cache" hidden>Данные мира: ожидание манифеста</p></aside>
   <section class="build-dock" aria-label="Строительство">
-    <div id="build-hotbar" role="group" aria-label="Выбор постройки, клавиши 1–4">${BUILDINGS.map((building,index)=>`<button type="button" class="build-slot" data-building="${building.type}" aria-pressed="false" aria-label="${index+1} · ${building.name}" title="${building.description}"><kbd>${index+1}</kbd><span class="build-icon" aria-hidden="true">${building.icon}</span><span class="build-name">${building.name}</span><span class="build-cost">—</span></button>`).join('')}</div>
+    <div id="build-hotbar" role="group" aria-label="Выбор постройки, клавиши 1–3">${BUILDINGS.map((building,index)=>`<button type="button" class="build-slot" data-building="${building.type}" aria-pressed="false" aria-label="${index+1} · ${building.name}" title="${building.description}"><kbd>${index+1}</kbd><span class="build-icon" aria-hidden="true">${building.icon}</span><span class="build-name">${building.name}</span><span class="build-cost">—</span></button>`).join('')}<button type="button" id="build-rover" class="build-slot" title="Покупка ровера в офисе"><span class="build-icon" aria-hidden="true">▣</span><span class="build-name">Ровер</span><span class="build-cost">Офис</span></button></div>
     <div id="build-context" hidden><p id="build-info" hidden>Выберите постройку</p><div class="build-actions"><button id="build">Построить · B</button><button id="build-cancel" aria-label="Отменить выбор постройки">Отмена · Esc</button></div></div>
   </section>
   <div id="crosshair" aria-hidden="true">+</div><div id="crosshair-hint" aria-live="off"></div>
@@ -50,7 +51,7 @@ let selectionHelp='';
 const buildingNames=Object.fromEntries(BUILDINGS.map(({type,name})=>[type,name]));
 const costFor=type=>recipeFor(gameState,type);
 function updateBuildInfo(){
-  for(const button of document.querySelectorAll('.build-slot')){
+  for(const button of document.querySelectorAll('.build-slot[data-building]')){
     const cost=costFor(button.dataset.building);
     button.querySelector('.build-cost').textContent=cost?formatResources(cost,true):'—';
     button.title=`${buildingNames[button.dataset.building]} · ${cost?formatResources(cost):'ожидание рецепта'}`;
@@ -58,7 +59,7 @@ function updateBuildInfo(){
   }
   const type=selectedBuilding, cost=costFor(type);
   document.getElementById('build-context').hidden=!type;
-  if(!type){show('build-info','Выберите постройку: 1–4');return;}
+  if(!type){show('build-info','Выберите постройку: 1–3');return;}
   if(!cost||!gameState?.team_storage){show('build-info',`Стоимость ${buildingNames[type]||'постройки'}: ожидание состояния`);return;}
   let detail=`${buildingNames[type]||'Постройка'}: ${formatResources(cost)} из общего запаса`;
   const missing=missingResources(gameState,type);
@@ -113,8 +114,16 @@ function explainAction(result){
     WORLD_UNAVAILABLE:'Не удалось войти в мир. Проверьте доступ к экспедиции.',
     PREVIEW_ONLY:'В режиме просмотра игровые действия отключены.',
     INVALID_ARGUMENT:'Проверьте выбранное действие и его параметры.',
+    OFFICE_REQUIRED:'Подойдите к офису в куполе.',
+    SURVEY_LIMIT:'Блокнот заполнен.', SURVEY_REQUIRED:'Сначала запишите эти координаты в поле.',
+    POINT_EXISTS:'Константа с таким именем уже существует.', POINT_LIMIT:'Реестр точек заполнен.',
+    ROVER_LIMIT:'Достигнут предел количества роверов.', ROVER_RUNNING:'Сначала остановите ровер.',
+    REVISION_CONFLICT:'Программа изменилась у другого игрока. Обновите её перед сохранением.',
+    PROGRAM_TOO_LONG:'Программа превышает допустимый размер.', INVALID_PROGRAM:'Ошибка в программе. Проверьте команды и структуру цикла.',
+    UNKNOWN_POINT:'В программе указана неизвестная константа.',
   };
-  return explanations[result.code]||`Действие отклонено сервером: ${result.code||'неизвестная ошибка'}.`;
+  const message=explanations[result.code]||`Действие отклонено сервером: ${result.code||'неизвестная ошибка'}.`;
+  return Number.isInteger(result.line) ? `${message} Строка ${result.line}.` : message;
 }
 events.on('notice', text=>show('notice',text));
 function setConnection(status){
@@ -152,12 +161,14 @@ events.on('build.cancel',()=>{
   if(!document.querySelector('#assistant-panel:not([hidden])'))events.emit('build.choose',null);
 });
 events.on('expedition.lobby',()=>{selection=null;events.emit('build.choose',null);});
-for(const button of document.querySelectorAll('.build-slot'))button.onclick=()=>events.emit('build.choose',button.dataset.building);
+for(const button of document.querySelectorAll('.build-slot[data-building]'))button.onclick=()=>events.emit('build.choose',button.dataset.building);
+document.getElementById('build-rover').onclick=()=>{if(!gameState?.office_access){events.emit('notice','Подойдите к офису в куполе для покупки ровера.');return;} events.emit('rover.open');};
 document.getElementById('build-cancel').onclick=()=>{events.emit('build.choose',null);document.querySelector('#build-hotbar button').focus();};
 try {
   const scene=new WorldScene(document.getElementById('viewport'),events);
   const settings=new Settings({events,scene});
   const economy=new EconomyHUD({events,scene});
+  const rover=new RoverUI({events,scene});
   const pickup=new AimResources({events,scene});
   let transport;
   if(import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) {
@@ -172,8 +183,8 @@ try {
   window.marsClient={events,command:(type,payload)=>runtime.command(type,payload),toggleCamera:()=>events.emit('camera.toggle'),dispose:()=>runtime.dispose()};
   if (import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) { lobby.setIdentity({user_id:'preview-explorer',username:'Explorer',world_id:'Марс / просмотр'}); transport.connect(); }
   else authenticate(transport,lobby);
-  window.addEventListener('pagehide',()=>{assistant.dispose();pickup.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();},{once:true});
-  if(import.meta.hot) import.meta.hot.dispose(()=>{assistant.dispose();pickup.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();});
+  window.addEventListener('pagehide',()=>{assistant.dispose();pickup.dispose();rover.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();},{once:true});
+  if(import.meta.hot) import.meta.hot.dispose(()=>{assistant.dispose();pickup.dispose();rover.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();});
 } catch(error) { show('notice',`Не удалось запустить 3D: ${error.message}`); }
 
 async function authenticate(transport,lobby) {
