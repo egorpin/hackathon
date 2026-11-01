@@ -1,5 +1,6 @@
 """Player-scoped MCP tools sharing the authoritative backend and world instance."""
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
+import hmac
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -34,8 +35,15 @@ def session_identity(backend, request):
 
 
 class AuthenticatedMCP:
-    def __init__(self, app, backend):
-        self.app, self.backend = app, backend
+    def __init__(self, app, backend, admin_app=None):
+        self.app, self.backend, self.admin_app = app, backend, admin_app
+
+    def authenticated(self, request):
+        if self.admin_app is None:
+            return session_identity(self.backend, request) is not None
+        scheme, _, token = request.headers.get('authorization', '').partition(' ')
+        return (scheme.lower() == 'bearer' and bool(token) and
+                hmac.compare_digest(token.encode(), self.admin_app.state.admin_key.encode()))
 
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http':
@@ -44,8 +52,8 @@ class AuthenticatedMCP:
         headers = {'Cache-Control': 'no-store'}
         if 'origin' in request.headers and not self.backend.origin_allowed(request.headers, request.url.scheme):
             response = JSONResponse({'detail': 'Origin is not allowed'}, 403, headers=headers)
-        elif not session_identity(self.backend, request):
-            response = JSONResponse({'detail': 'A live player session bearer token is required'}, 401,
+        elif not self.authenticated(request):
+            response = JSONResponse({'detail': 'An admin bearer key is required' if self.admin_app else 'A live player session bearer token is required'}, 401,
                                     headers={**headers, 'WWW-Authenticate': 'Bearer'})
         else:
             async def no_cache(message):
@@ -176,16 +184,24 @@ def create_server(app, backend):
 
 def install(app, backend):
     # Stable route, fresh SDK session manager on every application lifespan.
+    app.state.boss_mcp_transport = AuthenticatedMCP(None, backend, admin_app=app)
+    app.mount('/mcp/admin', app.state.boss_mcp_transport, name='boss-mcp')
     app.state.mcp_transport = AuthenticatedMCP(None, backend)
     app.mount('/mcp', app.state.mcp_transport, name='mcp')
 
 
 @asynccontextmanager
 async def lifespan(app, backend):
+    from .mcp_admin import create_server as create_boss_server
     server = create_server(app, backend)
+    boss = create_boss_server(app, backend)
     app.state.mcp_transport.app = server.streamable_http_app()
+    app.state.boss_mcp_transport.app = boss.streamable_http_app()
     try:
-        async with server.session_manager.run():
+        async with AsyncExitStack() as stack:
+            await stack.enter_async_context(server.session_manager.run())
+            await stack.enter_async_context(boss.session_manager.run())
             yield
     finally:
         app.state.mcp_transport.app = None
+        app.state.boss_mcp_transport.app = None

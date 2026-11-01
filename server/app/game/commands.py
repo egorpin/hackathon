@@ -49,6 +49,26 @@ def authorize(context, state):
     return player
 
 
+def restart_world(state, planet):
+    players, claims, pools = {}, {}, {}
+    for (user_id, old), cell in zip(state.players.items(), planet.landing_sites):
+        players[user_id] = Player(user_id, old.team_id, position=planet.cells[cell].center,
+                                  color=old.color, seq=old.seq)
+        claims[cell] = user_id
+        pool = pools.setdefault(old.team_id, dict.fromkeys(RESOURCES, 0))
+        for resource, amount in STARTING_RESOURCES.items():
+            pool[resource] += amount
+    state.players, state.landing_claims, state.team_storage = players, claims, pools
+    state.buildings, state.mountains = {}, []
+    state.rovers, state.rover_surveys, state.rover_points, state.rover_grants = {}, {}, {}, []
+    state.team_oxygen = dict.fromkeys(pools, 0)
+    state.oxygen_percent, state.stage, state.tick = 0.0, "lobby", 0
+    state.generation += 1
+    state.cell_overrides = {}
+    state.map_revision += 1
+    return {"generation": state.generation}
+
+
 def dispatch(context, kind, payload, state, planet):
     player = authorize(context, state)
     if kind == "landing.select":
@@ -64,21 +84,7 @@ def dispatch(context, kind, payload, state, planet):
     if kind == "world.restart":
         fields(payload)
         require(all(p.team_id == player.team_id for p in state.players.values()), "FORBIDDEN")
-        players, claims, pools = {}, {}, {}
-        for (user_id, old), cell in zip(state.players.items(), planet.landing_sites):
-            players[user_id] = Player(user_id, old.team_id, position=planet.cells[cell].center,
-                                      color=old.color, seq=old.seq)
-            claims[cell] = user_id
-            pool = pools.setdefault(old.team_id, dict.fromkeys(RESOURCES, 0))
-            for resource, amount in STARTING_RESOURCES.items():
-                pool[resource] += amount
-        state.players, state.landing_claims, state.team_storage = players, claims, pools
-        state.buildings, state.mountains = {}, []
-        state.rovers, state.rover_surveys, state.rover_points, state.rover_grants = {}, {}, {}, []
-        state.team_oxygen = dict.fromkeys(pools, 0)
-        state.oxygen_percent, state.stage, state.tick = 0.0, "lobby", 0
-        state.generation += 1
-        return {"generation": state.generation}
+        return restart_world(state, planet)
     if kind == "world.start":
         fields(payload)
         require(state.stage == "lobby", "ALREADY_STARTED")
