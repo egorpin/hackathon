@@ -4,7 +4,7 @@ import { aimedBuilding } from '../ui/interaction.js';
 export class Runtime {
   constructor(transport, scene, events) {
     this.transport = transport; this.scene = scene; this.events = events; this.cache = new WorldCache();
-    this.pendingCommands = new Map();
+    this.pendingCommands = new Map(); this.chunkOffers = new Map();
     this.unsubs = [
       events.on('performance', stats => { transport.performanceStats = stats; }),
       transport.on('lobby.state', state => { this.lobbyStage = state.stage; if(state.stage==='lobby'){scene.controls.clear();scene.select(null);scene.targetBuilding(null);events.emit('expedition.lobby');} }),
@@ -13,7 +13,8 @@ export class Runtime {
       this.cache.on('evict', key => {
         if (key.startsWith('chunk:')) {
           const id = key.slice(6); scene.unload(id);
-          if (transport.ready && !this.serverUnloading) transport.command('chunk.release',{ chunk_id: id, offer_id: this.chunkOffers?.get(id) });
+          if (transport.ready && !this.serverUnloading) transport.command('chunk.release',{ chunk_id: id, offer_id: this.chunkOffers.get(id) });
+          this.chunkOffers.delete(id);
         }
       }),
       transport.on('world.offer', offer => this.stateOffer(offer)),
@@ -27,7 +28,7 @@ export class Runtime {
       }),
       transport.on('status', status => {
         scene.enabled = status === 'connected' && !!this.state; scene.controls.clear();
-        if (['connecting', 'reconnecting', 'unauthorized'].includes(status)) { this.cache.reset(); this.state = null; scene.reset(); } events.emit('connection.status',status);
+        if (['connecting', 'reconnecting', 'unauthorized'].includes(status)) { this.cache.reset(); this.chunkOffers.clear(); this.state = null; scene.reset(); } events.emit('connection.status',status);
       }),
       transport.on('error', error => events.emit('notice',error)),
       transport.on('message', message => {
@@ -120,9 +121,9 @@ export class Runtime {
     if (typeof chunk_id !== 'string') return this.fail('Некорректный chunk.offer');
     const key='chunk:'+chunk_id;
     if (this.cache.entries.has(key)) return;
-    (this.chunkOffers ||= new Map()).set(chunk_id, offer_id);
+    this.chunkOffers.set(chunk_id, offer_id);
     if (this.cache.reserve(key,byte_size,{distance})) this.command('chunk.request',{chunk_id,offer_id});
-    else this.command('chunk.release',{chunk_id,offer_id});
+    else { this.chunkOffers.delete(chunk_id); this.command('chunk.release',{chunk_id,offer_id}); }
   }
   load(chunk) {
     const key='chunk:'+chunk.chunk_id;
@@ -140,7 +141,7 @@ export class Runtime {
     if (!allowed.has(type)) { this.events.emit('notice','Неизвестная клиентская команда'); return; }
     try {
       const requestId=this.transport.command(type,payload);
-      if(requestId)this.pendingCommands.set(requestId,{type,payload});
+      if(requestId && !type.startsWith('chunk.'))this.pendingCommands.set(requestId,{type,payload});
       return requestId;
     }
     catch (error) { this.events.emit('notice',error.message); }

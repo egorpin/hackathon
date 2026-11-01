@@ -80,11 +80,12 @@ async function ready(address){
     });
     const waitAssets=async()=>{
       const expected=await page.evaluate(async()=>{
-        const manifest=await (await fetch('/assets/models/manifest.json',{cache:'no-store'})).json();
-        const {MODEL_NAMES}=await import('/src/scene/model-library.js');
-        return MODEL_NAMES.filter(name=>manifest.approved?.includes(name));
+        window.qa.scene.syncModels();
+        const pending=[...window.qa.scene.modelRequests.keys()];
+        const loaded=[...window.qa.scene.models.assets.keys()];
+        return [...new Set([...pending,...loaded])];
       });
-      assert.ok(expected.length>0,'manifest must approve at least one model');
+      assert.ok(expected.includes('astronaut'),'active scene must request astronaut');
       try {
         await page.waitForFunction(names=>names.every(name=>window.qa.scene.models.assets.has(name)),expected,{timeout:30000});
       } catch(error) {
@@ -154,7 +155,7 @@ async function ready(address){
     }
     cold.maxMissingRun=maxMissingRun;
     assert.ok(maxMissingRun<=3,`local streamed ground missing for ${maxMissingRun} consecutive samples`);
-    assert.ok(!cold.notices.some(n=>/отклон|ошиб|resync/i.test(n)),`streaming notices: ${cold.notices.join('; ')}`);
+    assert.ok(!cold.notices.some(n=>/отклон|ошиб|resync|модел.*недоступ/i.test(n)),`streaming notices: ${cold.notices.join('; ')}`);
     assert.ok(!cold.closes.some(c=>c.code===4000),`unexpected resync: ${JSON.stringify(cold.closes)}`);
     assert.ok(cold.samples.some(s=>s.altitude>.05),'test player must actually jump');
     console.log('[4/5] Warm reload and model verification');
@@ -168,12 +169,13 @@ async function ready(address){
       });
       return {assets,cache:scene.models.cache?.stats,notices:window.qa.notices,resources:performance.getEntriesByType('resource').filter(e=>/\.glb(?:\?|$)/.test(e.name)).map(e=>({name:e.name,transferSize:e.transferSize,encodedBodySize:e.encodedBodySize,decodedBodySize:e.decodedBodySize}))};
     });
-    assert.deepEqual(warm.assets.map(a=>a.name).sort(),cold.assets.map(a=>a.name).sort(),'all cold models must load after reload');
+    const coldNames=new Set(cold.assets.map(a=>a.name));
+    assert.ok(warm.assets.every(a=>coldNames.has(a.name)),'reload only needs models for the current area');
     assert.ok(warm.assets.every(a=>a.meshes>0 && a.cloneUsable),'models must be usable after reload');
-    assert.deepEqual(warm.assets.map(({name,textures})=>({name,textures})).sort((a,b)=>a.name.localeCompare(b.name)),cold.assets.sort((a,b)=>a.name.localeCompare(b.name)),'texture references must survive reload');
+    assert.deepEqual(warm.assets.map(({name,textures})=>({name,textures})).sort((a,b)=>a.name.localeCompare(b.name)),cold.assets.filter(a=>warm.assets.some(w=>w.name===a.name)).sort((a,b)=>a.name.localeCompare(b.name)),'texture references must survive reload');
     assert.ok(warm.cache?.hits>=warm.assets.length && warm.cache?.misses===0,`expected persistent model cache hits: ${JSON.stringify(warm.cache)}`);
     assert.equal(responses.filter(r=>r.phase==='warm').length,0,'warm reload must not request GLBs');
-    assert.ok(!warm.notices.some(n=>/модели недоступны/i.test(n)),'model parse/load failure');
+    assert.ok(!warm.notices.some(n=>/модел.*недоступ/i.test(n)),'model parse/load failure');
     // Render the actual scene's crater branch in isolation; reuse a streamed tile's
     // world coordinates, since real inactive pentagons may be outside interest.
     await page.evaluate(async()=>{

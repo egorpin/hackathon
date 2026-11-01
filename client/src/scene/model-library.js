@@ -62,42 +62,77 @@ export function recolor(root, color) {
   });
 }
 export class ModelLibrary {
-  constructor() { this.assets = new Map(); this.loader = new GLTFLoader(); this.cache = new ModelCache(); this.disposed=false; this.loading=null; }
-  load(onLoad) {
-    if (!this.loading) this.loading = this.loadAssets(onLoad).finally(() => { this.loading = null; });
-    return this.loading;
+  constructor() {
+    this.assets = new Map(); this.loader = new GLTFLoader(); this.cache = new ModelCache();
+    this.disposed = false; this.loading = null; this.manifest = null;
+    this.requests = new Map(); this.unusedSince = new Map();
   }
-  async loadAssets(onLoad) {
-    const response = await fetch('/assets/models/manifest.json', {cache:'no-cache'});
-    if(!response.ok)return;
-    const manifest=await response.json();
-    const approved=MODEL_NAMES.filter(name=>manifest.approved?.includes(name));
-    const results = await Promise.allSettled(approved.map(async name => {
-      if (this.assets.has(name) || this.disposed) return;
-      const revision = manifest.versions?.[name] || manifest.revision;
-      let asset;
-      try {
-        const bytes = await this.cache.get(name, revision);
-        asset = await this.loader.parseAsync(bytes, '/assets/models/');
-      } catch (error) {
-        const removed = await this.cache.invalidate(name, revision);
-        if (!removed) throw error;
-        const bytes = await this.cache.get(name, revision);
-        try { asset = await this.loader.parseAsync(bytes, '/assets/models/'); }
-        catch (retryError) { await this.cache.invalidate(name, revision); throw retryError; }
-      }
-      if(this.disposed) { this.release(asset); return; }
-      if(name==='astronaut')reverseJumpLegMotion(asset.scene,asset.animations);
-      if(name==='drill')prepareDrillParts(asset.scene);
-      if(name==='oxygen_generator')asset.scene.traverse(node=>{if(node.isMesh)node.name='OxygenHousing';});
-      this.assets.set(name,asset); onLoad?.(name);
+  async readManifest() {
+    if (!this.manifest) this.manifest = fetch('/assets/models/manifest.json', {cache:'no-cache'})
+      .then(response => { if (!response.ok) throw new Error('Model manifest unavailable'); return response.json(); })
+      .catch(error => { this.manifest = null; throw error; });
+    return this.manifest;
+  }
+  // Explicit full-library loading is retained for model review pages.
+  load(onLoad, names = MODEL_NAMES) {
+    const loading = this.loadAssets(onLoad, names);
+    this.loading = loading;
+    return loading.finally(() => { if (this.loading === loading) this.loading = null; });
+  }
+  async loadAssets(onLoad, names) {
+    const results = await Promise.allSettled(names.map(async name => {
+      if (this.assets.has(name)) return;
+      const asset = await this.ensure(name);
+      if (asset) onLoad?.(name);
     }));
     const failures = results.filter(result => result.status === 'rejected');
-    if(failures.length) throw new AggregateError(failures.map(result=>result.reason),'Model loading failed');
+    if (failures.length) throw new AggregateError(failures.map(result=>result.reason),'Model loading failed');
+  }
+  ensure(name) {
+    if (!MODEL_NAMES.includes(name) || this.disposed) return Promise.resolve(null);
+    if (this.assets.has(name)) return Promise.resolve(this.assets.get(name));
+    if (!this.requests.has(name)) {
+      const request = this.loadModel(name).finally(() => this.requests.delete(name));
+      this.requests.set(name, request);
+    }
+    return this.requests.get(name);
+  }
+  async loadModel(name) {
+    const manifest = await this.readManifest();
+    if (this.disposed || !manifest.approved?.includes(name)) return null;
+    const revision = manifest.versions?.[name] || manifest.revision;
+    let asset;
+    try {
+      const bytes = await this.cache.get(name, revision);
+      asset = await this.loader.parseAsync(bytes, '/assets/models/');
+    } catch (error) {
+      const removed = await this.cache.invalidate(name, revision);
+      if (!removed) throw error;
+      const bytes = await this.cache.get(name, revision);
+      try { asset = await this.loader.parseAsync(bytes, '/assets/models/'); }
+      catch (retryError) { await this.cache.invalidate(name, revision); throw retryError; }
+    }
+    if (this.disposed) { this.release(asset); return null; }
+    if (name === 'astronaut') reverseJumpLegMotion(asset.scene,asset.animations);
+    if (name === 'drill') prepareDrillParts(asset.scene);
+    if (name === 'oxygen_generator') asset.scene.traverse(node=>{if(node.isMesh)node.name='OxygenHousing';});
+    this.assets.set(name,asset);
+    return asset;
+  }
+  // Callers must include every live instance, including hidden previews and hands.
+  // Only decoded resources expire; bounded raw GLB caches remain reusable.
+  prune(required, now = performance.now(), graceMs = 30000) {
+    for (const [name, asset] of this.assets) {
+      if (required.has(name)) { this.unusedSince.delete(name); continue; }
+      if (!this.unusedSince.has(name)) this.unusedSince.set(name, now);
+      if (now - this.unusedSince.get(name) < graceMs) continue;
+      this.release(asset); this.assets.delete(name); this.unusedSince.delete(name);
+    }
   }
   create(name,color) {
     const asset = this.assets.get(name); if (!asset) return null;
     const root = clone(asset.scene);
+    root.userData.modelAsset = name;
     const materialCopies = new Map();
     root.traverse(node => {
       node.userData.sharedAsset = true;
@@ -149,5 +184,5 @@ export class ModelLibrary {
     }
     bitmaps.forEach(bitmap => bitmap.close());
   }
-  dispose(){ this.disposed=true; this.cache.clearMemory(); this.assets.forEach(asset=>this.release(asset));this.assets.clear(); }
+  dispose(){ this.disposed=true; this.cache.clearMemory(); this.assets.forEach(asset=>this.release(asset));this.assets.clear(); this.unusedSince.clear(); }
 }

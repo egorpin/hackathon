@@ -154,3 +154,27 @@ test('telemetry answers server ping without waiting for a world snapshot',()=>{
  assert.deepEqual(c.socket.sent,[{type:'telemetry.pong',payload:{nonce:'unique-probe'}}]);
  assert.equal(c.pending.size,0);c.close();
 });
+
+
+test('remote position buffer bounds burst packets and discards old movement',()=>{
+ const track=new PlayerTrack();
+ for(let i=0;i<1000;i++)track.push({position:[0,100,i/1000]},i);
+ assert.ok(track.samples.length<=8);
+ track.push({position:[0,100,1]},5000);
+ assert.equal(track.samples.length,2);
+ assert.equal(track.samples.at(-1).time,5000);
+});
+
+test('chunk bookkeeping is released with active data and never enters command history',async()=>{
+ const {Runtime}=await import('../src/net/runtime.js'); const {Events}=await import('../src/net/events.js');
+ const transport=new Events(),sent=[];transport.ready=true;
+ transport.command=(type,payload)=>{sent.push({type,payload});return 'chunk-request';};
+ const runtime=new Runtime(transport,{unload(){}},new Events());runtime.cache.reset(10000);
+ runtime.offer({chunk_id:'a',byte_size:20,offer_id:3});
+ assert.equal(runtime.pendingCommands.size,0);assert.equal(runtime.chunkOffers.size,1);
+ transport.emit('chunk.unload',{chunk_id:'a'});
+ assert.equal(runtime.chunkOffers.size,0);assert.equal(runtime.cache.used,0);
+ assert.equal(sent.length,1,'server unload does not echo release');
+ runtime.offer({chunk_id:'huge',byte_size:1001,offer_id:4});
+ assert.equal(runtime.chunkOffers.size,0);assert.equal(sent.at(-1).type,'chunk.release');
+});

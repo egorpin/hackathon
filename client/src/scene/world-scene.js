@@ -61,7 +61,7 @@ export class WorldScene {
     this.hands = new FirstPersonHands(this.camera);
     this.models = new ModelLibrary();
     this.resourceLabelTextures = new ResourceLabelTextures();
-    this.models.load(name=>this.modelLoaded(name)).catch(()=>this.events.emit('notice','Модели недоступны; используются временные формы.'));
+    this.modelRequests = new Map(); this.modelRetryAt = new Map();
     this.frameTimes=[]; this.cameraBob=true;
     this.cellsById = new Map(); this.chunks = new Map(); this.players = new Map(); this.buildings = new Map(); this.rovers = new Map();
     this.position = new THREE.Vector3(0,100,0); this.heading = new THREE.Vector3(0,0,-1);
@@ -78,9 +78,10 @@ export class WorldScene {
       events.on('camera.zoom', delta => { if(this.mode==='top')this.orbitZoom=THREE.MathUtils.clamp(this.orbitZoom*Math.exp(delta*.65),.18,8); }),
       events.on('camera.orbit', ({x,y}) => {
         if(this.mode!=='top')return;
+        const sensitivity=THREE.MathUtils.clamp(.3*Math.sqrt(this.orbitZoom),.1,.6);
         const right=new THREE.Vector3(1,0,0).applyQuaternion(this.camera.quaternion);
-        const turn=new THREE.Quaternion().setFromAxisAngle(this.camera.up.clone().normalize(),x);
-        turn.multiply(new THREE.Quaternion().setFromAxisAngle(right,y));
+        const turn=new THREE.Quaternion().setFromAxisAngle(this.camera.up.clone().normalize(),-x*sensitivity);
+        turn.multiply(new THREE.Quaternion().setFromAxisAngle(right,-y*sensitivity));
         this.orbitRotation.premultiply(turn).normalize();
       }),
       events.on('scene.click', e => {
@@ -258,6 +259,28 @@ export class WorldScene {
   }
   setVisualOptions(patch) {
     this.visualOptions = updateVisualOptions(this.visualOptions, patch);
+  }
+  syncModels(now = performance.now()) {
+    const required = new Set();
+    // The hands own an astronaut clone even outside the active expedition.
+    if (this.enabled || this.models.assets.has('astronaut')) required.add('astronaut');
+    if (this.enabled && this.stage === 'running' || this.robots) required.add('robot_minion');
+    if (this.buildType) required.add(this.buildType === 'warehouse' ? 'storage' : this.buildType);
+    for (const entry of this.buildings.values()) required.add(entry.data.building_type === 'warehouse' ? 'storage' : entry.data.building_type);
+    if (this.rovers.size) required.add('rover');
+    this.scene.traverse(object => { if (object.userData.modelAsset) required.add(object.userData.modelAsset); });
+    this.models.prune(required, now);
+    for (const name of required) {
+      if (this.models.assets.has(name) || this.modelRequests.has(name) || now < (this.modelRetryAt.get(name) || 0)) continue;
+      const request = this.models.ensure(name).then(asset => {
+        if (asset && !this.models.disposed) this.modelLoaded(name);
+        if (!asset) this.modelRetryAt.set(name, Infinity);
+      }).catch(() => {
+        this.modelRetryAt.set(name, performance.now() + 10000);
+        this.events.emit('notice','Модель недоступна; используется временная форма.');
+      }).finally(() => this.modelRequests.delete(name));
+      this.modelRequests.set(name, request);
+    }
   }
   modelLoaded(name) {
     if(name==='robot_minion'){this.robots?.dispose();this.robots=null;return;}
@@ -701,6 +724,7 @@ export class WorldScene {
         else this.select(this.selected);
       }
     }
+    if (now - (this.lastModelSync ?? -Infinity) >= 500) { this.lastModelSync = now; this.syncModels(now); }
     this.renderer.render(this.scene,this.camera);
     this.renderRoverPreview(now);
     this.frames++;

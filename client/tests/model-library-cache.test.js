@@ -46,3 +46,57 @@ test('per-model content version takes precedence over the legacy manifest revisi
    assert.deepEqual(calls,[['storage','content-hash']]); library.dispose();
  }finally{globalThis.fetch=original;}
 });
+
+
+test('demand loading shares one manifest and decode without downloading unrelated models',async()=>{
+ const original=globalThis.fetch; let manifests=0;
+ globalThis.fetch=async()=>{manifests++;return new Response(JSON.stringify({approved:['storage','rover'],revision:'1'}));};
+ try {
+  const library=new ModelLibrary(), downloads=[]; let decodes=0;
+  library.cache.get=async name=>{downloads.push(name);return new ArrayBuffer(12);};
+  library.loader.parseAsync=async()=>{decodes++;return {scene:new THREE.Group(),animations:[]};};
+  const [a,b]=await Promise.all([library.ensure('storage'),library.ensure('storage')]);
+  assert.equal(a,b); assert.equal(manifests,1); assert.equal(decodes,1);
+  assert.deepEqual(downloads,['storage']); assert.equal(library.assets.has('rover'),false);
+  await library.ensure('not-a-model'); assert.deepEqual(downloads,['storage']);
+  await library.ensure('rover'); assert.equal(manifests,1); library.dispose();
+ } finally {globalThis.fetch=original;}
+});
+
+test('unused decoded assets expire after grace and can be decoded again from raw cache',async()=>{
+ const original=globalThis.fetch;
+ globalThis.fetch=async()=>new Response(JSON.stringify({approved:['rover'],revision:'1'}));
+ try {
+  const library=new ModelLibrary(); let releases=0,decodes=0;
+  library.cache.get=async()=>new ArrayBuffer(12);
+  library.loader.parseAsync=async()=>{
+   decodes++; const geometry=new THREE.BoxGeometry();geometry.addEventListener('dispose',()=>releases++);
+   return {scene:new THREE.Mesh(geometry,new THREE.MeshBasicMaterial()),animations:[]};
+  };
+  await library.ensure('rover');
+  library.prune(new Set(),0);library.prune(new Set(),29999);assert.equal(releases,0);
+  library.prune(new Set(['rover']),30000); // becoming active cancels expiry
+  library.prune(new Set(),40000);library.prune(new Set(),70000);
+  assert.equal(releases,1);assert.equal(library.assets.size,0);
+  await library.ensure('rover'); assert.equal(decodes,2);library.dispose();
+ } finally {globalThis.fetch=original;}
+});
+
+
+test('scene demand protects live hidden instances and requests only current object types',async()=>{
+ const {WorldScene}=await import('../src/scene/world-scene.js');
+ const library=new ModelLibrary(); const requested=[]; let pinned;
+ library.ensure=async name=>{requested.push(name);return null;};
+ library.prune=required=>{pinned=new Set(required);};
+ const scene=new THREE.Scene(), hiddenPreview=new THREE.Group();
+ hiddenPreview.visible=false; hiddenPreview.userData.modelAsset='drill';scene.add(hiddenPreview);
+ const state={models:library,scene,enabled:true,stage:'lobby',buildType:'warehouse',
+  modelRequests:new Map(),modelRetryAt:new Map(),buildings:new Map(),rovers:new Map(),
+  events:{emit(){}},modelLoaded(){throw Error('unexpected asset');}};
+ WorldScene.prototype.syncModels.call(state,1000);
+ await Promise.all(state.modelRequests.values());
+ assert.deepEqual(requested.sort(),['astronaut','drill','storage']);
+ assert.equal(pinned.has('drill'),true,'hidden instances still own shared resources');
+ assert.equal(pinned.has('rover'),false);
+ library.dispose();
+});
