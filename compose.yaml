@@ -10,6 +10,7 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app", "--ws-max-size", "4096"]
     environment:
       DATA_DIR: /data
+      MARS_ADMIN_TOKEN: ${MARS_ADMIN_TOKEN:-}
       MARS_ALLOWED_ORIGINS: ${MARS_ALLOWED_ORIGINS:-http://localhost:${MARS_PORT:-8000},http://127.0.0.1:${MARS_PORT:-8000}}
       MARS_SECURE_COOKIE: ${MARS_SECURE_COOKIE:-false}
       MARS_PLANET_RADIUS: ${MARS_PLANET_RADIUS:-30}

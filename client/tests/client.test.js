@@ -145,3 +145,10 @@ test('server errors emit readable text once, preserving the raw message separate
  assert.deepEqual(errors,['World is full']);
  assert.deepEqual(messages,[message]);assert.equal(c.ready,false);assert.equal(c.worldUnavailableReason,'World is full');c.close();
 });
+
+test('telemetry answers server ping without waiting for a world snapshot',()=>{
+ const c=new GameClient({url:'ws://test/ws',WebSocketClass:Socket});c.connect();
+ c.receive({type:'telemetry.ping',payload:{nonce:'unique-probe'}});
+ assert.deepEqual(c.socket.sent,[{type:'telemetry.pong',payload:{nonce:'unique-probe'}}]);
+ assert.equal(c.pending.size,0);c.close();
+});

@@ -98,6 +98,10 @@ class WorldState:
     team_storage: dict[str, dict] = field(default_factory=dict)
     team_oxygen: dict[str, int] = field(default_factory=dict)  # Legacy saves only.
     oxygen_percent: float = 0.0
+    admin_paused: bool = False
+    admin_version: int = 0
+    admin_characters: list = field(default_factory=list)
+    admin_active_character: str = "expedition"
     economy_version: int = 2
     # Request keys are user_id + ':' + canonical UUID within this world.
     command_results: dict[str, dict] = field(default_factory=dict)

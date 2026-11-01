@@ -13,6 +13,7 @@ export class GameClient extends Events {
   }
   connect() {
     clearTimeout(this.timer);
+    clearInterval(this.telemetryTimer);
     this.worldUnavailableReason = null;
     const previous = this.socket;
     this.socket = null;
@@ -21,7 +22,17 @@ export class GameClient extends Events {
     this.stopped = false; this.ready = false;
     this.emit('status', 'connecting');
     const socket = this.socket = new this.Socket(this.url);
-    socket.onopen = () => { this.emit('status', 'syncing'); };
+    socket.onopen = () => {
+      this.emit('status', 'syncing');
+      this.telemetryTimer = setInterval(() => {
+        const stats = this.performanceStats || {};
+        this.send({type: 'telemetry.report', payload: {
+          fps: stats.fps ?? null, frameP95: stats.frameP95 ?? null,
+          drawCalls: stats.drawCalls ?? null, triangles: stats.triangles ?? null,
+          hidden: globalThis.document?.hidden ?? false,
+        }});
+      }, 2000);
+    };
     socket.onmessage = ({ data }) => {
       if (socket !== this.socket) return;
       try { this.receive(JSON.parse(data)); }
@@ -30,6 +41,7 @@ export class GameClient extends Events {
     socket.onerror = () => this.emit('error', 'Соединение WebSocket недоступно.');
     socket.onclose = ({ code }) => {
       if (socket !== this.socket) return;
+      clearInterval(this.telemetryTimer);
       this.ready = false; this.revision = null;
       if (this.stopped) return;
       if (code === 4401 || code === 4403 || code === 1008) {
@@ -47,6 +59,9 @@ export class GameClient extends Events {
   receive(message) {
     const { type, payload, revision, request_id } = message;
     if (typeof type !== 'string' || !payload) throw new Error('Некорректное сообщение сервера');
+    if (type === 'telemetry.ping') {
+      this.send({type: 'telemetry.pong', payload: {nonce: payload.nonce}}); return;
+    }
     if (type === 'session.ready') {
       if (!['user_id','world_id','team_id'].every(key => typeof payload[key] === 'string')) {
         throw new Error('Сервер вернул некорректную сессию');
@@ -119,7 +134,7 @@ export class GameClient extends Events {
   }
   close() {
     this.stopped = true; this.ready = false;
-    clearTimeout(this.timer); this.socket?.close(); this.pending.clear();
+    clearTimeout(this.timer); clearInterval(this.telemetryTimer); this.socket?.close(); this.pending.clear();
   }
 }
 function uuid() {

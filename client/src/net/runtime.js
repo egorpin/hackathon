@@ -5,6 +5,7 @@ export class Runtime {
   constructor(transport, scene, events) {
     this.transport = transport; this.scene = scene; this.events = events; this.cache = new WorldCache();
     this.unsubs = [
+      events.on('performance', stats => { transport.performanceStats = stats; }),
       transport.on('lobby.state', state => { this.lobbyStage = state.stage; if(state.stage==='lobby'){scene.controls.clear();scene.select(null);scene.targetBuilding(null);events.emit('expedition.lobby');} }),
       transport.on('session.ready', () => transport.send({type:'world.subscribe',payload:{}})),
       this.cache.on('stats', stats => events.emit('cache.stats', stats)),

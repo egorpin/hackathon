@@ -26,9 +26,11 @@ E открывает постройку и позволяет снести её
 def complete(history, text, context):
     endpoint = os.environ.get('MARS_AI_URL', 'http://host.docker.internal:11435').rstrip('/')
     model = os.environ.get('MARS_AI_MODEL', 'qwen3.5:27b-q4_K_M')
+    context = dict(context)
+    character = context.pop('_character', {})
     body = {'model': model, 'stream': False, 'think': False, 'keep_alive': '10m',
-            'options': {'num_ctx': 8192, 'num_predict': 512, 'temperature': .4},
-            'messages': [{'role': 'system', 'content': SYSTEM},
+            'options': {'num_ctx': 8192, 'num_predict': 512, 'temperature': character.get('temperature', .4)},
+            'messages': [{'role': 'system', 'content': character.get('prompt', SYSTEM)},
                          {'role': 'system', 'content': 'Текущее состояние игры: ' + json.dumps(context, ensure_ascii=False)},
                          *[{'role': row['role'], 'content': row['text']} for row in history[-12:]],
                          {'role': 'user', 'content': text}]}
@@ -42,10 +44,10 @@ def complete(history, text, context):
     return answer[:12000]
 
 
-def history(db, identity):
+def history(db, identity, agent_id='expedition'):
     with db.connect() as connection:
         rows = connection.execute(
             'SELECT role,text FROM agent_messages WHERE world_id=? AND user_id=? AND agent_id=? '
             'ORDER BY rowid DESC LIMIT 40',
-            (identity['world_id'], identity['user_id'], 'expedition')).fetchall()
+            (identity['world_id'], identity['user_id'], agent_id)).fetchall()
     return [dict(row) for row in reversed(rows)]
