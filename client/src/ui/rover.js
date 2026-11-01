@@ -98,13 +98,23 @@ export class RoverUI {
   q(s){return this.panel.querySelector(s);}
   command(type,payload){this.events.emit('command',{type,payload});}
   feedback(text){this.q('[data-feedback]').textContent=text;}
-  chatMessage(role,text=''){
+  chatHistory(){
     const log=this.q('[data-chat-log]');
-    if(log.querySelector('.rv-chat-empty'))log.replaceChildren();
+    let history=log.querySelector('.rv-chat-history');
+    if(!history){
+      log.replaceChildren();
+      history=document.createElement('div');history.className='rv-chat-history';
+      log.append(history);
+    }
+    return history;
+  }
+  scrollChat(){const history=this.chatHistory();history.scrollTop=history.scrollHeight;}
+  chatMessage(role,text=''){
+    const history=this.chatHistory();
     const item=document.createElement('div');item.className=`rv-chat-message ${role}`;
     const name=document.createElement('b');name.textContent=role==='user'?'Вы':'Кодяш';
     const body=document.createElement('div');body.className='rv-chat-body';this.renderChatBody(body,text);
-    item.append(name,body);log.append(item);log.scrollTop=log.scrollHeight;
+    item.append(name,body);history.append(item);this.scrollChat();
     if(role==='assistant'&&text)this.attachProgramActions(item,text);
     return {item,body};
   }
@@ -125,22 +135,23 @@ export class RoverUI {
     const max=this.state?.config?.rover?.program_max_bytes||512;
     if(new TextEncoder().encode(program).length>max)return;
     const actions=document.createElement('div');actions.className='rv-chat-actions';
-    const write=document.createElement('button');write.type='button';write.textContent='Записать в файл';
-    const run=document.createElement('button');run.type='button';run.textContent='Записать и запустить';run.disabled=!this.selected;
-    write.addEventListener('click',()=>{this.applyKodyashProgram(program,false);write.disabled=true;},{signal:this.abort.signal});
-    run.addEventListener('click',()=>{this.applyKodyashProgram(program,true);write.disabled=true;run.disabled=true;},{signal:this.abort.signal});
+    const write=document.createElement('button');write.type='button';write.textContent='Записать в текущий файл';
+    const run=document.createElement('button');run.type='button';run.textContent='Записать и запустить';
+    write.addEventListener('click',()=>{if(this.applyKodyashProgram(program,false))write.disabled=true;},{signal:this.abort.signal});
+    run.addEventListener('click',()=>{if(this.applyKodyashProgram(program,true)){write.disabled=true;run.disabled=true;}},{signal:this.abort.signal});
     actions.append(write,run);item.append(actions);
   }
   applyKodyashProgram(program,run){
-    this.persistLocal();let index=1,name='kodyash_route_1.txt';
-    while(this.localFiles.files.some(file=>file.name===name)){index++;name=`kodyash_route_${index}.txt`;}
-    const file={id:crypto.randomUUID(),folder:this.localFolder||'Программы',name,code:program+'\n'};
-    this.localFiles.files.push(file);this.openLocal(file.id);
-    this.feedback(`Кодяш записал программу в ${name}.`);
+    const file=this.localFiles.files.find(entry=>entry.id===this.localSelected);
+    if(!file||file.readOnly){this.feedback('Откройте редактируемый файл, чтобы записать программу Кодяша.');return false;}
+    const code=program.trim()+'\n';
+    file.code=code;this.q('[data-program]').value=code;this.persistLocal();this.paint();this.renderControls();
+    this.feedback(`Кодяш записал программу в ${file.name}.`);
     if(run){
-      if(!this.selected){this.feedback('Программа записана. Выберите ровер для запуска.');return;}
+      if(!this.selected){this.feedback('Программа записана. Выберите ровер для запуска.');return true;}
       this.sendProgram(true);
     }
+    return true;
   }
   async loadKodyash(){
     if(this.chatLoaded||this.chatLoading)return;
@@ -170,7 +181,7 @@ export class RoverUI {
           program:this.q('[data-program]').value.slice(0,2000),event,error_code:errorCode,error_line:errorLine})});
       if(!response.ok){const data=await response.json().catch(()=>({}));throw Error(data.detail||'Кодяш не смог ответить.');}
       const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',answer='',scheduled=false;
-      const draw=()=>{scheduled=false;body.textContent=answer||'…';this.q('[data-chat-log]').scrollTop=this.q('[data-chat-log]').scrollHeight;};
+      const draw=()=>{scheduled=false;body.textContent=answer||'…';this.scrollChat();};
       while(true){
         const {value,done}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});
         const lines=buffer.split('\n');buffer=done?'':lines.pop();
