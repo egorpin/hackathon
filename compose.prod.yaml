@@ -15,6 +15,8 @@ services:
       MARS_PLANET_SUBDIVISIONS: ${MARS_PLANET_SUBDIVISIONS:-3}
       MARS_AI_URL: ${MARS_AI_URL:-http://host.docker.internal:11435}
       MARS_AI_MODEL: ${MARS_AI_MODEL:-qwen3.5:27b-q4_K_M}
+      MARS_AI_CONTEXT: ${MARS_AI_CONTEXT:-32768}
+      MARS_CONTENT_DIR: /app/content
     volumes:
       - mars-data:/data
     restart: unless-stopped
