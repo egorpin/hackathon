@@ -111,7 +111,7 @@ export class RoverUI {
   scrollChat(){const history=this.chatHistory();history.scrollTop=history.scrollHeight;}
   chatMessage(role,text=''){
     const history=this.chatHistory();
-    const item=document.createElement('div');item.className=`rv-chat-message ${role}`;
+    const item=document.createElement('div');item.className=`rv-chat-message is-${role}`;
     const name=document.createElement('b');name.textContent=role==='user'?'Вы':'Кодяш';
     const body=document.createElement('div');body.className='rv-chat-body';this.renderChatBody(body,text);
     item.append(name,body);history.append(item);this.scrollChat();
