@@ -17,6 +17,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSoc
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .storage import Database
+from .storage.buffered import BufferedGameWriter
 from .transport import GameService, Stream
 from .lobby import Lobby
 from .game import step
@@ -78,19 +79,26 @@ class Credentials(BaseModel):
 async def lifespan(app: FastAPI):
     db.initialize()
     admin.initialize(app, db.path.parent)
-    app.state.game = GameService(db)
+    game = GameService(db)
+    writer = BufferedGameWriter(db)
+    app.state.game_writer = writer
+    game.persist = writer.submit
+    app.state.game = game
     app.state.lobby = Lobby(app.state.game)
     task = asyncio.create_task(game_loop())
     try:
         yield
     finally:
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
-        for socket in list(connections):
-            with suppress(RuntimeError):
-                await socket.close(code=1001)
-        connections.clear()
+        try:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            for socket in list(connections):
+                with suppress(RuntimeError):
+                    await socket.close(code=1001)
+            connections.clear()
+        finally:
+            await asyncio.to_thread(writer.close)
 
 
 async def game_loop():
@@ -418,7 +426,7 @@ async def websocket_endpoint(socket: WebSocket):
                 await socket.send_json({"type": "action.result", "request_id": request_id,
                                         "payload": {"ok": False, "code": "INVALID_ARGUMENT"}})
                 continue
-            result, event = db.send_chat(identity, request_id, text)
+            result, event = app.state.game.send_chat(identity, request_id, text)
             await socket.send_json(result)
             if event:
                 await send_team(identity["world_id"], identity["team_id"], event)

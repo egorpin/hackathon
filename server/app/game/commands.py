@@ -280,9 +280,9 @@ def result(request_id, revision, ok, **payload):
 
 
 def apply_command(context: Context, command, unit_of_work: UnitOfWork):
-    """Return a result only after commit; persistence failures propagate.
+    """Return a result after publication; persist-adapter failures propagate.
 
-    Significant requests and their results are committed together. Replays have
+    Significant requests and their results are published together. Replays have
     no mutation or revision increment. The caller must derive recipient-specific
     snapshots after commit, rather than broadcast this private state wholesale.
     """

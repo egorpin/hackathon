@@ -45,6 +45,7 @@ def test_access_and_world_persistence(client):
     assert client.put(path, headers=HEADERS, json=invalid).status_code == 422
     assert client.put(path, headers=HEADERS, json=payload).status_code == 200
     assert client.put(path, headers=HEADERS, json=payload).status_code == 409
+    main.app.state.game_writer.flush()
     restored = WorldState.from_dict(main.db.load_game(identity['world_id']))
     assert restored.admin_paused and restored.oxygen_percent == 42
     assert restored.admin_characters[0]['prompt'] == 'Ты — геолог.'
