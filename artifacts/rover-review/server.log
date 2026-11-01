@@ -1,0 +1,31 @@
+INFO:     Started server process [3572]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:18207 (Press CTRL+C to quit)
+INFO:     127.0.0.1:26154 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47988 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47988 - "GET /assets/main-qLTMusYD.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4624 - "GET /assets/GLTFLoader-COMHKkxe.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:17269 - "GET /assets/building-foundation-tSOcdJH3.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1965 - "GET /assets/model-library-CIrEJ465.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53974 - "GET /assets/first-person-hands-BQJ3iB40.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36090 - "GET /assets/main-B3sFnfoj.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4624 - "GET /assets/models/manifest.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4624 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:4624 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:4624 - "GET /assets/models/astronaut.glb?v=rover-clean-v14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53974 - "GET /assets/models/oxygen_generator.glb?v=rover-clean-v14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36090 - "GET /assets/models/dome_base.glb?v=rover-clean-v14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47988 - "GET /assets/models/drill.glb?v=rover-clean-v14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1965 - "GET /assets/models/storage.glb?v=rover-clean-v14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:17269 - "GET /assets/models/rover.glb?v=rover-clean-v14 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1965 - "POST /api/auth/register HTTP/1.1" 201 Created
+INFO:     ('127.0.0.1', 51058) - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:1965 - "GET / HTTP/1.1" 304 Not Modified
+INFO:     connection closed
+INFO:     127.0.0.1:1965 - "GET /assets/models/manifest.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1965 - "GET /api/auth/me HTTP/1.1" 200 OK
+INFO:     ('127.0.0.1', 33806) - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     connection closed

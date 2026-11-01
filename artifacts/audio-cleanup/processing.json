@@ -1,0 +1,14 @@
+{
+  "date": "2026-11-01",
+  "source": "C:/Users/grigo/Downloads/_Смешарики__Монолог_пина_-_Зачем.mp3",
+  "server_project": "/home/stas/projects/audio-cleanup",
+  "method": "Demucs 4.0.1, htdemucs_ft vocals checkpoint 04573f0d, CUDA, 2 shifts, overlap 0.5",
+  "checkpoint_sha256": "f3cf25b222c4eed7cd49dd8b2c9597d50c18bd154090f7b919cfa5f93cf22c49",
+  "duration_seconds": 66.211723,
+  "gain_db_after_separation": 20,
+  "output_peak_dbfs": -2.0,
+  "wav": "pin-no-music.wav, stereo PCM16, 44100 Hz",
+  "mp3": "pin-no-music.mp3, stereo, 192 kbps",
+  "verification": "Full WAV decoded with ffmpeg; duration preserved; output is non-silent and below clipping. Whisper base recognized Russian speech throughout the recording; automated transcript contains errors and is not a verified transcript. Subjective listening not performed.",
+  "limitations": "Source separation may retain music leakage or affect voice timbre. Original source unchanged."
+}

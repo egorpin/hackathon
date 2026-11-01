@@ -1,0 +1,27 @@
+{
+  "source_cell": "cell-0162",
+  "depot_cell": "cell-0164",
+  "source": {
+    "latitude": 64.8093,
+    "longitude": 175.6287
+  },
+  "depot": {
+    "latitude": 61.5751,
+    "longitude": 167.9861
+  },
+  "ticks": 66,
+  "resource": "iron",
+  "initial_position": [
+    -14.587020577181617,
+    26.059754266528635,
+    -0.745915039570612
+  ],
+  "final_position": [
+    -13.929463786592613,
+    26.441945677405634,
+    2.882654754610318
+  ],
+  "storage_before": 40,
+  "storage_after": 43,
+  "peak_cargo": 3
+}
