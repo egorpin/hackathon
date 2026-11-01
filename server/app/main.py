@@ -22,7 +22,7 @@ from .storage.buffered import BufferedGameWriter
 from .transport import GameService, Stream
 from .lobby import Lobby
 from .game import step
-from . import agent, admin
+from . import agent, admin, mcp
 import sys
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
@@ -88,7 +88,8 @@ async def lifespan(app: FastAPI):
     app.state.lobby = Lobby(app.state.game)
     task = asyncio.create_task(game_loop())
     try:
-        yield
+        async with mcp.lifespan(app, sys.modules[__name__]):
+            yield
     finally:
         try:
             task.cancel()
@@ -499,6 +500,7 @@ async def websocket_endpoint(socket: WebSocket):
 
 
 admin.install(app, sys.modules[__name__])
+mcp.install(app, sys.modules[__name__])
 
 
 if STATIC_DIR.is_dir():

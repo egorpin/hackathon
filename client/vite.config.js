@@ -15,6 +15,7 @@ export default defineConfig({
   server: {
     fs: { allow: [fileURLToPath(new URL('.', import.meta.url))] },
     proxy: {
+      '/mcp': { target: backend },
       '/admin': { target: backend },
       '/api': { target: backend },
       '/ws': { target: backend, ws: true },

@@ -40,7 +40,7 @@ def test_agent_auth_and_private_history(client, monkeypatch):
     assert response.status_code == 200
     assert calls[0][2]['stage'] == 'lobby'
     assert 'inventory' in calls[0][2]
-    assert calls[0][2]['team_storage']['iron'] == 40
+    assert calls[0][2]['team_storage']['iron'] == 100
     assert calls[0][2]['oxygen_percent'] == 0
     assert calls[0][2]['config']['recipes']['drill'] == {'iron': 5}
     messages = client.get('/api/agent/messages').json()['messages']

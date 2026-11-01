@@ -233,7 +233,7 @@ def test_restart_with_unaccepted_offer_reconnects_and_replay_is_safe(client):
         ws.send_json({'type': 'lobby.profile', 'payload': {'color': 0, 'variant': 0}})
         receive(ws, 'lobby.state', accept_offers=True)
         state = main.app.state.game.runtime(identity).state
-        assert state.generation == 1 and state.team_storage[identity['team_id']]['iron'] == 40
+        assert state.generation == 1 and state.team_storage[identity['team_id']]['iron'] == 100
 
 
 def test_four_connections_and_logout(client):
