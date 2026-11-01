@@ -34,7 +34,7 @@ class EconomyTests(unittest.TestCase):
 
     def test_remove_refunds_paid_cost_and_stock_exactly_once(self):
         self.start()
-        for kind in RECIPES:
+        for kind in (kind for kind in RECIPES if kind != 'dome_base'):
             before = dict(self.world.state.team_storage['team-a'])
             building_id = self.build(kind)
             with self.world.transaction() as state:
@@ -47,7 +47,7 @@ class EconomyTests(unittest.TestCase):
             self.assertTrue(all(r == results[0] for r in results))
             before['copper'] += 3
             self.assertEqual(self.world.state.team_storage['team-a'], before)
-            self.assertEqual(self.world.state.buildings, {})
+            self.assertEqual([b.building_type for b in self.world.state.buildings.values()], ['dome_base'])
 
     def test_warehouse_capacity_and_overflow_refund(self):
         self.start()
@@ -99,14 +99,11 @@ class EconomyTests(unittest.TestCase):
         self.assertEqual(self.world.state.buildings[generator].stock['water'], 1)
         self.assertEqual(self.world.state.team_storage['team-a']['water'], 0)
 
-    def test_respawn_uses_base_then_landing_after_demolition(self):
+    def test_respawn_uses_protected_start_base(self):
         self.start()
-        base = self.build('dome_base')
+        base = next(b.building_id for b in self.world.state.buildings.values() if b.building_type == 'dome_base')
         self.assertEqual(self.ok(self.act('player.respawn'))['building_id'], base)
-        self.ok(self.interact('building.remove', building_id=base))
-        response = self.ok(self.act('player.respawn'))
-        self.assertIsNone(response['building_id'])
-        self.assertEqual(response['cell_id'], self.planet.landing_sites[0])
+        self.assertEqual(self.interact('building.remove', building_id=base)['payload']['code'], 'FORBIDDEN')
 
     def test_warehouse_supplies_only_adjacent_allied_generator_missing_water(self):
         self.start()

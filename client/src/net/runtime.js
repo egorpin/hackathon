@@ -28,11 +28,11 @@ export class Runtime {
         if (['connecting', 'reconnecting', 'unauthorized'].includes(status)) { this.cache.reset(); this.state = null; scene.reset(); } events.emit('connection.status',status);
       }),
       transport.on('error', error => events.emit('notice',error)),
-      transport.on('message', message => events.emit(message.type,message.payload)),
+      transport.on('message', message => { events.emit(message.type,message.payload); if(message.type==='action.result') events.emit('command.result',message); }),
       events.on('player.input', input => { if (this.state?.stage !== 'lobby' && (!transport.session || this.lobbyStage === 'running')) transport.input(input); }),
-      events.on('command', ({type,payload}) => this.command(type,payload)),
+      events.on('command', ({type,payload}) => { const requestId=this.command(type,payload); if(type.startsWith('rover.') && requestId) events.emit('rover.command.sent',{requestId,type}); }),
       events.on('build.request', () => {
-        if (!this.buildType) { events.emit('notice','Выберите постройку: 1–4 или кнопка внизу экрана.'); return; }
+        if (!this.buildType) { events.emit('notice','Выберите постройку: 1–3 или кнопка внизу экрана.'); return; }
         if (scene.selected && this.buildType === 'drill' && !MINABLE_RESOURCES.includes(scene.selected.resource)) {
           events.emit('notice','Бур можно построить только на месторождении воды, железа, меди или серы.'); return;
         }
@@ -127,7 +127,7 @@ export class Runtime {
     this.scene.applyState({buildings:(this.state?.buildings || []).filter(building=>ids.has(building.cell_id))});
   }
   command(type,payload) {
-    const allowed = new Set(['landing.select','player.color','building.place','building.remove','player.respawn','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release']);
+    const allowed = new Set(['landing.select','player.color','building.place','building.remove','player.respawn','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release','rover.survey','rover.point.register','rover.purchase','rover.program','rover.start','rover.stop']);
     if (!allowed.has(type)) { this.events.emit('notice','Неизвестная клиентская команда'); return; }
     try { return this.transport.command(type,payload); }
     catch (error) { this.events.emit('notice',error.message); }

@@ -373,7 +373,7 @@ async def websocket_endpoint(socket: WebSocket):
                             stream.release(message.get('payload'))
                 continue
             if kind in ('player.input', 'player.color', 'landing.select', 'world.start', 'building.place', 'building.remove', 'player.respawn',
-                        'resource.pickup', 'resource.deposit', 'resource.give'):
+                        'resource.pickup', 'resource.deposit', 'resource.give', 'rover.survey', 'rover.point.register', 'rover.purchase', 'rover.program', 'rover.start', 'rover.stop'):
                 if stream is None:
                     await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),
                                             'payload': {'ok': False, 'code': 'NOT_READY'}})

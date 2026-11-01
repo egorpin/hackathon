@@ -101,6 +101,10 @@ class WorldState:
     economy_version: int = 2
     # Request keys are user_id + ':' + canonical UUID within this world.
     command_results: dict[str, dict] = field(default_factory=dict)
+    rovers: dict = field(default_factory=dict)
+    rover_surveys: dict = field(default_factory=dict)
+    rover_points: dict = field(default_factory=dict)
+    rover_grants: list = field(default_factory=list)
 
     def to_dict(self):
         return asdict(self)

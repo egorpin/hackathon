@@ -12,8 +12,9 @@ from .state import PLAYER_COLORS, MOUNTAIN_RADIUS, building_interaction_distance
 
 
 class Rejected(Exception):
-    def __init__(self, code):
+    def __init__(self, code, line=None):
         self.code = code
+        self.line = line
 
 
 def require(condition, code="INVALID_ARGUMENT"):
@@ -73,6 +74,7 @@ def dispatch(context, kind, payload, state, planet):
                 pool[resource] += amount
         state.players, state.landing_claims, state.team_storage = players, claims, pools
         state.buildings, state.mountains = {}, []
+        state.rovers, state.rover_surveys, state.rover_points, state.rover_grants = {}, {}, {}, []
         state.team_oxygen = dict.fromkeys(pools, 0)
         state.oxygen_percent, state.stage, state.tick = 0.0, "lobby", 0
         state.generation += 1
@@ -83,6 +85,8 @@ def dispatch(context, kind, payload, state, planet):
         require(set(state.landing_claims.values()) == set(state.players), "LANDING_REQUIRED")
         state.mountains = [cell for cell in planet.landing_sites if cell not in state.landing_claims]
         state.stage = "running"
+        from .rover import ensure_start
+        ensure_start(state, planet)
         return {}
     if kind == "player.color":
         fields(payload, "color")
@@ -91,6 +95,71 @@ def dispatch(context, kind, payload, state, planet):
         player.color = color
         return {"color": color}
     require(state.stage == "running", "NOT_STARTED")
+    if kind.startswith("rover."):
+        from .rover import (coordinates, office_access, parse, new_rover, spawn_position,
+                            NAME, COST, CAPACITY, ROVER_RADIUS)
+        if kind == "rover.survey":
+            fields(payload)
+            require(player.position is not None)
+            coords = coordinates(player.position)
+            surveys = state.rover_surveys.setdefault(player.user_id, [])
+            require(len(surveys) < 16, "SURVEY_LIMIT")
+            if coords not in surveys: surveys.append(coords)
+            return coords
+        if kind == "rover.stop":
+            fields(payload, "rover_id")
+            rover = state.rovers.get(identifier(payload["rover_id"]))
+            require(rover is not None and rover['team_id'] == player.team_id, "FORBIDDEN")
+            rover.update(status='idle', speed=0., error=None, line=None)
+            return {}
+        require(office_access(state, planet, player), "OFFICE_REQUIRED")
+        if kind == "rover.point.register":
+            fields(payload, "name", "latitude", "longitude")
+            name, lat, lon = payload['name'], payload['latitude'], payload['longitude']
+            require(isinstance(name,str) and NAME.fullmatch(name) is not None)
+            require(type(lat) in (int,float) and type(lon) in (int,float) and math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon < 180 and round(lat,4)==lat and round(lon,4)==lon and (abs(lat)!=90 or lon==0))
+            coords={'latitude':lat,'longitude':lon}
+            require(coords in state.rover_surveys.get(player.user_id, []), "SURVEY_REQUIRED")
+            points=state.rover_points.setdefault(player.team_id,{})
+            require(name not in points, "POINT_EXISTS")
+            require(len(points)<12, "POINT_LIMIT")
+            points[name]={**coords,'name':name,'author':player.user_id,'version':1}
+            return {}
+        if kind == "rover.purchase":
+            fields(payload)
+            pool=state.team_storage[player.team_id]
+            require(all(pool.get(k,0)>=v for k,v in COST.items()), "INSUFFICIENT_RESOURCES")
+            require(sum(r['team_id']==player.team_id for r in state.rovers.values())<4, "ROVER_LIMIT")
+            obstacles=[(planet.cells[b.cell_id].center,BUILDING_RADIUS+ROVER_RADIUS+.05) for b in state.buildings.values()]
+            obstacles += [(planet.cells[c].center,MOUNTAIN_RADIUS+ROVER_RADIUS+.05) for c in state.mountains]
+            obstacles += [(p.position,PLAYER_RADIUS+ROVER_RADIUS+.05) for p in state.players.values() if p.position is not None]
+            obstacles += [(r['position'],2*ROVER_RADIUS+.05) for r in state.rovers.values()]
+            try: pos=spawn_position(player.position,planet,obstacles)
+            except ValueError: raise Rejected("SPAWN_BLOCKED") from None
+            from app.world.terrain import ground_position, seed_from_world_id
+            rover=new_rover(player.team_id,ground_position(pos,planet.radius,seed=seed_from_world_id(state.world_id)),player.color)
+            for k,v in COST.items(): pool[k]-=v
+            state.rovers[rover['rover_id']]=rover
+            return {'rover_id':rover['rover_id']}
+        if kind in ("rover.program", "rover.start"):
+            fields(payload, *(('rover_id','program','expected_revision') if kind == 'rover.program' else ('rover_id','expected_revision')))
+            rover=state.rovers.get(identifier(payload['rover_id']))
+            require(rover is not None and rover['team_id']==player.team_id, "FORBIDDEN")
+            require(type(payload['expected_revision']) is int and payload['expected_revision']==rover['program_revision'], "REVISION_CONFLICT")
+            points=state.rover_points.get(player.team_id,{})
+            program=payload['program'] if kind=='rover.program' else rover['program']
+            try: instructions=parse(program,points)
+            except ValueError as e: raise Rejected(str(e), getattr(e, "line", None)) from None
+            if kind=='rover.program':
+                require(rover['status'] not in ('running','waiting'), "ROVER_RUNNING")
+                rover['program']=program;rover['program_revision']+=1
+                return {'program_revision':rover['program_revision']}
+            require(rover['status'] not in ('running','waiting'), "ROVER_RUNNING")
+            rover.update(status='running',error=None,line=None,pc=0,wait_ticks=0,instructions=instructions,
+                         targets={i['value']:dict(points[i['value']]) for i in instructions if i['op']=='move_to'})
+            rover['program_revision']+=1
+            return {'program_revision':rover['program_revision']}
+        raise Rejected("NOT_IMPLEMENTED")
     if kind == "player.input":
         require(isinstance(payload, dict) and {"seq", "move"} <= set(payload)
                 and set(payload) <= {"seq", "move", "heading", "jump", "running"})
@@ -113,7 +182,7 @@ def dispatch(context, kind, payload, state, planet):
     if kind == "building.place":
         fields(payload, "cell_id", "building_type")
         cell_id, building_type = identifier(payload["cell_id"]), identifier(payload["building_type"])
-        require(cell_id in planet.cells and building_type in RECIPES)
+        require(cell_id in planet.cells and building_type in RECIPES and building_type != "dome_base")
         cell = planet.cells[cell_id]
         require(cell.buildable, "CELL_UNBUILDABLE")
         in_reach(planet, player, cell.center)
@@ -136,6 +205,7 @@ def dispatch(context, kind, payload, state, planet):
         building = state.buildings.get(identifier(payload["building_id"]))
         require(building is not None)
         require(building.team_id == player.team_id, "FORBIDDEN")
+        require(building.building_type != "dome_base", "FORBIDDEN")
         in_building_reach(planet, player, building)
         pool = state.team_storage[player.team_id]
         # Refunds can exceed capacity: never destroy resources during demolition.
@@ -250,7 +320,7 @@ def apply_command(context: Context, command, unit_of_work: UnitOfWork):
                 response = result(request_id, state.revision, True, **details)
             except Rejected as error:
                 # Dispatch validates every condition before performing mutations.
-                response = result(request_id, state.revision, False, code=error.code)
+                response = result(request_id, state.revision, False, code=error.code, **({"line": error.line} if error.line else {}))
             if not moving:
                 state.command_results[key] = {"fingerprint": fingerprint, "result": json.loads(json.dumps(response))}
             return response

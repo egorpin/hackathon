@@ -91,6 +91,12 @@ class GameService:
                     "MARS_PLANET_SUBDIVISIONS. To benchmark another map, use a separate DATA_DIR or Docker volume. "
                     "The existing save was left unchanged."
                 )
+            if saved and state.stage == 'running':
+                from .game.rover import ensure_start
+                ensure_start(state, self.planet)
+                for rover in state.rovers.values():
+                    rover.update(status='idle', speed=0., error=None, line=None)
+                self.db.save_game(state)
             self.worlds[world_id] = UnitOfWork(self.planet, state, persist=self.db.save_game)
         return self.worlds[world_id]
 
@@ -121,6 +127,9 @@ class GameService:
                 if cell in state.mountains:
                     state.mountains.remove(cell)
                 player.position = position
+                if state.stage == 'running':
+                    from .game.rover import ensure_start
+                    ensure_start(state, self.planet)
                 state.revision += 1
         return context
 
@@ -174,7 +183,7 @@ class Stream:
         payload = data
         if self.last is not None:
             payload = {key: value for key, value in data.items() if key != 'world'}
-            for collection, id_key in [('players', 'player_id'), ('buildings', 'building_id')]:
+            for collection, id_key in [('players', 'player_id'), ('buildings', 'building_id'), ('rovers', 'rover_id')]:
                 ids = {item[id_key] for item in data[collection]}
                 payload['removed_' + collection] = [item[id_key] for item in self.last[collection] if item[id_key] not in ids]
         self.pending = (data, payload)

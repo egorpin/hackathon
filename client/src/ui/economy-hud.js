@@ -30,7 +30,7 @@ export class EconomyHUD {
       <p id="building-access" role="status"></p>
       <div class="building-transfers"><button type="button" id="building-pickup" hidden>Забрать ресурсы · E</button><button type="button" id="building-deposit" hidden>Сдать ресурсы на склад · E</button><p id="building-transfer-hint"></p></div>
       <p class="building-refund">При сносе в общий запас вернутся 100% оплаченной стоимости и остатки ресурсов постройки.</p>
-      <div class="building-panel-actions"><button type="button" id="building-remove">Снести постройку</button><button type="button" class="building-panel-done">Закрыть</button></div>`;
+      <div class="building-panel-actions"><button type="button" id="office-open" hidden>Терминал роверов</button><button type="button" id="building-remove">Снести постройку</button><button type="button" class="building-panel-done">Закрыть</button></div>`;
     document.body.append(this.panel);
     const on = (element, event, callback) => element.addEventListener(event, callback, {signal:this.abort.signal});
     for (const button of this.panel.querySelectorAll('.building-panel-close,.building-panel-done')) on(button, 'click', () => this.panel.close());
@@ -45,6 +45,7 @@ export class EconomyHUD {
     on(this.panel, 'close', () => this.resume());
     on(this.panel.querySelector('#building-pickup'), 'click', () => this.transfer('resource.pickup'));
     on(this.panel.querySelector('#building-deposit'), 'click', () => this.transfer('resource.deposit'));
+    on(this.panel.querySelector('#office-open'), 'click', () => { this.panel.close(); this.events.emit('rover.open'); });
     on(this.panel.querySelector('#building-remove'), 'click', () => {
       const building = this.selected();
       if (!building || this.accessReason(building)) return;
@@ -135,7 +136,7 @@ export class EconomyHUD {
   renderBuilding(building) {
     const state = this.state, config = state.config || {}, pool = state.team_storage || {};
     const type = building.building_type;
-    this.panel.querySelector('#building-panel-title').textContent = BUILDINGS.find(item => item.type === type)?.name || 'Постройка';
+    this.panel.querySelector('#building-panel-title').textContent = (type === 'dome_base' ? 'Офис экспедиции' : BUILDINGS.find(item => item.type === type)?.name) || 'Постройка';
     const cycle = config.production_ticks * config.tick_seconds;
     const period = Number.isFinite(cycle) ? `за ${number(cycle)} с` : 'за цикл';
     let operation = '';
@@ -148,7 +149,7 @@ export class EconomyHUD {
         : `Для работы: 1 вода из внутреннего запаса ${period}, +${number(config.oxygen_per_cycle)} процентного пункта O₂. Разгрузите воду из рюкзака прямо в генератор или сдайте её на склад вашей команды на соседней клетке — он автоматически подаёт нужную воду из общего запаса.`;
     }
     if (type === 'warehouse') operation = `Добавляет ${number(config.warehouse_capacity)} единиц к общей вместимости команды. Сдавайте сюда ресурсы из рюкзака для строительства. Склад автоматически передаёт только нужные ресурсы постройкам вашей команды на соседних клетках: генератору — воду. Дальние постройки он не снабжает.`;
-    if (type === 'dome_base') operation = 'Точка возрождения. Кнопка «К базе» возвращает к последней вашей базе; если её нет — к базе команды или посадочной площадке.';
+    if (type === 'dome_base') operation = 'Стартовый офис команды и терминал управления роверами. Здесь можно зарегистрировать координаты, купить ровер и запустить программу.';
     if (building.team_id !== state.team_id) operation = 'Постройка другой команды.';
     this.panel.querySelector('#building-operation').textContent = operation;
     const stock = this.panel.querySelector('#building-stock');
@@ -156,8 +157,11 @@ export class EconomyHUD {
     stock.textContent = building.stock ? `${type === 'warehouse' ? 'Общий запас' : 'Внутри постройки'}: ${Object.entries(building.stock).filter(([, amount]) => amount > 0).map(([key, amount]) => `${resources[key] || key} ${number(amount)}`).join(' · ') || 'пусто'}.` : '';
     const reason = this.accessReason(building);
     this.panel.querySelector('#building-access').textContent = reason;
+    this.panel.querySelector('#building-remove').hidden = type === 'dome_base';
+    this.panel.querySelector('#office-open').hidden = type !== 'dome_base';
+    this.panel.querySelector('#office-open').disabled = !!reason || !state.office_access;
     this.panel.querySelector('#building-remove').disabled = !!reason;
-    this.panel.querySelector('.building-refund').hidden = building.team_id !== state.team_id;
+    this.panel.querySelector('.building-refund').hidden = type === 'dome_base' || building.team_id !== state.team_id;
     const pickup = this.panel.querySelector('#building-pickup'), deposit = this.panel.querySelector('#building-deposit');
     pickup.hidden = type !== 'drill';
     deposit.hidden = !['warehouse', 'oxygen_generator'].includes(type);
