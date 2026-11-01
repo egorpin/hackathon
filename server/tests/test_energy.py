@@ -65,7 +65,7 @@ class EnergyTests(unittest.TestCase):
         self.assertEqual(restored, state)
         for _ in range(20):
             step(restored, TICK_SECONDS, self.planet)
-        self.assertAlmostEqual(restored.oxygen_percent, .4)
+        self.assertAlmostEqual(restored.oxygen_percent, .8)
         self.assertTrue(all(restored.buildings[str(i)].stock['iron'] == 1 for i in range(4)))
         del restored.buildings['solar']
         before = restored.oxygen_percent
@@ -77,7 +77,7 @@ class EnergyTests(unittest.TestCase):
         self.assertEqual(energy_balance(restored)['efficiency'], 1)
         for _ in range(20):
             step(restored, TICK_SECONDS, self.planet)
-        self.assertAlmostEqual(restored.oxygen_percent, .8)
+        self.assertAlmostEqual(restored.oxygen_percent, 1.6)
 
     def test_fractional_progress_survives_cycles_and_legacy_saves(self):
         state = WorldState('world-a', self.planet.version, stage='running')

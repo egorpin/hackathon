@@ -32,8 +32,8 @@ BASE_STORAGE_CAPACITY = 300
 MINABLE_RESOURCES = ("water", "sulfur", "iron", "copper")
 RESOURCES = ("ore", *MINABLE_RESOURCES, "oxygen")
 STARTING_ORE = 0
-STARTING_RESOURCES = {"iron": 40, "sulfur": 15, "water": 5}
-OXYGEN_PER_CYCLE = 0.1
+STARTING_RESOURCES = {"iron": 100, "sulfur": 50, "water": 15}
+OXYGEN_PER_CYCLE = 0.2
 RECIPES = {"drill": {"iron": 5}, "warehouse": {"iron": 10, "sulfur": 5},
            "oxygen_generator": {"iron": 15, "sulfur": 5}, "dome_base": {"iron": 10},
            "solar_panel": {"iron": 5, "sulfur": 2}, "wind_turbine": {"iron": 10, "copper": 6}}

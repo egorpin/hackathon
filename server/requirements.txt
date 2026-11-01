@@ -1,3 +1,6 @@
 fastapi==0.115.6
 uvicorn==0.34.0
 websockets==14.1
+# MCP v1 SDK; SSE version compatible with FastAPI 0.115 / Starlette 0.41.
+mcp==1.30.0
+sse-starlette==3.0.3

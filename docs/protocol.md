@@ -92,3 +92,10 @@ await answer(context, agent_id, question, game_context) -> AgentReply
 Дробный прогресс и остаток цикла сохраняются в `production_ticks` и переживают перезапуск.
 В DTO постройки `efficiency` управляет скоростью анимации; у панели всегда 1.
 `config.energy_output` и `config.energy_consumption` содержат параметры баланса.
+
+## MCP для ИИ-помощника
+
+Streamable HTTP `/mcp/` запускается вместе с сервером и предоставляет 13 инструментов
+от имени игрока с действующей Bearer-сессией. Инструменты используют те же игровые
+команды и сохраняемые request_id. Контракт, ограничения и пример SDK-клиента
+описаны в [mcp.md](mcp.md).

@@ -170,7 +170,7 @@ class EconomyTests(unittest.TestCase):
         self.ok(self.interact('resource.pickup', building_id=drill, resource='water', amount=1))
         self.ok(self.interact('resource.deposit', building_id=generator, resource='water', amount=1))
         self.advance(20)
-        self.assertEqual(self.world.state.oxygen_percent, .1)
+        self.assertEqual(self.world.state.oxygen_percent, .2)
         self.assertEqual(self.world.state.team_storage['team-a']['water'], 0)
         self.ok(self.interact('resource.pickup', building_id=drill, resource='water', amount=1))
         self.ok(self.interact('resource.deposit', building_id=generator, resource='water', amount=1))
@@ -208,14 +208,14 @@ class EconomyTests(unittest.TestCase):
         self.ok(self.interact('resource.pickup', building_id=drill, resource='water', amount=1))
         self.ok(self.interact('resource.deposit', building_id=warehouse, resource='water', amount=1))
         self.advance(20)
-        self.assertEqual(self.world.state.oxygen_percent, .1)
+        self.assertEqual(self.world.state.oxygen_percent, .2)
         self.assertEqual(self.world.state.team_storage['team-a']['water'], 0)
         self.assertEqual(self.world.state.buildings[generator].stock['water'], 0)
         with self.world.transaction() as state:
             state.team_storage['team-a']['water'] = 4
             state.buildings[generator].stock['water'] = 1
         self.advance(20)
-        self.assertEqual(self.world.state.oxygen_percent, .2)
+        self.assertEqual(self.world.state.oxygen_percent, .4)
         self.assertEqual(self.world.state.team_storage['team-a']['water'], 4)
         # Team resources alone cannot feed a distant generator.
         with self.world.transaction() as state:
@@ -223,14 +223,14 @@ class EconomyTests(unittest.TestCase):
                 if cell.buildable and cell.cell_id not in self.planet.cells[generator_cell].neighbors
                 and cell.cell_id not in (drill_cell, generator_cell))
         self.advance(20)
-        self.assertEqual(self.world.state.oxygen_percent, .2)
+        self.assertEqual(self.world.state.oxygen_percent, .4)
         self.assertEqual(self.world.state.team_storage['team-a']['water'], 4)
         # A neighboring enemy warehouse never supplies this team's generator.
         with self.world.transaction() as state:
             state.buildings[warehouse].cell_id = warehouse_cell
             state.buildings[warehouse].team_id = 'team-b'
         self.advance(20)
-        self.assertEqual(self.world.state.oxygen_percent, .2)
+        self.assertEqual(self.world.state.oxygen_percent, .4)
         with self.world.transaction() as state:
             state.buildings[warehouse].team_id = 'team-a'
             state.oxygen_percent = 100
@@ -282,7 +282,7 @@ class EconomyTests(unittest.TestCase):
         self.advance(25)
         restored = WorldState.from_dict(self.world.state.to_dict())
         self.assertEqual(restored, self.world.state)
-        self.assertEqual(restored.oxygen_percent, .1)
+        self.assertEqual(restored.oxygen_percent, .2)
         self.assertEqual(restored.buildings[building].production_ticks, 5)
         legacy = self.world.state.to_dict()
         legacy.pop('economy_version')

@@ -249,7 +249,7 @@ class GameTests(unittest.TestCase):
         self.start()
         bases = [b for b in self.world.state.buildings.values() if b.building_type == 'dome_base']
         self.assertEqual(len(bases), 1)
-        self.assertEqual(self.world.state.team_storage['team-a']['iron'], 40)
+        self.assertEqual(self.world.state.team_storage['team-a']['iron'], 100)
         self.assertFalse(self.act('building.place', cell_id=self.planet.cells[self.planet.landing_sites[0]].neighbors[0], building_type='dome_base')['payload']['ok'])
         self.assertEqual(self.act('building.remove', building_id=bases[0].building_id)['payload']['code'], 'FORBIDDEN')
 
@@ -267,16 +267,16 @@ class GameTests(unittest.TestCase):
         self.advance(100)
         state = self.world.state
         self.assertEqual(state.buildings[drill].stock["iron"], 5)
-        self.assertEqual(state.team_storage["team-a"]["iron"], 10)
-        self.assertEqual(state.team_storage["team-a"]["water"], 0)
-        self.assertEqual(state.oxygen_percent, 0.5)
+        self.assertEqual(state.team_storage["team-a"]["iron"], 70)
+        self.assertEqual(state.team_storage["team-a"]["water"], 10)
+        self.assertEqual(state.oxygen_percent, 1.0)
         self.advance(60)
-        self.assertEqual(self.world.state.oxygen_percent, 0.5)
-        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 10)
+        self.assertEqual(self.world.state.oxygen_percent, 1.6)
+        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 70)
         self.ok(self.interact("resource.pickup", building_id=drill, resource="iron", amount=8))
         self.assertEqual(self.world.state.players["alice"].inventory["iron"], 8)
         self.ok(self.interact("resource.deposit", building_id=warehouse, resource="iron", amount=8))
-        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 18)
+        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 78)
 
     def test_drill_requires_resource_without_spending(self):
         self.start()
@@ -315,14 +315,14 @@ class GameTests(unittest.TestCase):
         self.assertTrue(all(r == results[0] for r in results))
         self.ok(results[0])
         self.assertEqual(len(self.world.state.buildings), 2)
-        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 35)
+        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 95)
         conflict = {**request, "payload": {**request["payload"], "building_type": "warehouse"}}
         self.assertEqual(apply_command(self.context, conflict, self.world)["payload"]["code"], "REQUEST_CONFLICT")
         other_cell = self.planet.cells[self.planet.landing_sites[0]].neighbors[1]
         with ThreadPoolExecutor(max_workers=4) as pool:
             results = list(pool.map(lambda _: self.act("building.place", cell_id=other_cell, building_type="drill"), range(4)))
         self.assertEqual(sum(r["payload"]["ok"] for r in results), 1)
-        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 30)
+        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 90)
 
     def test_commit_failure_does_not_publish_building_or_debit_or_request(self):
         self.start()
@@ -349,7 +349,7 @@ class GameTests(unittest.TestCase):
         restored = UnitOfWork(self.planet, WorldState.from_dict(json.loads(saved[-1])))
         self.assertEqual(json.loads(json.dumps(restored.state.to_dict())), json.loads(saved[-1]))
         self.assertEqual(apply_command(self.context, request, restored), response)
-        self.assertEqual(snapshot(self.context, restored)["payload"]["team_storage"]["iron"], 35)
+        self.assertEqual(snapshot(self.context, restored)["payload"]["team_storage"]["iron"], 95)
         self.assertEqual(next(b for b in restored.state.buildings.values() if b.building_type == "drill").stock["iron"], 11)
         with self.assertRaises(ValueError):
             UnitOfWork(generate_planet(subdivisions=1), restored.state)
@@ -410,7 +410,7 @@ class GameTests(unittest.TestCase):
         self.supply_energy()
         drill = self.build()
         self.advance(2000)
-        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 35)
+        self.assertEqual(self.world.state.team_storage["team-a"]["iron"], 95)
         self.assertEqual(self.world.state.buildings[drill].stock["iron"], BUILDING_CAPACITY)
         for amount in (-1, 0, True, 1.5, "1", 51, 10**300, None):
             self.assertEqual(self.act("resource.pickup", building_id=drill, resource="ore", amount=amount)["payload"]["code"], "INVALID_ARGUMENT")
