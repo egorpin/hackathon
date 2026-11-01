@@ -25,7 +25,7 @@ test('accepted state event merges partial collections and removal before updatin
   runtime.state={players:[{player_id:'me'},{player_id:'peer'}], buildings:[{building_id:'drill'},{building_id:'warehouse'}],team_storage:{iron:20},config:{storage_capacity:500}};
   runtime.cache.put('state',runtime.state,{pinned:true});
   events.on('world.state',state=>states.push(state));
-  const delta={players:[{player_id:'me',position:[1,2,3]}],buildings:[],removed_buildings:['warehouse'],team_storage:{iron:30},config:{storage_capacity:300},oxygen_percent:.1};
+  const delta={players:[{player_id:'me',position:[1,2,3]}],buildings:[],removed_buildings:['warehouse'],team_storage:{iron:30},config:{storage_capacity:300},energy:{production:10,consumption:20,efficiency:.5},oxygen_percent:.1};
   runtime.cache.reserve('incoming:state',byteSize(delta),{pinned:true});
   runtime.delta(delta);
   assert.equal(states.length,1);
@@ -34,6 +34,7 @@ test('accepted state event merges partial collections and removal before updatin
   assert.equal(states[0].team_storage.iron,30);
   assert.equal(states[0].config.storage_capacity,300);
   assert.equal(states[0].oxygen_percent,.1);
+  assert.deepEqual(states[0].energy,{production:10,consumption:20,efficiency:.5});
 });
 
 test('remove and respawn commands cross runtime allowlist unchanged',()=>{
