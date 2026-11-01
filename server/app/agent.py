@@ -80,7 +80,7 @@ def retrieve(question, filename, limit=6):
             break
     return selected
 
-def model_request(messages, *, num_predict=512, temperature=.35):
+def model_message(messages, *, tools=None, num_predict=512, temperature=.35):
     endpoint = os.environ.get('MARS_AI_URL', 'http://host.docker.internal:11435').rstrip('/')
     model = os.environ.get('MARS_AI_MODEL', 'qwen3.5:27b-q4_K_M')
     try:
@@ -90,10 +90,19 @@ def model_request(messages, *, num_predict=512, temperature=.35):
     body = {'model': model, 'stream': False, 'think': False, 'keep_alive': '10m',
             'options': {'num_ctx': context_size, 'num_predict': num_predict,
                         'temperature': temperature}, 'messages': messages}
+    if tools:
+        body['tools'] = tools
     request = Request(endpoint + '/api/chat', data=json.dumps(body).encode(),
                       headers={'Content-Type': 'application/json'})
     with urlopen(request, timeout=180) as response:
-        answer = json.load(response)['message']['content'].strip()
+        message = json.load(response)['message']
+    if not isinstance(message, dict):
+        raise ValueError('Invalid model response')
+    return message
+
+
+def model_request(messages, *, num_predict=512, temperature=.35):
+    answer = model_message(messages, num_predict=num_predict, temperature=temperature).get('content', '').strip()
     if not answer:
         raise ValueError('Empty model response')
     return answer
@@ -164,13 +173,6 @@ def prompt_messages(db, identity, text, context, agent_id='expedition', characte
     current_profile = profile(agent_id)
     system = character.get('prompt', current_profile['system']) if character else current_profile['system']
     system = system.rstrip() + '\n\n' + RESPONSE_POLICY
-    if agent_id == 'boss':
-        # Capability boundary until the team's MCP execution adapter is merged.
-        # Keep this independent of editable character prompts and old history.
-        system += ('\nИнструменты управления Босса сейчас не подключены. '
-                   'В этом запросе ты не можешь выполнить административные действия. '
-                   'Не утверждай, что изменил мир; объясни эту доступность пользователю, '
-                   'если он просит выполнить действие.')
     rows = history_rows if history_rows is not None else history(db, identity, agent_id, limit=32)
     memory = compress_memory(db, identity, agent_id, rows)
     references = retrieve(text, current_profile['knowledge'])
@@ -190,9 +192,13 @@ def complete(history_rows, text, context):
     identity = context.pop('_agent_identity')
     agent_id = context.pop('_agent_id', 'expedition')
     character = context.pop('_character', None)
+    boss_mcp = context.pop('_boss_mcp', None)
     temperature = character.get('temperature', .35) if character else .35
-    return model_request(prompt_messages(db, identity, text, context, agent_id, character, history_rows),
-                         temperature=temperature)[:12000]
+    messages = prompt_messages(db, identity, text, context, agent_id, character, history_rows)
+    if agent_id == 'boss' and boss_mcp:
+        from .boss_agent import complete as boss_complete
+        return boss_complete(messages, boss_mcp, temperature=temperature)[:12000]
+    return model_request(messages, temperature=temperature)[:12000]
 
 def stream_complete(history_rows, text, context):
     context = dict(context)
@@ -200,10 +206,15 @@ def stream_complete(history_rows, text, context):
     identity = context.pop('_agent_identity')
     agent_id = context.pop('_agent_id', 'expedition')
     character = context.pop('_character', None)
+    boss_mcp = context.pop('_boss_mcp', None)
     temperature = character.get('temperature', .35) if character else .35
+    messages = prompt_messages(db, identity, text, context, agent_id, character, history_rows)
+    if agent_id == 'boss' and boss_mcp:
+        from .boss_agent import stream as boss_stream
+        yield from boss_stream(messages, boss_mcp, temperature=temperature)
+        return
     total = 0
-    for chunk in model_stream(prompt_messages(db, identity, text, context, agent_id, character, history_rows),
-                              temperature=temperature):
+    for chunk in model_stream(messages, temperature=temperature):
         if total >= 12000:
             break
         chunk = chunk[:12000 - total]

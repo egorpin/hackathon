@@ -34,3 +34,14 @@ export const kodyashMascot = agentMascot
   .replaceAll('#ffbd8b', '#9bc8ff')
   .replaceAll('#94c8c0', '#70a9d8')
   .replaceAll('#30413e', '#1d3557');
+
+export const bossMascot = agentMascot
+  .replace('class="agent-mascot"', 'class="agent-mascot agent-mascot-boss"')
+  .replaceAll('#e5aa78', '#8b949e')
+  .replaceAll('#d78250', '#252a31')
+  .replaceAll('#f4b47d', '#555f6b')
+  .replaceAll('#a94e37', '#090c10')
+  .replaceAll('#241d29', '#020304')
+  .replaceAll('#ffbd8b', '#aeb7c1')
+  .replaceAll('#94c8c0', '#596672')
+  .replaceAll('#30413e', '#11161c');

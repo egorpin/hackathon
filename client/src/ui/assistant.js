@@ -1,7 +1,7 @@
 import './assistant.css';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { agentMascot } from './agent-mascot.js';
+import { agentMascot, bossMascot } from './agent-mascot.js';
 import { BUILDINGS } from './buildings.js';
 
 export class Assistant {
@@ -233,12 +233,17 @@ export class Assistant {
     this.agentId=this.agentSelect.value;
     this.agentName=data.agents.find(item=>item.id===this.agentId)?.name||'Марсик';
     this.dialog.querySelector('.assistant-agent-name').textContent=this.agentName;
-    this.updateAgentRole();
+    this.updateAgentPresentation();
     this.agentsLoaded=true;
   }
-  updateAgentRole() {
+  updateAgentPresentation() {
     this.dialog.querySelector('.assistant-agent-role').textContent=this.agentId==='boss'
-      ?'Управление экспедицией · скоро':'Помощник по экспедиции';
+      ?'Администратор экспедиции':'Помощник по экспедиции';
+    const markup=this.agentId==='boss'?bossMascot:agentMascot;
+    for(const container of [this.activity,this.miniActivity]){
+      const current=container.querySelector('.agent-mascot'),template=document.createElement('template');
+      template.innerHTML=markup;current?.replaceWith(template.content.firstElementChild);
+    }
   }
   async loadHistory() {
     this.send.disabled=true;this.agentSelect.disabled=true;this.status.textContent='Загружаем диалог…';
@@ -254,7 +259,7 @@ export class Assistant {
     this.agentName=this.agentSelect.selectedOptions[0]?.textContent||'ИИ-помощник';
     localStorage.setItem('mars-assistant-agent',this.agentId);
     this.dialog.querySelector('.assistant-agent-name').textContent=this.agentName;
-    this.updateAgentRole();
+    this.updateAgentPresentation();
     try{await this.loadHistory();}catch(error){this.status.textContent=error.message;this.send.disabled=false;this.agentSelect.disabled=false;}
   }
   async open() {

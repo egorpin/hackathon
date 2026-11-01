@@ -87,8 +87,9 @@ def test_boss_registration_history_and_disabled_character(client, monkeypatch):
                        json={'agent_id': 'boss', 'text': 'Привет'}).status_code == 503
 
 
-def test_boss_prompt_discloses_missing_tools(client):
+def test_boss_prompt_keeps_admin_key_out_of_model_context(client):
     identity = register(client, 'bossprompt')
     messages = main.agent.prompt_messages(main.db, identity, 'Построй бур', {}, 'boss',
                                           character={'prompt': 'Ты администратор.'}, history_rows=[])
-    assert 'Инструменты управления Босса сейчас не подключены' in messages[0]['content']
+    assert 'admin_key' not in str(messages)
+    assert main.app.state.admin_key not in str(messages)

@@ -352,6 +352,9 @@ async def agent_ask(question: AgentQuestion, request: Request, response: Respons
     try:
         context = {'stage': app.state.lobby.stage(identity['world_id']), '_character': character,
                    '_agent_db': db, '_agent_identity': identity, '_agent_id': character['id']}
+        if character['id'] == 'boss':
+            context['_boss_mcp'] = {'url': os.environ.get('MARS_BOSS_MCP_URL', 'http://127.0.0.1:8000/mcp/admin/'),
+                                    'admin_key': app.state.admin_key, 'world_id': identity['world_id']}
         runtime = app.state.game.worlds.get(identity['world_id'])
         if runtime and identity['user_id'] in runtime.state.players:
             state = app.state.game.dto(identity)
@@ -387,6 +390,9 @@ def agent_ask_stream(question: AgentQuestion, request: Request):
     agent_busy.add(busy_key)
     context = {'stage': app.state.lobby.stage(identity['world_id']), '_character': character,
                '_agent_db': db, '_agent_identity': identity, '_agent_id': character['id']}
+    if character['id'] == 'boss':
+        context['_boss_mcp'] = {'url': os.environ.get('MARS_BOSS_MCP_URL', 'http://127.0.0.1:8000/mcp/admin/'),
+                                'admin_key': app.state.admin_key, 'world_id': identity['world_id']}
     runtime = app.state.game.worlds.get(identity['world_id'])
     if runtime and identity['user_id'] in runtime.state.players:
         state = app.state.game.dto(identity)
