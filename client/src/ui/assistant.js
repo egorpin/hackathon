@@ -15,9 +15,12 @@ export class Assistant {
     this.dialog=document.createElement('aside');this.dialog.className='assistant';
     this.dialog.id='assistant-panel';this.dialog.hidden=true;
     this.dialog.setAttribute('aria-labelledby','assistant-title');
-    this.dialog.innerHTML=`<div class="assistant-heading"><h2 id="assistant-title">ИИ-помощник</h2><button type="button" class="assistant-close" aria-label="Закрыть ИИ-помощника">✕</button></div>
-      <label class="assistant-agent-setting">Собеседник<select class="assistant-agent" aria-label="Выбрать ИИ-агента"></select></label>
-      <div class="assistant-activity" role="status" aria-live="polite" hidden>${agentMascot}<div><strong>Марсик</strong><span class="activity-label"></span></div><span class="activity-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
+    this.dialog.innerHTML=`<div class="assistant-heading assistant-activity" data-state="idle">
+        ${agentMascot}
+        <div class="assistant-agent-identity"><h2 id="assistant-title" class="assistant-agent-name">Марсик</h2><span class="activity-label" role="status" aria-live="polite">Готов к вопросу</span></div>
+        <select class="assistant-agent" aria-label="Выбрать ИИ-агента"></select>
+        <button type="button" class="assistant-close" aria-label="Закрыть окно агента">✕</button>
+      </div>
       <div class="assistant-messages" role="log" aria-label="Диалог с ИИ" aria-live="polite"></div>
       <p class="assistant-status" role="status"></p>
       <form><label for="assistant-question">Enter — написать / отправить · Shift+Enter — новая строка</label><textarea id="assistant-question" aria-label="Твой вопрос" maxlength="1000" rows="3" placeholder="Как начать освоение Марса?" required></textarea><button type="submit">Отправить</button></form>`;
@@ -51,11 +54,10 @@ export class Assistant {
   updateActivity() {
     const state=this.speech?.started?'speaking':this.requestPhase||'idle';
     if(this.activity.dataset.state===state)return;
-    const label={thinking:'Думает…',writing:'Пишет…',speaking:'Говорит…',idle:''}[state];
-    for(const element of [this.activity,this.miniActivity]){
-      element.dataset.state=state;element.hidden=state==='idle';
-      element.querySelector('.activity-label').textContent=label;
-    }
+    const label={thinking:'Думает…',writing:'Пишет…',speaking:'Говорит…',idle:'Готов к вопросу'}[state];
+    this.activity.dataset.state=state;this.activity.querySelector('.activity-label').textContent=label;
+    this.miniActivity.dataset.state=state;this.miniActivity.hidden=state==='idle';
+    this.miniActivity.querySelector('.activity-label').textContent=state==='idle'?'':label;
     this.button.querySelector('.assistant-button-label').hidden=state!=='idle';
     this.button.title=label?`${this.agentName} · ${label}`:'ИИ-помощник';
   }
@@ -189,7 +191,7 @@ export class Assistant {
     this.agentSelect.value=data.agents.some(item=>item.id===preferred)?preferred:data.agents[0]?.id||'expedition';
     this.agentId=this.agentSelect.value;
     this.agentName=data.agents.find(item=>item.id===this.agentId)?.name||'Марсик';
-    this.dialog.querySelector('.assistant-activity strong').textContent=this.agentName;
+    this.dialog.querySelector('.assistant-agent-name').textContent=this.agentName;
     this.agentsLoaded=true;
   }
   async loadHistory() {
@@ -205,7 +207,7 @@ export class Assistant {
     this.agentId=this.agentSelect.value;
     this.agentName=this.agentSelect.selectedOptions[0]?.textContent||'ИИ-помощник';
     localStorage.setItem('mars-assistant-agent',this.agentId);
-    this.dialog.querySelector('.assistant-activity strong').textContent=this.agentName;
+    this.dialog.querySelector('.assistant-agent-name').textContent=this.agentName;
     try{await this.loadHistory();}catch(error){this.status.textContent=error.message;this.send.disabled=false;this.agentSelect.disabled=false;}
   }
   async open() {
