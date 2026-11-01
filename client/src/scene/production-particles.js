@@ -35,11 +35,12 @@ export class ProductionParticles {
    root.updateMatrixWorld(true);this.bit.updateWorldMatrix(true,false);
    this.bitSourceLocal=this.bit.worldToLocal(root.localToWorld(this.source.clone()));
   }
-  this.emissionRadius=this.steam?0:Math.max(.08,Math.min(.24,cuttingBounds.isEmpty()?.12:(cuttingBounds.max.x-cuttingBounds.min.x)*.55));
+  this.emissionRadius=this.steam?Math.max(.08,height*.06):Math.max(.08,Math.min(.24,cuttingBounds.isEmpty()?.12:(cuttingBounds.max.x-cuttingBounds.min.x)*.55));
+  this.steamScale=Math.max(.18,height*.12);
   this.particleScale=Math.max(.035,height*.022);
   this.root=new T.Group();root.add(this.root);
   this.geometry=this.steam?new T.IcosahedronGeometry(1,1):new T.TetrahedronGeometry(1);
-  this.items=Array.from({length:this.steam?12:18},()=>{const material=new T.MeshBasicMaterial({color:0xddebf0,transparent:true,depthWrite:false});const mesh=new T.Mesh(this.geometry,material);mesh.visible=false;this.root.add(mesh);return {mesh,age:99,v:new T.Vector3()};});
+  this.items=Array.from({length:this.steam?32:18},()=>{const material=new T.MeshBasicMaterial({color:0x888888,transparent:true,depthWrite:false});const mesh=new T.Mesh(this.geometry,material);mesh.visible=false;this.root.add(mesh);return {mesh,age:99,v:new T.Vector3()};});
  }
  updateDrillSource(){
   if(this.steam||!this.bit||!this.bitSourceLocal)return;
@@ -57,8 +58,8 @@ export class ProductionParticles {
     p.mesh.position.x+=Math.cos(angle)*this.emissionRadius;p.mesh.position.z+=Math.sin(angle)*this.emissionRadius;
     const outward=.65+Math.random()*.45;
     p.v.set(this.steam?(Math.random()-.5)*.18:Math.cos(angle)*outward,this.steam?.65:.65+Math.random()*.6,this.steam?(Math.random()-.5)*.18:Math.sin(angle)*outward);
-    p.mesh.material.color.setHex(this.steam?0xddebf0:(colors[resource]||colors.iron));
+    p.mesh.material.color.setHex(this.steam?0x888888:(colors[resource]||colors.iron));
   }}
-  for(const p of this.items){p.age+=dt*(this.steam?.55:1.5);p.mesh.visible=p.age<1;if(!p.mesh.visible)continue;p.mesh.position.addScaledVector(p.v,dt);if(!this.steam)p.v.y-=dt*2.8;p.mesh.scale.setScalar(this.steam?.09+p.age*.26:this.particleScale);p.mesh.material.opacity=(1-p.age)*(this.steam?.48:1);}
+  for(const p of this.items){p.age+=dt*(this.steam?.4:1.5);p.mesh.visible=p.age<1;if(!p.mesh.visible)continue;p.mesh.position.addScaledVector(p.v,dt);if(!this.steam)p.v.y-=dt*2.8;p.mesh.scale.setScalar(this.steam?this.steamScale*(1+p.age*2.5):this.particleScale);p.mesh.material.opacity=(1-p.age)*(this.steam?.65:1);}
  }
 }

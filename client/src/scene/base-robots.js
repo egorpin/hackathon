@@ -267,7 +267,7 @@ export class BaseRobots {
     root.position.copy(entry.position);
     if (this.greetingMaterial) {
       const greeting = new THREE.Sprite(this.greetingMaterial);
-      greeting.position.set(0, 1.3 / modelScale, 0);
+      greeting.position.set(0, 1 / modelScale, 0);
       greeting.scale.set(1.25 / (3 * modelScale), .55 / (3 * modelScale), 1);
       greeting.visible = false;
       greeting.userData.sharedRobotGreetingMaterial = true;

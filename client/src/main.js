@@ -10,6 +10,9 @@ import { Settings } from './ui/settings.js';
 import { RoverUI } from './ui/rover.js';
 import { EconomyHUD } from './ui/economy-hud.js';
 import { AimResources } from './ui/aim-resources.js';
+import { PlayerTransfer } from './ui/player-transfer.js';
+import './ui/player-transfer.css';
+import { PlayerSpeech } from './ui/player-speech.js';
 import { Soundscape } from './audio/soundscape.js';
 import { inInteractionRange } from './ui/interaction.js';
 import { recipeFor, formatResources, missingResources, canAfford, MINABLE_RESOURCES } from './ui/economy.js';
@@ -97,7 +100,7 @@ function updateCrosshairHint(){
 function explainAction(result){
   if(result.ok)return 'Готово.';
   const explanations={
-    OUT_OF_RANGE:'Подойдите ближе к выбранной клетке или постройке.',
+    OUT_OF_RANGE:'Подойдите ближе к выбранной клетке, постройке или игроку.',
     CELL_OCCUPIED:'Клетка или место рядом с игроком заняты. Выберите свободную клетку.',
     CELL_UNBUILDABLE:'На этой клетке строить нельзя. Выберите другую поверхность.',
     RESOURCE_REQUIRED:'Бур ставится только на месторождение железа, меди, льда или серы.',
@@ -106,7 +109,7 @@ function explainAction(result){
     LANDING_REQUIRED:'Сначала все участники должны выбрать посадочную площадку.',
     ALREADY_STARTED:'Экспедиция уже началась.',
     FORBIDDEN:'Это действие доступно только участникам вашей команды.',
-    INVENTORY_FULL:'Нет места в инвентаре. Освободите место и повторите.',
+    INVENTORY_FULL:'В рюкзаке получателя или хранилище недостаточно места.',
     SPAWN_BLOCKED:'Рядом с местом назначения нет свободного места.',
     TARGET_UNAVAILABLE:'Игрок недоступен для телепортации.',
     READY_REQUIRED:'Все участники должны подтвердить готовность к экспедиции.',
@@ -173,6 +176,8 @@ try {
   const rover=new RoverUI({events,scene});
   settings.button.before(rover.button);
   const pickup=new AimResources({events,scene});
+  const playerTransfer=new PlayerTransfer({events,scene});
+  const playerSpeech=new PlayerSpeech({events,scene});
   let transport;
   if(import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) {
     const {createFixture}=await import('./scene/fixture.js'); transport=createFixture();
@@ -186,8 +191,8 @@ try {
   window.marsClient={events,command:(type,payload)=>runtime.command(type,payload),toggleCamera:()=>events.emit('camera.toggle'),dispose:()=>runtime.dispose()};
   if (import.meta.env.DEV && new URLSearchParams(location.search).has('fixture')) { lobby.setIdentity({user_id:'preview-explorer',username:'Explorer',world_id:'Марс / просмотр'}); transport.connect(); }
   else authenticate(transport,lobby);
-  window.addEventListener('pagehide',()=>{sound.dispose();assistant.dispose();pickup.dispose();rover.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();},{once:true});
-  if(import.meta.hot) import.meta.hot.dispose(()=>{sound.dispose();assistant.dispose();pickup.dispose();rover.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();});
+  window.addEventListener('pagehide',()=>{playerSpeech.dispose();playerTransfer.dispose();sound.dispose();assistant.dispose();pickup.dispose();rover.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();},{once:true});
+  if(import.meta.hot) import.meta.hot.dispose(()=>{playerSpeech.dispose();playerTransfer.dispose();sound.dispose();assistant.dispose();pickup.dispose();rover.dispose();economy.dispose();settings.dispose();lobby.dispose();runtime.dispose();});
 } catch(error) { show('notice',`Не удалось запустить 3D: ${error.message}`); }
 
 async function authenticate(transport,lobby) {
