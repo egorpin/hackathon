@@ -101,11 +101,46 @@ export class RoverUI {
   chatMessage(role,text=''){
     const log=this.q('[data-chat-log]');
     if(log.querySelector('.rv-chat-empty'))log.replaceChildren();
-    const item=document.createElement('div');item.className='rv-chat-empty';
+    const item=document.createElement('div');item.className=`rv-chat-message ${role}`;
     const name=document.createElement('b');name.textContent=role==='user'?'Вы':'Кодяш';
-    const body=document.createElement('p');body.textContent=text;
+    const body=document.createElement('div');body.className='rv-chat-body';this.renderChatBody(body,text);
     item.append(name,body);log.append(item);log.scrollTop=log.scrollHeight;
-    return body;
+    if(role==='assistant'&&text)this.attachProgramActions(item,text);
+    return {item,body};
+  }
+  renderChatBody(body,text){
+    body.replaceChildren();let cursor=0;
+    for(const match of text.matchAll(/```(?:rover|text)?\s*\n([\s\S]*?)```/gi)){
+      if(match.index>cursor){const paragraph=document.createElement('p');paragraph.textContent=text.slice(cursor,match.index).trim();if(paragraph.textContent)body.append(paragraph);}
+      const pre=document.createElement('pre'),code=document.createElement('code');code.textContent=match[1].trim();pre.append(code);body.append(pre);cursor=match.index+match[0].length;
+    }
+    if(cursor<text.length||!body.childNodes.length){const paragraph=document.createElement('p');paragraph.textContent=text.slice(cursor).trim()||text;body.append(paragraph);}
+  }
+  programFromAnswer(text){
+    return /```(?:rover|text)?\s*\n([\s\S]*?)```/i.exec(text)?.[1]?.trim()||null;
+  }
+  attachProgramActions(item,text){
+    if(item.querySelector('.rv-chat-actions'))return;
+    const program=this.programFromAnswer(text);if(!program)return;
+    const max=this.state?.config?.rover?.program_max_bytes||512;
+    if(new TextEncoder().encode(program).length>max)return;
+    const actions=document.createElement('div');actions.className='rv-chat-actions';
+    const write=document.createElement('button');write.type='button';write.textContent='Записать в файл';
+    const run=document.createElement('button');run.type='button';run.textContent='Записать и запустить';run.disabled=!this.selected;
+    write.addEventListener('click',()=>{this.applyKodyashProgram(program,false);write.disabled=true;},{signal:this.abort.signal});
+    run.addEventListener('click',()=>{this.applyKodyashProgram(program,true);write.disabled=true;run.disabled=true;},{signal:this.abort.signal});
+    actions.append(write,run);item.append(actions);
+  }
+  applyKodyashProgram(program,run){
+    this.persistLocal();let index=1,name='kodyash_route_1.txt';
+    while(this.localFiles.files.some(file=>file.name===name)){index++;name=`kodyash_route_${index}.txt`;}
+    const file={id:crypto.randomUUID(),folder:this.localFolder||'Программы',name,code:program+'\n'};
+    this.localFiles.files.push(file);this.openLocal(file.id);
+    this.feedback(`Кодяш записал программу в ${name}.`);
+    if(run){
+      if(!this.selected){this.feedback('Программа записана. Выберите ровер для запуска.');return;}
+      this.sendProgram(true);
+    }
   }
   async loadKodyash(){
     if(this.chatLoaded||this.chatLoading)return;
@@ -128,7 +163,7 @@ export class RoverUI {
     this.chatBusy=true;input.disabled=true;this.q('[data-chat-send]').disabled=true;
     this.q('[data-chat-status]').textContent='Кодяш думает…';
     if(!event){this.chatMessage('user',question);input.value='';}
-    const body=this.chatMessage('assistant','…');
+    const reply=this.chatMessage('assistant','…'),body=reply.body;
     try{
       const response=await fetch('/api/rover-agent/ask/stream',{method:'POST',credentials:'same-origin',cache:'no-store',signal:this.abort.signal,
         headers:{'Content-Type':'application/json'},body:JSON.stringify({text:question,rover_id:this.selected||null,
@@ -143,8 +178,8 @@ export class RoverUI {
         if(!scheduled){scheduled=true;requestAnimationFrame(draw);}if(done)break;
       }
       if(buffer.trim()){const packet=JSON.parse(buffer);if(packet.error)throw Error(packet.error);if(packet.text)answer+=packet.text;}
-      draw();this.q('[data-chat-status]').textContent='Кодяш готов помочь';
-    }catch(error){body.parentElement?.remove();if(!this.abort.signal.aborted){this.q('[data-chat-status]').textContent=error.message;if(!event)input.value=question;}}
+      draw();this.renderChatBody(body,answer);this.attachProgramActions(reply.item,answer);this.q('[data-chat-status]').textContent='Кодяш готов помочь';
+    }catch(error){reply.item.remove();if(!this.abort.signal.aborted){this.q('[data-chat-status]').textContent=error.message;if(!event)input.value=question;}}
     finally{this.chatBusy=false;input.disabled=false;this.q('[data-chat-send]').disabled=false;}
   }
   coachProgramError(result){
