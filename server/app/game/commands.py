@@ -218,6 +218,28 @@ def dispatch(context, kind, payload, state, planet):
                 pool[resource] = pool.get(resource, 0) + amount
         del state.buildings[building.building_id]
         return {"refunded": dict(building.paid_cost)}
+    if kind == "player.teleport":
+        fields(payload, "player_id")
+        target = state.players.get(identifier(payload["player_id"]))
+        require(target is not None and target.user_id != player.user_id and target.position is not None,
+                "TARGET_UNAVAILABLE")
+        from .rover import ROVER_RADIUS, spawn_position
+        obstacles = [(planet.cells[b.cell_id].center, BUILDING_RADIUS + PLAYER_RADIUS)
+                     for b in state.buildings.values()]
+        obstacles += [(planet.cells[cell].center, MOUNTAIN_RADIUS + PLAYER_RADIUS)
+                      for cell in state.mountains]
+        obstacles += [(other.position, 2 * PLAYER_RADIUS + .05) for other in state.players.values()
+                      if other.user_id != player.user_id and other.position is not None]
+        obstacles += [(rover['position'], PLAYER_RADIUS + ROVER_RADIUS + .05)
+                      for rover in state.rovers.values()]
+        try:
+            player.position = spawn_position(target.position, planet, obstacles)
+        except ValueError:
+            raise Rejected("SPAWN_BLOCKED") from None
+        player.move = (0., 0., 0.)
+        player.altitude = player.vertical_speed = 0.
+        player.jump_held = player.jump_pending = player.running = False
+        return {"player_id": target.user_id}
     if kind == "player.respawn":
         fields(payload)
         bases = [b for b in state.buildings.values()

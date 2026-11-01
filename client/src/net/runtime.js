@@ -128,7 +128,7 @@ export class Runtime {
     this.scene.applyState({buildings:(this.state?.buildings || []).filter(building=>ids.has(building.cell_id))});
   }
   command(type,payload) {
-    const allowed = new Set(['landing.select','player.color','building.place','building.remove','player.respawn','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release','rover.survey','rover.point.register','rover.purchase','rover.program','rover.start','rover.stop']);
+    const allowed = new Set(['landing.select','player.color','building.place','building.remove','player.respawn','player.teleport','resource.pickup','resource.deposit','resource.give','chat.send','agent.ask','chunk.request','chunk.release','rover.survey','rover.point.register','rover.purchase','rover.program','rover.start','rover.stop']);
     if (!allowed.has(type)) { this.events.emit('notice','Неизвестная клиентская команда'); return; }
     try { return this.transport.command(type,payload); }
     catch (error) { this.events.emit('notice',error.message); }

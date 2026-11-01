@@ -446,7 +446,7 @@ async def websocket_endpoint(socket: WebSocket):
                         else:
                             stream.release(message.get('payload'))
                 continue
-            if kind in ('player.input', 'player.color', 'landing.select', 'world.start', 'building.place', 'building.remove', 'player.respawn',
+            if kind in ('player.input', 'player.color', 'landing.select', 'world.start', 'building.place', 'building.remove', 'player.respawn', 'player.teleport',
                         'resource.pickup', 'resource.deposit', 'resource.give', 'rover.survey', 'rover.point.register', 'rover.purchase', 'rover.program', 'rover.start', 'rover.stop'):
                 if stream is None:
                     await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),
@@ -456,6 +456,14 @@ async def websocket_endpoint(socket: WebSocket):
                     await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),
                                             'payload': {'ok': False, 'code': 'READY_REQUIRED'}})
                     continue
+                if kind == 'player.teleport':
+                    payload = message.get('payload')
+                    target_id = payload.get('player_id') if isinstance(payload, dict) else None
+                    if isinstance(target_id, str) and not any(
+                            member['user_id'] == target_id for member in app.state.lobby.players(identity['world_id'])):
+                        await socket.send_json({'type': 'action.result', 'request_id': message.get('request_id'),
+                                                'payload': {'ok': False, 'code': 'TARGET_UNAVAILABLE'}})
+                        continue
                 result = app.state.game.command(identity, message)
                 if kind != 'player.input' or not result['payload']['ok']:
                     await socket.send_json(result)

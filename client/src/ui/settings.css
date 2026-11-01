@@ -12,3 +12,5 @@
 @media(prefers-reduced-motion:reduce){.settings-switch input,.settings-switch input::before{transition:none}}
 
 .header-actions #settings-toggle{display:grid;place-items:center;width:38px;height:38px;padding:8px;flex:0 0 38px}.header-actions #settings-toggle svg{display:block}
+
+.settings-teleport{display:grid;gap:8px;padding:8px 0;color:var(--settings-muted);font-size:12px}.settings-teleport>div{display:flex;gap:8px}.settings-teleport select{min-width:0;flex:1}.settings-teleport button:disabled,.settings-teleport select:disabled{opacity:.45;cursor:not-allowed}

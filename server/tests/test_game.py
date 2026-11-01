@@ -164,6 +164,40 @@ class GameTests(unittest.TestCase):
         self.move_near(building_id)
         return self.act(kind, building_id=building_id, **payload)
 
+    def test_teleport_to_player_checks_target_and_clears_motion(self):
+        bob = Context('world-a', 'bob', 'team-a')
+        self.world.enroll(bob)
+        self.ok(self.act('landing.select', cell_id=self.planet.landing_sites[0]))
+        self.ok(self.act('landing.select', context=bob, cell_id=self.planet.landing_sites[1]))
+        self.ok(self.act('world.start'))
+        with self.world.transaction() as state:
+            player = state.players['alice']
+            player.move = (1., 0., 0.)
+            player.altitude = player.vertical_speed = 2.
+            player.jump_held = player.jump_pending = player.running = True
+        self.ok(self.act('player.teleport', player_id='bob'))
+        player = self.world.state.players['alice']
+        target = self.world.state.players['bob']
+        distance = surface_distance(player.position, target.position, self.planet.radius)
+        self.assertGreaterEqual(distance, 2 * PLAYER_RADIUS)
+        self.assertLessEqual(distance, 10.01)
+        self.assertEqual((player.move, player.altitude, player.vertical_speed), ((0., 0., 0.), 0., 0.))
+        self.assertFalse(player.jump_held or player.jump_pending or player.running)
+        for target_id in ('alice', 'missing'):
+            self.assertEqual(self.act('player.teleport', player_id=target_id)['payload']['code'], 'TARGET_UNAVAILABLE')
+
+    def test_teleport_rejects_blocked_destination(self):
+        from unittest.mock import patch
+        bob = Context('world-a', 'bob', 'team-a')
+        self.world.enroll(bob)
+        self.ok(self.act('landing.select', cell_id=self.planet.landing_sites[0]))
+        self.ok(self.act('landing.select', context=bob, cell_id=self.planet.landing_sites[1]))
+        self.ok(self.act('world.start'))
+        original = self.world.state.players['alice'].position
+        with patch('app.game.rover.spawn_position', side_effect=ValueError):
+            self.assertEqual(self.act('player.teleport', player_id='bob')['payload']['code'], 'SPAWN_BLOCKED')
+        self.assertEqual(self.world.state.players['alice'].position, original)
+
     def test_building_interaction_range_is_short_and_matches_snapshot(self):
         self.start()
         cell = self.planet.cells[self.planet.cells[self.planet.landing_sites[0]].neighbors[0]]

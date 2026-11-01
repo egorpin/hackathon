@@ -11,7 +11,7 @@ const write = (key, value) => {
 
 export class Settings {
   constructor({events, scene}) {
-    Object.assign(this, {events, scene, connected:false, state:null});
+    Object.assign(this, {events, scene, connected:false, state:null, players:[]});
     this.abort = new AbortController();
     this.button = document.createElement('button');
     this.button.id = 'settings-toggle';
@@ -30,6 +30,7 @@ export class Settings {
     panel.innerHTML = `
       <div class="settings-heading"><div><span class="eyebrow">ИГРА</span><h2 id="settings-title">Настройки</h2></div><button type="button" class="settings-close" aria-label="Закрыть настройки игры">✕</button></div>
       <fieldset><legend>Экспедиция</legend>
+        <div class="settings-teleport"><label for="teleport-player">Телепортироваться к игроку</label><div><select id="teleport-player" disabled><option value="">Нет других игроков</option></select><button type="button" id="player-teleport" disabled>Перейти</button></div></div>
         <div class="settings-respawn"><span>Вернуться к последней базе, базе команды или посадочной площадке.</span><button type="button" id="player-respawn" disabled>К базе</button></div>
       </fieldset>
       <fieldset><legend>Графика</legend>
@@ -59,10 +60,31 @@ export class Settings {
       events.emit('command', {type:'player.respawn', payload:{}});
       panel.close();
     });
+    const selectPlayer = panel.querySelector('#teleport-player');
+    const teleport = panel.querySelector('#player-teleport');
+    const updatePlayers = () => {
+      const selected = selectPlayer.value;
+      const players = this.players.filter(player => player.user_id !== this.state?.self_id);
+      selectPlayer.replaceChildren();
+      if (!players.length) selectPlayer.add(new Option('Нет других игроков', ''));
+      for (const player of players) selectPlayer.add(new Option(player.username, player.user_id));
+      if (players.some(player => player.user_id === selected)) selectPlayer.value = selected;
+      const enabled = this.connected && this.state?.stage === 'running' && players.length > 0;
+      selectPlayer.disabled = !enabled;
+      teleport.disabled = !enabled || !selectPlayer.value;
+    };
+    on(selectPlayer, 'change', updatePlayers);
+    on(teleport, 'click', () => {
+      if (teleport.disabled || !selectPlayer.value) return;
+      scene.controls.clear();
+      events.emit('command', {type:'player.teleport', payload:{player_id:selectPlayer.value}});
+      panel.close();
+    });
     const updateRespawn = () => { panel.querySelector('#player-respawn').disabled = !this.connected || this.state?.stage !== 'running'; };
     this.unsubs = [
-      events.on('world.state', state => { this.state = state; updateRespawn(); }),
-      events.on('connection.status', status => { this.connected = status === 'connected'; if (!this.connected) this.state = null; updateRespawn(); }),
+      events.on('world.state', state => { this.state = state; updateRespawn(); updatePlayers(); }),
+      events.on('lobby.state', state => { this.players = state.players || []; updatePlayers(); }),
+      events.on('connection.status', status => { this.connected = status === 'connected'; if (!this.connected) { this.state = null; this.players = []; } updateRespawn(); updatePlayers(); }),
     ];
     on(panel, 'close', () => this.resume());
     // Keep gameplay shortcuts (including the flashlight) out of a modal dialog.
