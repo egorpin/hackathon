@@ -43,26 +43,8 @@ READ_TOOLS = {'admin_get_overview', 'admin_get_world', 'admin_get_cells'}
 
 
 def select_tools(query, available):
-    """Keep the 2B model focused while retaining schemas from live tools/list."""
-    selected = {'admin_get_overview', 'admin_get_world'}
-    routes = (
-        (r'перезап|рестарт|сброс|заново', {'admin_restart_world', 'admin_set_world'}),
-        (r'сесси|пауз|запуст|останов|кислород', {'admin_set_world'}),
-        (r'телепорт|перемест|перенес', {'admin_teleport_player', 'admin_teleport_rover', 'admin_get_cells'}),
-        (r'удал|снес|убер', {'admin_remove_entity'}),
-        (r'цвет|фонар|инвентар', {'admin_set_player'}),
-        (r'ресурс|желез|вод|сер|мед|кислород', {'admin_set_resources', 'admin_set_world'}),
-        (r'бур|здани|постро|склад|генератор|панел|турбин|купол',
-         {'admin_get_cells', 'admin_create_building', 'admin_edit_building', 'admin_remove_entity'}),
-        (r'робот|ровер', {'admin_create_rover', 'admin_teleport_rover', 'admin_edit_rover',
-                          'admin_remove_entity', 'admin_set_resources', 'admin_set_rover_point'}),
-        (r'клет|карт|гор|месторож|рельеф', {'admin_get_cells', 'admin_edit_cells'}),
-        (r'персонаж|агент|помощник', {'admin_set_characters'}),
-    )
-    for pattern, names in routes:
-        if re.search(pattern, query, re.I):
-            selected.update(names)
-    return [available[name] for name in available if name in selected]
+    """Expose the live contract independently of wording and conversation history."""
+    return list(available.values())
 
 
 def successful_mutation(name, result):
