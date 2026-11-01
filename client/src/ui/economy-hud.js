@@ -202,6 +202,7 @@ export class EconomyHUD {
     if (this.panel.open) return;
     this.scene.controls.suspended = true;
     this.scene.controls.clear();
+    this.wasPointerLocked = document.pointerLockElement === this.scene.controls.canvas;
     if (document.pointerLockElement) document.exitPointerLock();
     this.events.emit('ui.overlay', true);
     this.panel.showModal();
@@ -217,6 +218,12 @@ export class EconomyHUD {
     this.scene.controls.suspended = suspended;
     this.scene.controls.clear();
     this.events.emit('ui.overlay', suspended);
+    // Closing the drill panel is a user gesture. Restore first-person look only
+    // when this panel had released an existing pointer lock.
+    if (!suspended && this.wasPointerLocked && this.scene.controls.mode === 'first') {
+      this.scene.controls.canvas.requestPointerLock?.().catch(() => {});
+    }
+    this.wasPointerLocked = false;
   }
 
   dispose() {

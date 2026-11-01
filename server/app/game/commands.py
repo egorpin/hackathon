@@ -112,8 +112,8 @@ def dispatch(context, kind, payload, state, planet):
             require(rover is not None and rover['team_id'] == player.team_id, "FORBIDDEN")
             rover.update(status='idle', speed=0., error=None, line=None)
             return {}
-        require(office_access(state, planet, player), "OFFICE_REQUIRED")
         if kind == "rover.point.register":
+            require(office_access(state, planet, player), "OFFICE_REQUIRED")
             fields(payload, "name", "latitude", "longitude")
             name, lat, lon = payload['name'], payload['latitude'], payload['longitude']
             require(isinstance(name,str) and NAME.fullmatch(name) is not None)
@@ -126,6 +126,7 @@ def dispatch(context, kind, payload, state, planet):
             points[name]={**coords,'name':name,'author':player.user_id,'version':1}
             return {}
         if kind == "rover.purchase":
+            require(office_access(state, planet, player), "OFFICE_REQUIRED")
             fields(payload)
             pool=state.team_storage[player.team_id]
             require(all(pool.get(k,0)>=v for k,v in COST.items()), "INSUFFICIENT_RESOURCES")

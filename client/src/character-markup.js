@@ -4,7 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const JOINTS=[['Hips','Центр таза'],['Spine','Центр груди'],['Neck','Основание шеи'],['Head','Центр головы'],['LeftShoulder','Левое плечо'],['LeftElbow','Левый локоть'],['LeftWrist','Левое запястье'],['RightShoulder','Правое плечо'],['RightElbow','Правый локоть'],['RightWrist','Правое запястье'],['LeftHip','Левый тазобедренный'],['LeftKnee','Левое колено'],['LeftAnkle','Левый голеностоп'],['RightHip','Правый тазобедренный'],['RightKnee','Правое колено'],['RightAnkle','Правый голеностоп']];
 const KEY='mars.character-landmarks.PixelArtistry_00011.v1';
 let points={},selected=0,ready=false;const history=[];
-try{const saved=JSON.parse(localStorage.getItem(KEY));if(saved?.model==='PixelArtistry_lowpoly_00011.glb')points=saved.points||{};}catch{}
+try{const saved=JSON.parse(localStorage.getItem(KEY));if(saved?.model==='astronaut.glb')points=saved.points||{};}catch{}
 const status=document.querySelector('#status'),list=document.querySelector('#joints'),data=document.querySelector('#data');
 const scene=new THREE.Scene();scene.background=new THREE.Color('#202b3a');
 scene.add(new THREE.HemisphereLight(0xffffff,0x9aa5ba,2.4));
@@ -18,7 +18,7 @@ const views=['front','side'].map(name=>{
   const markers=JOINTS.map(([,label],i)=>{const el=document.createElement('div');el.className='marker';el.textContent=i+1;el.title=label;host.append(el);return el;});
   return {name,host,renderer,camera,markers,guide};
 });
-function exportData(){return {version:1,model:'PixelArtistry_lowpoly_00011.glb',coordinate_system:'Y-up, feet Y=0, height 1.8m, front +Z, character-left +X',points};}
+function exportData(){return {version:1,model:'astronaut.glb',coordinate_system:'Y-up, feet Y=0, height 1.8m, front +Z, character-left +X',points};}
 function persist(){data.value=JSON.stringify(exportData(),null,2);try{localStorage.setItem(KEY,data.value);document.querySelector('#saved').textContent='Сохранено в этом браузере. Когда закончишь, напиши «готово».';}catch{document.querySelector('#saved').textContent='Браузер не сохранил точки. Скачай разметку перед закрытием.';}}
 function refresh(){
   list.replaceChildren();JOINTS.forEach(([key,label],i)=>{const b=document.createElement('button'),p=points[key];b.className=(selected===i?'active ':'')+(p?.front&&p?.side?'done':'');b.textContent=`${i+1}. ${label} ${p?.front?'●':'○'} ${p?.side?'●':'○'}`;b.onclick=()=>{selected=i;refresh();};list.append(b);});
@@ -52,7 +52,7 @@ document.querySelector('#undo').onclick=()=>{if(history.length){points=JSON.pars
 document.querySelector('#clear').onclick=()=>{history.push(JSON.stringify(points));delete points[JOINTS[selected][0]];refresh();};
 document.querySelector('#download').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(exportData(),null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='astronaut-joints.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 new ResizeObserver(resize).observe(document.querySelector('#views'));refresh();resize();
-new GLTFLoader().load('/assets/models/astronaut-reference.glb',gltf=>{
+new GLTFLoader().load('/assets/models/astronaut.glb',gltf=>{
   const actor=gltf.scene,bounds=new THREE.Box3().setFromObject(actor),size=bounds.getSize(new THREE.Vector3()),scale=1.8/size.y;
   actor.scale.multiplyScalar(scale);actor.position.set(-(bounds.min.x+bounds.max.x)*.5*scale,-bounds.min.y*scale,0);
   scene.add(actor);ready=true;refresh();

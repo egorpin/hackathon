@@ -7,6 +7,28 @@ import { ModelCache } from './model-cache.js';
 
 export const MODEL_NAMES = ['astronaut','drill','oxygen_generator','storage','dome_base','rover','solar_panel','wind_turbine','robot_minion'];
 const suitTints = new WeakMap();
+const JUMP_LEG_TRACK = /^(?:Left|Right)(?:Thigh|Shin|Foot)\.quaternion$/;
+
+// The generated jump clip folds the legs in the same direction as the torso.
+// Mirror each leg's rotation around its bind pose so the knees kick the other
+// way without changing the character's root motion or the rest pose.
+export function reverseJumpLegMotion(root, animations) {
+  const jump = animations?.find(clip => clip.name.toLowerCase() === 'jump');
+  if (!jump) return;
+  for (const track of jump.tracks) {
+    if (!JUMP_LEG_TRACK.test(track.name)) continue;
+    const bone = root.getObjectByName(track.name.replace(/\.quaternion$/, ''));
+    if (!bone?.quaternion || track.ValueTypeName !== 'quaternion') continue;
+    const rest = bone.quaternion.clone();
+    const inverseRest = rest.clone().invert();
+    const current = new THREE.Quaternion(), deviation = new THREE.Quaternion();
+    for (let index = 0; index < track.values.length; index += 4) {
+      current.fromArray(track.values, index);
+      deviation.copy(inverseRest).multiply(current).invert();
+      current.copy(rest).multiply(deviation).normalize().toArray(track.values, index);
+    }
+  }
+}
 function tintSuit(material, color) {
   let uniform = suitTints.get(material);
   if (!uniform) {
@@ -64,6 +86,7 @@ export class ModelLibrary {
         catch (retryError) { await this.cache.invalidate(name, manifest.revision); throw retryError; }
       }
       if(this.disposed) { this.release(asset); return; }
+      if(name==='astronaut')reverseJumpLegMotion(asset.scene,asset.animations);
       if(name==='drill')prepareDrillParts(asset.scene);
       if(name==='oxygen_generator')asset.scene.traverse(node=>{if(node.isMesh)node.name='OxygenHousing';});
       this.assets.set(name,asset); onLoad?.(name);

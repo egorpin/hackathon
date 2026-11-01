@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 import build_simple_energy_models as base
 
-base.OUT = base.ROOT / 'assets/models/energy-v2'
+# Keep generated model sources beside the approved runtime assets. This is the
+# only model-asset directory used by the project.
+base.OUT = base.ROOT / 'client/public/assets/models'
 Old = base.Obj
 
 class Model(Old):
