@@ -50,6 +50,7 @@ export class ModelLibrary {
       const asset = await this.loader.loadAsync(`/assets/models/${name}.glb${revision}`);
       if(this.disposed) { this.release(asset); return; }
       if(name==='drill')prepareDrillParts(asset.scene);
+      if(name==='oxygen_generator')asset.scene.traverse(node=>{if(node.isMesh)node.name='OxygenHousing';});
       this.assets.set(name,asset); onLoad?.(name);
     }));
     const failures = results.filter(result => result.status === 'rejected');
@@ -67,6 +68,7 @@ export class ModelLibrary {
     });
     recolor(root,color);
     if(name==='drill')root.userData.mechanical=attachMechanicalAnimation(root,'drill');
+    if(name==='oxygen_generator')root.userData.mechanical=attachMechanicalAnimation(root,name);
     if(asset.animations.length) {
       const mixer = new THREE.AnimationMixer(root);
       root.userData.animation = { mixer, clips:asset.animations, current:null };
