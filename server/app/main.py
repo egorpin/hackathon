@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .storage import Database
@@ -125,6 +126,7 @@ agent_busy = set()
 
 class AgentQuestion(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
+    agent_id: str = Field(default='expedition', min_length=1, max_length=40, pattern=r'^[a-z0-9_-]+$')
 
 
 def agent_identity(request):
@@ -134,10 +136,17 @@ def agent_identity(request):
     return identity
 
 
-@app.get('/api/agent/messages')
-def agent_messages(request: Request, response: Response):
+@app.get('/api/agents')
+def agents(request: Request, response: Response):
+    agent_identity(request)
     response.headers['Cache-Control'] = 'no-store'
-    return {'messages': agent.history(db, agent_identity(request))}
+    return {'agents': agent.available_profiles()}
+
+
+@app.get('/api/agent/messages')
+def agent_messages(request: Request, response: Response, agent_id: str = 'expedition'):
+    response.headers['Cache-Control'] = 'no-store'
+    return {'messages': agent.history(db, agent_identity(request), agent_id)}
 
 
 @app.post('/api/agent/ask')
@@ -158,17 +167,63 @@ async def agent_ask(question: AgentQuestion, request: Request, response: Respons
             state = app.state.game.dto(identity)
             context.update({key: state[key] for key in ('inventory', 'team_storage', 'oxygen_percent', 'oxygen_goal', 'config', 'stage') if key in state})
             context['team_buildings'] = [item['building_type'] for item in state.get('buildings', [])]
-        answer = await asyncio.to_thread(agent.complete, agent.history(db, identity), text, context)
+        answer = await asyncio.to_thread(agent.complete, db, identity, text, context, question.agent_id)
         with db.connect() as connection:
             for role, message in [('user', text), ('assistant', answer)]:
                 connection.execute('INSERT INTO agent_messages VALUES (?,?,?,?,?,?,?)',
-                                   (str(uuid.uuid4()), identity['world_id'], identity['user_id'], 'expedition',
+                                   (str(uuid.uuid4()), identity['world_id'], identity['user_id'], question.agent_id,
                                     role, message, int(time.time())))
         return {'text': answer}
     except (OSError, ValueError, KeyError):
         raise HTTPException(status_code=503, detail='Модель сейчас недоступна. Попробуйте позже.') from None
     finally:
         agent_busy.discard(identity['user_id'])
+
+
+@app.post('/api/agent/ask/stream')
+def agent_ask_stream(question: AgentQuestion, request: Request):
+    require_origin(request)
+    identity = agent_identity(request)
+    text = question.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail='Введите вопрос.')
+    busy_key = identity['user_id']
+    if agent_busy:
+        raise HTTPException(status_code=429, detail='ИИ отвечает на другой вопрос. Попробуйте чуть позже.')
+    agent_busy.add(busy_key)
+    context = {'stage': app.state.lobby.stage(identity['world_id'])}
+    runtime = app.state.game.worlds.get(identity['world_id'])
+    if runtime and identity['user_id'] in runtime.state.players:
+        state = app.state.game.dto(identity)
+        context.update({key: state[key] for key in ('inventory', 'team_storage', 'oxygen_percent', 'oxygen_goal', 'config', 'stage') if key in state})
+        context['team_buildings'] = [item['building_type'] for item in state.get('buildings', [])]
+
+    def stream():
+        chunks = []
+        completed = False
+        try:
+            for chunk in agent.stream_complete(db, identity, text, context, question.agent_id):
+                chunks.append(chunk)
+                yield json.dumps({'text': chunk}, ensure_ascii=False) + '\n'
+            completed = True
+            yield json.dumps({'done': True}, ensure_ascii=False) + '\n'
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            yield json.dumps({'error': 'Модель сейчас недоступна. Попробуйте позже.'}, ensure_ascii=False) + '\n'
+        finally:
+            if completed:
+                answer = ''.join(chunks).strip()
+                if answer:
+                    with db.connect() as connection:
+                        for role, message in [('user', text), ('assistant', answer)]:
+                            connection.execute('INSERT INTO agent_messages VALUES (?,?,?,?,?,?,?)',
+                                               (str(uuid.uuid4()), identity['world_id'], identity['user_id'],
+                                                question.agent_id, role, message, int(time.time())))
+            agent_busy.discard(busy_key)
+
+    return StreamingResponse(stream(), media_type='application/x-ndjson', headers={
+        'Cache-Control': 'no-store, no-transform',
+        'X-Accel-Buffering': 'no',
+    })
 
 
 @app.get("/api/health")
