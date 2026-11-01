@@ -1,8 +1,8 @@
 """Game state and an atomic publication boundary independent of transport.
 
-The optional persist callback must commit a complete draft atomically or raise.
-It runs before publication under the same world lock. The default is explicitly
-in-memory; the backend owns the durable adapter and session authentication.
+The optional persist callback must accept a detached draft or raise. It runs
+before publication under the same world lock. An adapter may commit immediately
+or enqueue for eventual persistence; the backend owns the durability policy.
 """
 from contextlib import contextmanager
 from copy import deepcopy
@@ -98,6 +98,10 @@ class WorldState:
     team_storage: dict[str, dict] = field(default_factory=dict)
     team_oxygen: dict[str, int] = field(default_factory=dict)  # Legacy saves only.
     oxygen_percent: float = 0.0
+    admin_paused: bool = False
+    admin_version: int = 0
+    admin_characters: list = field(default_factory=list)
+    admin_active_character: str = "expedition"
     economy_version: int = 2
     # Request keys are user_id + ':' + canonical UUID within this world.
     command_results: dict[str, dict] = field(default_factory=dict)
@@ -149,8 +153,8 @@ class WorldState:
 class UnitOfWork:
     """One instance per world, shared by all commands and tick callers.
 
-    No mutation is published if validation or persistence fails. Readers get
-    detached snapshots. Persistence must include command_results in its commit.
+    No mutation is published if validation or the persist callback fails. Readers
+    get detached snapshots. Durable batches must include command_results.
     Multiple processes need a backend transaction/locking adapter instead.
     """
     def __init__(self, planet: Planet, state: WorldState, persist=None):

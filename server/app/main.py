@@ -17,10 +17,12 @@ from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSoc
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from .storage import Database
+from .storage.buffered import BufferedGameWriter
 from .transport import GameService, Stream
 from .lobby import Lobby
 from .game import step
-from . import agent
+from . import agent, admin
+import sys
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
 STATIC_DIR = Path(os.environ.get("STATIC_DIR", "client/dist"))
@@ -76,19 +78,27 @@ class Credentials(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.initialize()
-    app.state.game = GameService(db)
+    admin.initialize(app, db.path.parent)
+    game = GameService(db)
+    writer = BufferedGameWriter(db)
+    app.state.game_writer = writer
+    game.persist = writer.submit
+    app.state.game = game
     app.state.lobby = Lobby(app.state.game)
     task = asyncio.create_task(game_loop())
     try:
         yield
     finally:
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
-        for socket in list(connections):
-            with suppress(RuntimeError):
-                await socket.close(code=1001)
-        connections.clear()
+        try:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            for socket in list(connections):
+                with suppress(RuntimeError):
+                    await socket.close(code=1001)
+            connections.clear()
+        finally:
+            await asyncio.to_thread(writer.close)
 
 
 async def game_loop():
@@ -97,11 +107,13 @@ async def game_loop():
     while True:
         deadline += .05
         await asyncio.sleep(max(0, deadline - loop.time()))
-        for world_id, runtime in app.state.game.worlds.items():
-            if app.state.lobby.stage(world_id) != 'running':
+        tick_started = time.monotonic()
+        for world_id, runtime in list(app.state.game.worlds.items()):
+            if app.state.lobby.stage(world_id) != 'running' or runtime.state.admin_paused:
                 continue
             with runtime.transaction() as draft:
                 step(draft, .05, runtime.planet)
+        app.state.tick_ms = (time.monotonic() - tick_started) * 1000
         for socket in list(connections):
             stream = getattr(socket.state, 'stream', None)
             if stream is None:
@@ -137,7 +149,10 @@ def agent_identity(request):
 @app.get('/api/agent/messages')
 def agent_messages(request: Request, response: Response):
     response.headers['Cache-Control'] = 'no-store'
-    return {'messages': agent.history(db, agent_identity(request))}
+    identity = agent_identity(request)
+    character = admin.active_character(app.state.game.runtime(identity).state)
+    return {'messages': agent.history(db, identity, character['id'] if character else 'expedition'),
+            'character': {'id': character['id'], 'name': character['name']} if character else None}
 
 
 @app.post('/api/agent/ask')
@@ -149,22 +164,25 @@ async def agent_ask(question: AgentQuestion, request: Request, response: Respons
         raise HTTPException(status_code=422, detail='Введите вопрос.')
     if agent_busy:
         raise HTTPException(status_code=429, detail='ИИ отвечает на другой вопрос. Попробуйте чуть позже.')
+    character = admin.active_character(app.state.game.runtime(identity).state)
+    if character is None or not character['enabled']:
+        raise HTTPException(status_code=503, detail='Персонаж отключён администратором.')
     agent_busy.add(identity['user_id'])
     response.headers['Cache-Control'] = 'no-store'
     try:
-        context = {'stage': app.state.lobby.stage(identity['world_id'])}
+        context = {'stage': app.state.lobby.stage(identity['world_id']), '_character': character}
         runtime = app.state.game.worlds.get(identity['world_id'])
         if runtime and identity['user_id'] in runtime.state.players:
             state = app.state.game.dto(identity)
             context.update({key: state[key] for key in ('inventory', 'team_storage', 'oxygen_percent', 'oxygen_goal', 'config', 'stage') if key in state})
             context['team_buildings'] = [item['building_type'] for item in state.get('buildings', [])]
-        answer = await asyncio.to_thread(agent.complete, agent.history(db, identity), text, context)
+        answer = await asyncio.to_thread(agent.complete, agent.history(db, identity, character['id']), text, context)
         with db.connect() as connection:
             for role, message in [('user', text), ('assistant', answer)]:
                 connection.execute('INSERT INTO agent_messages VALUES (?,?,?,?,?,?,?)',
-                                   (str(uuid.uuid4()), identity['world_id'], identity['user_id'], 'expedition',
+                                   (str(uuid.uuid4()), identity['world_id'], identity['user_id'], character['id'],
                                     role, message, int(time.time())))
-        return {'text': answer}
+        return {'text': answer, 'character': {'id': character['id'], 'name': character['name']}}
     except (OSError, ValueError, KeyError):
         raise HTTPException(status_code=503, detail='Модель сейчас недоступна. Попробуйте позже.') from None
     finally:
@@ -272,6 +290,8 @@ async def websocket_endpoint(socket: WebSocket):
         await socket.close(code=1008)
         return
     socket.state.session_token = token
+    socket.state.connection_id = str(uuid.uuid4())
+    socket.state.connected_at = time.monotonic()
     socket.state.send_lock = asyncio.Lock()
     await socket.accept()
     connections.add(socket)
@@ -296,6 +316,9 @@ async def websocket_endpoint(socket: WebSocket):
                 await socket.send_json({"type": "error", "payload": {"code": "INVALID_ARGUMENT"}})
                 continue
             kind = message.get('type')
+            if kind in ('telemetry.report', 'telemetry.pong'):
+                await admin.receive_telemetry(socket, kind, message.get('payload'))
+                continue
             if kind == 'world.subscribe':
                 if getattr(socket.state, 'stream', None) is None:
                     try:
@@ -403,7 +426,7 @@ async def websocket_endpoint(socket: WebSocket):
                 await socket.send_json({"type": "action.result", "request_id": request_id,
                                         "payload": {"ok": False, "code": "INVALID_ARGUMENT"}})
                 continue
-            result, event = db.send_chat(identity, request_id, text)
+            result, event = app.state.game.send_chat(identity, request_id, text)
             await socket.send_json(result)
             if event:
                 await send_team(identity["world_id"], identity["team_id"], event)
@@ -414,6 +437,9 @@ async def websocket_endpoint(socket: WebSocket):
         world_id = app.state.lobby.disconnect(socket)
         if world_id is not None:
             await broadcast_lobby(world_id)
+
+
+admin.install(app, sys.modules[__name__])
 
 
 if STATIC_DIR.is_dir():

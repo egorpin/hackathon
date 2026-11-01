@@ -48,8 +48,9 @@ def byte_size(value):
 
 
 class GameService:
-    def __init__(self, db):
+    def __init__(self, db, persist=None):
         self.db = db
+        self.persist = persist if persist is not None else db.save_game
         raw_radius = os.environ.get("MARS_PLANET_RADIUS", "30")
         try:
             radius = float(raw_radius)
@@ -96,8 +97,8 @@ class GameService:
                 ensure_start(state, self.planet)
                 for rover in state.rovers.values():
                     rover.update(status='idle', speed=0., error=None, line=None)
-                self.db.save_game(state)
-            self.worlds[world_id] = UnitOfWork(self.planet, state, persist=self.db.save_game)
+                self.persist(state)
+            self.worlds[world_id] = UnitOfWork(self.planet, state, persist=self.persist)
         return self.worlds[world_id]
 
     def join(self, identity):
@@ -140,6 +141,15 @@ class GameService:
         if previous is not None:
             return previous
         return apply_command(context, message, self.runtime(identity))
+
+    def send_chat(self, identity, request_id, text):
+        # Gameplay receipts may not have reached SQLite yet. Reserve their IDs
+        # in the shared chat/game namespace before accepting a chat message.
+        runtime = self.worlds.get(identity['world_id'])
+        if runtime is not None and identity['user_id'] + ':' + request_id in runtime.state.command_results:
+            return {'type': 'action.result', 'request_id': request_id,
+                    'payload': {'ok': False, 'code': 'REQUEST_CONFLICT'}}, None
+        return self.db.send_chat(identity, request_id, text)
 
     def dto(self, identity):
         context = Context(identity['world_id'], identity['user_id'], identity['team_id'])

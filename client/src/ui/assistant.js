@@ -54,7 +54,7 @@ export class Assistant {
       element.querySelector('.activity-label').textContent=label;
     }
     this.button.querySelector('.assistant-button-label').hidden=state!=='idle';
-    this.button.title=label?`Марсик · ${label}`:'ИИ-помощник';
+    this.button.title=label?`${this.characterName || 'Марсик'} · ${label}`:'ИИ-помощник';
   }
   async revealReply(item) {
     // The endpoint returns a complete answer; "writing" is its on-screen reveal.
@@ -74,7 +74,7 @@ export class Assistant {
   }
   message(role,text) {
     const item=document.createElement('div');item.className='assistant-message '+(role==='user'?'user':'reply');
-    const label=document.createElement('strong');label.textContent=role==='user'?'Ты':'ИИ-помощник';
+    const label=document.createElement('strong');label.textContent=role==='user'?'Ты':(this.characterName || 'ИИ-помощник');
     const body=document.createElement('div');body.className='assistant-markdown';
     if(role==='user')body.textContent=text;
     else {
@@ -128,13 +128,21 @@ export class Assistant {
     active.speak.disabled=false;active.stop.disabled=true;active.status.textContent='';
     this.updateActivity();
   }
+  setCharacter(character) {
+    const changed=this.characterId && this.characterId!==character?.id;
+    this.characterId=character?.id;this.characterName=character?.name || 'ИИ-помощник';
+    this.dialog.querySelector('#assistant-title').textContent=this.characterName;
+    this.activity.querySelector('strong').textContent=this.characterName;
+    if(changed)this.log.replaceChildren();
+    return changed;
+  }
   async open() {
     if(!this.dialog.hidden)return;
     this.dialog.hidden=false;this.button.setAttribute('aria-expanded','true');
     if(this.busy)return;
     this.send.disabled=true;this.status.textContent='Загружаем диалог…';
     try {
-      const data=await this.json('/api/agent/messages');this.stopSpeech();this.log.replaceChildren();
+      const data=await this.json('/api/agent/messages');this.stopSpeech();this.log.replaceChildren();this.setCharacter(data.character);
       for(const item of data.messages)this.message(item.role,item.text);
       this.status.textContent=data.messages.length?'':'Задай первый вопрос помощнику.';
       this.send.disabled=false;
@@ -171,6 +179,7 @@ export class Assistant {
     try {
       const answer=await this.json('/api/agent/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
       if(this.controller.signal.aborted)return;
+      if(this.setCharacter(answer.character))this.message('user',text);
       this.requestPhase='writing';this.updateActivity();
       await this.revealReply(this.message('assistant',answer.text));this.status.textContent='';
     }catch(error){if(!this.controller.signal.aborted){this.status.textContent=error.message;this.input.value=text;}}
