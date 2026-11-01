@@ -1,5 +1,5 @@
 import './lobby.css';
-import { PALETTES, defaultProfile, loadProfile, saveProfile, avatarURL } from './profile.js';
+import { PALETTES, defaultProfile, loadProfile, saveProfile, avatarURL, suitColor } from './profile.js';
 
 export class Lobby {
  constructor({events,transport,scene,preview=false}){
@@ -37,7 +37,7 @@ export class Lobby {
     <div class="editor-head"><h2 id="profile-title">Аватар профиля</h2><button type="button" class="cancel-profile" aria-label="Отменить изменения аватара">✕</button></div>
     <div class="avatar-editor"><img alt="Предпросмотр аватара"><div><strong class="profile-account"></strong><p>Так вас видят в списке игроков.</p><button type="button" class="shuffle-avatar">Другой вариант</button></div></div>
     <fieldset class="avatar-palette"><legend>Цвет аватара</legend><div class="avatar-colors" role="group" aria-label="Цвет аватара"></div></fieldset>
-    <p class="profile-note">Выберите цвет и вариант. Изменения применятся после сохранения.</p>
+    <p class="profile-note">Цвет применяется к аватару и костюму космонавта после сохранения.</p>
     <p class="profile-error" role="alert"></p><div class="profile-actions"><button type="button" class="cancel-profile-text">Отмена</button><button type="submit" class="save-profile">Сохранить</button></div>
    </form></section>
   </div>`;
@@ -87,7 +87,10 @@ export class Lobby {
   this.panel.classList.toggle('reduce-motion',this.profile.reducedMotion);
  }
  publishProfile(){
-  if(!this.preview&&this.identity)this.transport.send({type:'lobby.profile',payload:{color:this.profile.color,variant:this.profile.variant}});
+  if(!this.preview&&this.identity){
+   this.transport.send({type:'lobby.profile',payload:{color:this.profile.color,variant:this.profile.variant}});
+   this.transport.command('player.color',{color:suitColor(this.profile)});
+  }
  }
  receive(state){
   this.players=state.players;this.stage=state.stage;this.pending=false;
