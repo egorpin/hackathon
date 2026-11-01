@@ -124,7 +124,10 @@ export class GameClient extends Events {
   }
   command(type, payload) {
     if (!this.ready) throw new Error('Дождитесь синхронизации с сервером.');
-    if (type !== 'chat.send' && this.revision === null) throw new Error('Дождитесь состояния мира.');
+    // The profile color is published immediately after session.ready, while
+    // world.subscribe is still producing the first authoritative snapshot.
+    // The server explicitly permits this session-scoped command at that stage.
+    if (!['chat.send', 'player.color'].includes(type) && this.revision === null) throw new Error('Дождитесь состояния мира.');
     if (this.pending.size >= 64) throw new Error('Слишком много неподтверждённых действий.');
     const request_id = globalThis.crypto?.randomUUID?.() || uuid();
     const message = { type, request_id, payload: structuredClone(payload) };

@@ -85,8 +85,10 @@ test('authenticated session opens the existing server transport',()=>{
  assert.equal(statuses.at(-1),'connected');
  c.input({move:[0,0,1]});assert.equal(c.socket.sent.length,0);
  assert.throws(()=>c.command('building.place',{cell_id:'x'}),/состояния мира/);
+ const color=c.command('player.color',{color:'#d97941'});
+ assert.equal(c.socket.sent[0].request_id,color);
  const id=c.command('chat.send',{text:'hello'});
- assert.equal(c.socket.sent[0].request_id,id);c.close();
+ assert.equal(c.socket.sent[1].request_id,id);c.close();
 });
 test('unconfirmed commands replay with original IDs only after snapshot',()=>{
  const c=new GameClient({url:'ws://test/ws',WebSocketClass:Socket});c.connect();

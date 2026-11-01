@@ -2,7 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 
 from app.game import Context, UnitOfWork, WorldState, apply_command, snapshot
-from app.game.state import RECIPES, STARTING_RESOURCES, storage_capacity
+from app.game.state import Building, RECIPES, STARTING_RESOURCES, storage_capacity
 import unittest
 import test_game as helpers
 from test_game import command
@@ -31,6 +31,79 @@ class EconomyTests(unittest.TestCase):
         self.world.enroll(Context('world-a', 'bob', 'team-a'))
         for resource, amount in STARTING_RESOURCES.items():
             self.assertEqual(self.world.state.team_storage['team-a'][resource], 2 * amount)
+
+    def test_all_placed_buildings_have_authoritative_plan_and_construction_schedule(self):
+        self.start()
+        state = self.world.state
+        cell = self.planet.cells[self.planet.landing_sites[0]].neighbors[1]
+        # The demo's starter pool does not contain copper; seed enough to cover
+        # the two new recipes while keeping placement and charging authoritative.
+        with self.world.transaction() as draft:
+            draft.team_storage['team-a']['copper'] = 20
+        panel_id = self.build('solar_panel', cell, complete=False)
+        state = self.world.state
+        panel = state.buildings[panel_id]
+        self.assertEqual((panel.construction_status, panel.construction_progress, panel.construction_required),
+                         ('planned', 0, 400))
+        view = snapshot(self.context, self.world)['payload']
+        panel_view = next(building for building in view['buildings'] if building['building_id'] == panel_id)
+        self.assertEqual(panel_view['construction_status'], 'planned')
+        self.assertNotIn('energy', view)
+        self.assertNotIn('energy', panel_view)
+        self.assertFalse(any('energy' in key for key in view['config']))
+
+        self.advance(159)
+        self.assertEqual(self.world.state.buildings[panel_id].construction_status, 'planned')
+        self.advance(1)
+        self.assertEqual(self.world.state.buildings[panel_id].construction_status, 'building')
+        self.assertEqual(self.world.state.buildings[panel_id].construction_progress, 160)
+        self.advance(240)
+        self.assertEqual(self.world.state.buildings[panel_id].construction_status, 'completed')
+        self.assertEqual(self.world.state.buildings[panel_id].construction_progress, 400)
+
+        turbine_id = self.build('wind_turbine', self.planet.cells[self.planet.landing_sites[0]].neighbors[2], complete=False)
+        self.assertEqual(self.world.state.buildings[turbine_id].construction_status, 'planned')
+
+        # Drill, warehouse and oxygen generator use the exact same schedule;
+        # all player-placeable types therefore drive the same plan/robot UI.
+        for kind in ('drill', 'warehouse', 'oxygen_generator'):
+            fresh = UnitOfWork(self.planet, WorldState(f'construction-{kind}', self.planet.version))
+            context = Context(f'construction-{kind}', 'alice', 'team-a')
+            fresh.enroll(context)
+            self.ok(apply_command(context, command('landing.select', cell_id=self.planet.landing_sites[0]), fresh))
+            self.ok(apply_command(context, command('world.start'), fresh))
+            target = self.planet.cells[self.planet.landing_sites[0]].neighbors[1]
+            placed = apply_command(context, command('building.place', cell_id=target, building_type=kind), fresh)
+            self.ok(placed)
+            item = fresh.state.buildings[placed['payload']['building_id']]
+            self.assertEqual((item.construction_status, item.construction_progress), ('planned', 0))
+
+    def test_construction_state_survives_save_reload_and_legacy_buildings_are_complete(self):
+        saved = {}
+        persistent = UnitOfWork(self.planet, WorldState('persisted-world', self.planet.version),
+                                persist=lambda state: saved.update(data=state.to_dict()))
+        context = Context('persisted-world', 'alice', 'team-a')
+        persistent.enroll(context)
+        self.ok(apply_command(context, command('landing.select', cell_id=self.planet.landing_sites[0]), persistent))
+        self.ok(apply_command(context, command('world.start'), persistent))
+        cell = self.planet.cells[self.planet.landing_sites[0]].neighbors[1]
+        with persistent.transaction() as state:
+            state.team_storage['team-a']['copper'] = 4
+        placed = apply_command(context, command('building.place', cell_id=cell, building_type='solar_panel'), persistent)
+        self.ok(placed)
+        building_id = placed['payload']['building_id']
+        with persistent.transaction() as state:
+            for _ in range(200):
+                helpers.step(state, helpers.TICK_SECONDS, self.planet)
+        restored = UnitOfWork(self.planet, WorldState.from_dict(saved['data']))
+        restored_building = restored.state.buildings[building_id]
+        self.assertEqual((restored_building.construction_status, restored_building.construction_progress),
+                         ('building', 200))
+
+        # Records from before construction fields existed deserialize as built.
+        legacy = Building('legacy', cell, 'warehouse', 'team-a', 'alice')
+        self.assertEqual(legacy.construction_status, 'completed')
+        self.assertFalse(any('energy' in field for field in vars(legacy)))
 
     def test_remove_refunds_paid_cost_and_stock_exactly_once(self):
         self.start()

@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;height:100%;overflow:hidden;background:#eef1f4;font-family:Arial}canvas{display:block}
+#title{position:fixed;top:18px;left:0;right:0;text-align:center;font-size:26px;font-weight:700;color:#222}
+</style><script type="importmap">{"imports":{"three":"../../client/node_modules/three/build/three.module.js"}}</script></head><body><div id="title">Простые 3D-модели</div><script type="module">
+import * as THREE from 'three';
+import {OBJLoader} from '../../client/node_modules/three/examples/jsm/loaders/OBJLoader.js';
+import {MTLLoader} from '../../client/node_modules/three/examples/jsm/loaders/MTLLoader.js';
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0xf4f6f8);
+const camera=new THREE.PerspectiveCamera(32,innerWidth/innerHeight,.1,100);camera.position.set(3.5,5,14);camera.lookAt(0,1.25,0);
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(devicePixelRatio);renderer.shadowMap.enabled=true;document.body.append(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x607080,2.5));const sun=new THREE.DirectionalLight(0xffffff,4);sun.position.set(-4,8,9);sun.castShadow=true;scene.add(sun);
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(20,10),new THREE.MeshStandardMaterial({color:0xdde2e6,roughness:1}));floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
+const names=['solar-panel','wind-turbine','robot-minion'];const xs=[-3.3,0,3.2];
+const mtl=await new Promise((ok,bad)=>new MTLLoader().load('../../assets/models/energy-v2/simple-energy.mtl',ok,undefined,bad));mtl.preload();
+for(let i=0;i<names.length;i++){const obj=await new Promise((ok,bad)=>{const l=new OBJLoader();l.setMaterials(mtl);l.load('../../assets/models/energy-v2/'+names[i]+'.obj',ok,undefined,bad)});obj.position.x=xs[i];obj.rotation.z=0;obj.rotation.x=-Math.PI/2;obj.traverse(x=>{if(x.isMesh){x.castShadow=true;x.receiveShadow=true}});scene.add(obj);}
+function label(text,x){const c=document.createElement('canvas');c.width=512;c.height=96;const g=c.getContext('2d');g.font='bold 34px Arial';g.textAlign='center';g.fillStyle='#20252a';g.fillText(text,256,55);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true}));s.position.set(x,4.25,0);s.scale.set(2.8,.52,1);scene.add(s)}
+label('Солнечная панель',-3.3);label('Ветрогенератор',0);label('Робот-миньон',3.2);
+renderer.setAnimationLoop(()=>renderer.render(scene,camera));
+</script></body></html>
+

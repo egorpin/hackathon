@@ -195,6 +195,10 @@ def dispatch(context, kind, payload, state, planet):
         require(all(pool.get(resource, 0) >= amount for resource, amount in cost.items()), "INSUFFICIENT_RESOURCES")
         building_id = str(uuid.uuid4())
         building = Building(building_id, cell_id, building_type, player.team_id, player.user_id)
+        # Every player-placed building enters the same authoritative build
+        # schedule.  The landing dome is created by world setup and therefore
+        # keeps the dataclass default of "completed".
+        building.construction_status = "planned"
         building.paid_cost = dict(cost)
         for resource, amount in cost.items():
             pool[resource] -= amount

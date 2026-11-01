@@ -5,7 +5,7 @@ import { prepareDrillParts } from './drill-parts.js';
 import { attachMechanicalAnimation } from './mechanical-animation.js';
 import { ModelCache } from './model-cache.js';
 
-export const MODEL_NAMES = ['astronaut','drill','oxygen_generator','storage','dome_base','rover'];
+export const MODEL_NAMES = ['astronaut','drill','oxygen_generator','storage','dome_base','rover','solar_panel','wind_turbine','robot_minion'];
 const suitTints = new WeakMap();
 function tintSuit(material, color) {
   let uniform = suitTints.get(material);
@@ -96,8 +96,9 @@ export class ModelLibrary {
       const clip=animation.clips.find(c=>c.name.toLowerCase()===state) || animation.clips[0];
       const action=animation.mixer.clipAction(clip);
       animation.action?.fadeOut(.15);
-      action.reset().setLoop(state==='jump'?THREE.LoopOnce:THREE.LoopRepeat,Infinity);
-      action.clampWhenFinished=state==='jump';
+      const once=state==='jump'||state==='wave';
+      action.reset().setLoop(once?THREE.LoopOnce:THREE.LoopRepeat,once?1:Infinity);
+      action.clampWhenFinished=once;
       action.fadeIn(.15).play();
       animation.action=action; animation.current=state;
     }

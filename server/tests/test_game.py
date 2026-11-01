@@ -134,10 +134,18 @@ class GameTests(unittest.TestCase):
             for _ in range(ticks):
                 step(state, TICK_SECONDS, self.planet)
 
-    def build(self, building_type="drill", cell_id=None):
+    def build(self, building_type="drill", cell_id=None, complete=True):
         if cell_id is None:
             cell_id = self.planet.cells[self.planet.landing_sites[0]].neighbors[0]
-        return self.ok(self.act("building.place", cell_id=cell_id, building_type=building_type))["building_id"]
+        building_id = self.ok(self.act("building.place", cell_id=cell_id, building_type=building_type))["building_id"]
+        # Most tests exercise completed-building behavior. Construction tests
+        # opt out so they can assert the complete timeline independently.
+        if complete:
+            with self.world.transaction() as state:
+                building = state.buildings[building_id]
+                building.construction_progress = building.construction_required
+                building.construction_status = "completed"
+        return building_id
 
     def move_near(self, building_id):
         cell = self.planet.cells[self.world.state.buildings[building_id].cell_id]
@@ -291,7 +299,9 @@ class GameTests(unittest.TestCase):
         self.start()
         request = command("building.place", cell_id=self.planet.cells[self.planet.landing_sites[0]].neighbors[0], building_type="drill")
         response = apply_command(self.context, request, self.world)
-        self.advance(40)
+        # All placed buildings spend 400 ticks in construction before their
+        # normal simulation starts; the following 40 ticks produce two units.
+        self.advance(440)
         restored = UnitOfWork(self.planet, WorldState.from_dict(json.loads(saved[-1])))
         self.assertEqual(json.loads(json.dumps(restored.state.to_dict())), json.loads(saved[-1]))
         self.assertEqual(apply_command(self.context, request, restored), response)

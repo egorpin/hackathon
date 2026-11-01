@@ -4,7 +4,8 @@ import math
 from app.world.geometry import move_on_surface, surface_distance
 from app.world.terrain import ground_position, seed_from_world_id
 from .commands import authorize
-from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, INPUT_TIMEOUT_TICKS,
+from .state import (BUILDING_CAPACITY, BUILDING_RADIUS, CONSTRUCTION_TRAVEL_TICKS,
+                    INPUT_TIMEOUT_TICKS,
                     MOUNTAIN_RADIUS, OXYGEN_GOAL, PLAYER_RADIUS,
                     PRODUCTION_TICKS, REACH, RECIPES, SPEED, TICK_SECONDS,
                     INVENTORY_CAPACITY, STORAGE_CAPACITY, STARTING_ORE, MINABLE_RESOURCES,
@@ -49,6 +50,17 @@ def step(world, dt_seconds, planet):
     producers = sorted(world.buildings.values(), key=lambda b: b.building_id)
     ready = []
     for building in producers:
+        if building.construction_status != "completed":
+            building.construction_progress = min(building.construction_required, building.construction_progress + 1)
+            if building.construction_progress < CONSTRUCTION_TRAVEL_TICKS:
+                building.construction_status = "planned"
+            elif building.construction_progress < building.construction_required:
+                building.construction_status = "building"
+            else:
+                building.construction_status = "completed"
+            events.append({"type": "building.updated", "building_id": building.building_id})
+            if building.construction_status != "completed":
+                continue
         if building.building_type not in ("drill", "oxygen_generator"):
             continue
         building.production_ticks += 1
@@ -113,7 +125,10 @@ def snapshot(context, unit_of_work, view_radius=12.0):
         item = {"building_id": building.building_id, "cell_id": building.cell_id,
                 "building_type": building.building_type, "team_id": building.team_id,
                 "color": state.players[building.creator_id].color,
-                "interaction_distance": building_interaction_distance(planet, planet.cells[building.cell_id])}
+                "interaction_distance": building_interaction_distance(planet, planet.cells[building.cell_id]),
+                "construction_status": building.construction_status,
+                "construction_progress": building.construction_progress,
+                "construction_required": building.construction_required}
         if building.team_id == player.team_id:
             item["stock"] = building.stock if building.building_type != "warehouse" else state.team_storage[player.team_id]
         buildings.append(item)

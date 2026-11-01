@@ -14,6 +14,8 @@ import { ResourceLabelTextures, RESOURCE_LABELS } from './resource-label-texture
 import { surfaceRocks } from './surface-rocks.js';
 import { DEFAULT_VISUAL_OPTIONS, updateVisualOptions } from './visual-options.js';
 import { CHARACTER_SCALE, CHARACTER_HEIGHT_SCALE, EYE_HEIGHT } from './character-scale.js';
+import { BaseRobots } from './base-robots.js';
+import { isPlan, setPlanVisual } from './construction-visual.js';
 
 export function disposeObject(root) {
   const geometries = new Set(), materials = new Set(), textures = new Set();
@@ -170,6 +172,7 @@ export class WorldScene {
     this.visualOptions = updateVisualOptions(this.visualOptions, patch);
   }
   modelLoaded(name) {
+    if(name==='robot_minion'){this.robots?.dispose();this.robots=null;return;}
     if(name==='astronaut') {
       this.hands.dispose();
       this.hands=new FirstPersonHands(this.camera,{astronaut:this.models.assets.get(name).scene,animations:this.models.assets.get(name).animations});
@@ -186,6 +189,7 @@ export class WorldScene {
       for(const entry of this.buildings.values()) if((entry.data.building_type==='warehouse'?'storage':entry.data.building_type)===name) {
         disposeObject(entry.mesh);entry.mesh=this.buildingModel(entry.data.building_type,entry.data.color);
         this.place(entry.mesh,vector(entry.data.position));this.scene.add(entry.mesh);
+        setPlanVisual(entry.mesh,isPlan(entry.data));
       }
     }
   }
@@ -194,6 +198,7 @@ export class WorldScene {
     this.renderer.setSize(width,height); this.camera.aspect = width / Math.max(1,height); this.camera.updateProjectionMatrix();
   }
   reset() {
+    this.robots?.dispose();this.robots=null;
     for (const id of [...this.chunks.keys()]) this.unload(id);
     for (const entry of this.players.values()) disposeObject(entry.mesh);
     for (const entry of this.buildings.values()) disposeObject(entry.mesh);
@@ -270,11 +275,13 @@ export class WorldScene {
     for (const building of state.buildings || []) {
       const old = this.buildings.get(building.building_id);
       if (old && old.data.building_type===building.building_type) {
-        old.data=building;recolor(old.mesh,building.color);this.place(old.mesh,vector(building.position));continue;
+        old.data=building;recolor(old.mesh,building.color);this.place(old.mesh,vector(building.position));
+        if(!!old.mesh.userData.constructionPlan!==isPlan(building))setPlanVisual(old.mesh,isPlan(building));continue;
       }
       if(old)disposeObject(old.mesh);
       const model = this.buildingModel(building.building_type,building.color);
       this.place(model,vector(building.position));
+      setPlanVisual(model,isPlan(building));
       this.scene.add(model);
       if (building.interaction_point) {
         const marker = mesh(new THREE.SphereGeometry(.16,6,4),0x80ffd7);
@@ -294,7 +301,8 @@ export class WorldScene {
     group.add(body,front);return group;
   }
   buildingModel(type,color) {
-    const loaded=this.models.create(type==='warehouse'?'storage':type,color); if(loaded)return type==='drill'?loaded:withFoundation(loaded);
+    const loaded=this.models.create(type==='warehouse'?'storage':type,color);
+    if(loaded){if(type==='drill')return loaded;const wrapped=withFoundation(loaded);if(loaded.userData.animation)wrapped.userData.animation=loaded.userData.animation;return wrapped;}
     const group = new THREE.Group();
     const base = mesh(new THREE.CylinderGeometry(1,1.2,.35,6),0x383e47); base.position.y = .18; group.add(base);
     if (type === 'drill') {
@@ -380,11 +388,19 @@ export class WorldScene {
   }
   select(cell) {
     this.selected = cell;
+    const previewKey=`${this.buildType}:${this.models?.assets.has(this.buildType)}`;
+    if(this.models && this.previewKey!==previewKey){
+      disposeObject(this.preview);
+      this.preview=this.buildType?this.buildingModel(this.buildType):new THREE.Group();
+      setPlanVisual(this.preview,true);this.scene.add(this.preview);this.previewKey=previewKey;
+    }
     const occupied = [...this.buildings.values()].some(b => b.data.cell_id === cell?.cell_id);
     const allowed = !!cell?.buildable && (this.buildType !== 'drill' || Object.hasOwn(RESOURCE_LABELS,cell.resource)) && !occupied && surfaceDistance(this.position,vector(cell.center),this.radius) <= this.buildDistance;
     this.preview.visible = !!cell && !!this.buildType;
     if (cell) {
-      this.place(this.preview,projectTerrain(vector(cell.center),this.radius,0,this.terrain)); this.preview.material.color.setHex(allowed ? 0x80ffd7 : 0xff605a);
+      this.place(this.preview,projectTerrain(vector(cell.center),this.radius,0,this.terrain));
+      if(this.preview.material)this.preview.material.color.setHex(allowed ? 0x80ffd7 : 0xff605a);
+      else this.preview.traverse(node=>{for(const m of [node.material].flat().filter(Boolean))m.color?.setHex(allowed?0x80ffd7:0xff605a);});
     }
     this.events.emit('cell.selected',{ cell, locallyAllowed: allowed });
   }
@@ -539,6 +555,13 @@ export class WorldScene {
       for (const entry of this.buildings.values()) {
         entry.mesh.visible = loadedCells.has(entry.data.cell_id) && surfaceDistance(origin,entry.mesh.position,this.radius) <= this.viewRadius;
         if(entry.mesh.visible && this.visualOptions.animations)entry.mesh.userData.mechanical?.update(dt,{active:true});
+        if(entry.mesh.visible && this.visualOptions.animations && entry.data.building_type==='wind_turbine' && !isPlan(entry.data))this.models.animate(entry.mesh,'spin',dt);
+      }
+      if(this.stage==='running'){
+        if(!this.robots)this.robots=new BaseRobots(this.scene,this.models,{radiusAt:()=>this.radius,projectSurface:p=>projectTerrain(p,this.radius,0,this.terrain)});
+        this.robots.setState({position:this.position,buildings:[...this.buildings.values()].filter(e=>e.mesh.visible).map(e=>e.data),players:[{position:this.position},...[...this.players.values()].map(e=>e.data)]});
+        if(this.visualOptions.animations)this.robots.update(dt);
+        for(const e of this.robots.entries.values())e.root.visible=surfaceDistance(origin,e.position,this.radius)<=this.viewRadius;
       }
       if (this.mode === 'first') this.pick();
       if (this.selected) {

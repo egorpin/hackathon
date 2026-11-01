@@ -35,9 +35,14 @@ STARTING_ORE = 0
 STARTING_RESOURCES = {"iron": 40, "sulfur": 15, "water": 5}
 OXYGEN_PER_CYCLE = 0.1
 RECIPES = {"drill": {"iron": 5}, "warehouse": {"iron": 10, "sulfur": 5},
-           "oxygen_generator": {"iron": 15, "sulfur": 5}, "dome_base": {"iron": 10}}
+           "oxygen_generator": {"iron": 15, "sulfur": 5}, "dome_base": {"iron": 10},
+           "solar_panel": {"iron": 8, "copper": 4}, "wind_turbine": {"iron": 10, "copper": 6}}
 INPUT_TIMEOUT_TICKS = 5
 PRODUCTION_TICKS = 20
+# New construction uses an authoritative fixed schedule: 8 seconds for the
+# three cosmetic builders to travel, followed by 12 seconds of construction.
+CONSTRUCTION_TRAVEL_TICKS = 160
+CONSTRUCTION_BUILD_TICKS = 240
 OXYGEN_GOAL = 100
 
 # Public palette shared with the color picker. Accept only these exact values.
@@ -81,6 +86,9 @@ class Building:
     stock: dict = field(default_factory=lambda: dict.fromkeys(RESOURCES, 0))
     production_ticks: int = 0
     paid_cost: dict = field(default_factory=dict)
+    construction_progress: int = 0
+    construction_required: int = CONSTRUCTION_TRAVEL_TICKS + CONSTRUCTION_BUILD_TICKS
+    construction_status: str = "completed"
 
 
 @dataclass
