@@ -1,4 +1,5 @@
 import "./rover.css";
+import { kodyashMascot } from './agent-mascot.js';
 
 const fmt = n => Number.isFinite(n) ? n.toFixed(4) : '—';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -18,7 +19,7 @@ export class RoverUI {
     this.panel.innerHTML=`
       <header class="rv-head"><h1>Бортовой блокнот</h1><span data-local-status>Автосохранение включено</span><button data-close aria-label="Закрыть блокнот">Закрыть <kbd>Esc</kbd></button></header>
       <main class="rv-workspace">
-        <aside class="rv-sidebar"><section class="rv-explorer"><div class="rv-section-title">ФАЙЛЫ <span>ЛОКАЛЬНО</span></div><div class="rv-file-actions"><button data-new-folder>＋ Папка</button><button data-new-file>＋ Файл</button></div><nav data-tree aria-label="Файлы экспедиции"></nav></section><div class="rv-split horizontal" data-resize="files" role="separator" tabindex="0" aria-label="Высота файлов и чата" aria-orientation="horizontal"></div><section class="rv-chat"><div class="rv-section-title">ЧАТ <span>ИИ-ПОМОЩНИК</span></div><div data-chat-log role="log" aria-live="polite"><div class="rv-chat-empty"><b>ИИ-помощник</b><p>Здесь появится диалог с помощником по программам и экспедиции.</p></div></div><p data-chat-status role="status">Чат пока не подключён</p><form data-chat-form><textarea data-chat-input aria-label="Сообщение" placeholder="Сообщение помощнику…" maxlength="1000" rows="2" disabled></textarea><button data-chat-send type="submit" disabled>Отправить</button></form></section></aside><div class="rv-split" data-resize="left" role="separator" tabindex="0" aria-label="Ширина файлов и чата" aria-orientation="vertical"></div>
+        <aside class="rv-sidebar"><section class="rv-explorer"><div class="rv-section-title">ФАЙЛЫ <span>ЛОКАЛЬНО</span></div><div class="rv-file-actions"><button data-new-folder>＋ Папка</button><button data-new-file>＋ Файл</button></div><nav data-tree aria-label="Файлы экспедиции"></nav></section><div class="rv-split horizontal" data-resize="files" role="separator" tabindex="0" aria-label="Высота файлов и чата" aria-orientation="horizontal"></div><section class="rv-chat"><div class="rv-section-title">ЧАТ <span>ИИ-ПОМОЩНИК</span></div><div class="rv-chat-agent" data-chat-agent data-state="idle">${kodyashMascot}<div><b>Кодяш</b><small>Помощник по роверам</small><span data-chat-agent-state>Подключается…</span></div></div><div data-chat-log role="log" aria-live="polite"><div class="rv-chat-empty"><b>ИИ-помощник</b><p>Здесь появится диалог с помощником по программам и экспедиции.</p></div></div><p data-chat-status role="status">Чат пока не подключён</p><form data-chat-form><textarea data-chat-input aria-label="Сообщение" placeholder="Сообщение помощнику…" maxlength="1000" rows="2" disabled></textarea><button data-chat-send type="submit" disabled>Отправить</button></form></section></aside><div class="rv-split" data-resize="left" role="separator" tabindex="0" aria-label="Ширина файлов и чата" aria-orientation="vertical"></div>
         <section class="rv-code"><nav class="rv-file-tabs" data-tabs aria-label="Открытые файлы"></nav><div class="rv-toolbar"><label>Имя файла<input data-filename aria-label="Имя файла"></label><div><button data-save>Передать</button><button data-stop>■ Стоп</button><button class="rv-primary" data-run>▶ Запустить</button></div></div><div class="rv-meta"><span data-path></span><span data-feedback role="status" aria-live="polite"></span><span data-bytes></span></div><div class="rv-editor"><div data-lines aria-hidden="true"></div><pre data-highlight aria-hidden="true"></pre><textarea data-program spellcheck="false" aria-label="Программа ровера"></textarea></div></section>
         <div class="rv-split" data-resize="right" role="separator" tabindex="0" aria-label="Ширина карты" aria-orientation="vertical"></div><aside class="rv-mission"><section class="rv-fleet"><div class="rv-section-title">РОВЕР <button data-purchase>＋ Новый</button></div><select data-select aria-label="Выбрать ровер"></select><div data-status class="rv-stats"></div><p data-access></p><p data-line></p></section><section class="rv-vision"><div class="rv-view-tabs"><button data-view="camera">Камера ровера</button><button data-view="map">Карта <kbd>Tab</kbd></button></div><div class="rv-live-view"><canvas data-preview tabindex="0" aria-label="Камера и карта. Tab переключает вид. Нажмите на карту для выбора точки."></canvas><div data-no-signal>Нет сигнала<small>Выберите доступный ровер</small></div><div class="rv-live-hud"><span data-preview-label></span><span data-camera-coords></span></div></div><p data-view-help></p></section><div class="rv-split horizontal" data-resize="vision" role="separator" tabindex="0" aria-label="Высота карты" aria-orientation="horizontal"></div><section class="rv-points"><div class="rv-section-title">ТОЧКИ ЭКСПЕДИЦИИ <button data-map-pick>＋ На карте</button></div><p>Клик по карте запишет координаты в текущий файл.</p><div data-points></div><button data-route class="rv-route-button">Создать программу маршрута</button></section></aside>
       </main>`;
@@ -48,6 +49,8 @@ export class RoverUI {
     on('[data-stop]','click',()=>this.command('rover.stop',{rover_id:this.selected}));
     on('[data-save]','click',()=>this.sendProgram(false));
     on('[data-run]','click',()=>this.sendProgram(true));
+    on('[data-chat-form]','submit',e=>{e.preventDefault();this.askKodyash();});
+    on('[data-chat-input]','keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();this.askKodyash();}});
     this.panel.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>this.setView(b.dataset.view),{signal:this.abort.signal}));
     on('[data-route]','click',()=>this.createRoute());
     on('[data-map-pick]','click',()=>{this.setView('map');this.q('[data-preview]').focus();});
@@ -96,6 +99,111 @@ export class RoverUI {
   q(s){return this.panel.querySelector(s);}
   command(type,payload){this.events.emit('command',{type,payload});}
   feedback(text){this.q('[data-feedback]').textContent=text;}
+  chatActivity(state,label){
+    const agent=this.q('[data-chat-agent]');agent.dataset.state=state;
+    this.q('[data-chat-agent-state]').textContent=label;
+  }
+  chatHistory(){
+    const log=this.q('[data-chat-log]');
+    let history=log.querySelector('.rv-chat-history');
+    if(!history){
+      log.replaceChildren();
+      history=document.createElement('div');history.className='rv-chat-history';
+      log.append(history);
+    }
+    return history;
+  }
+  scrollChat(){const history=this.chatHistory();history.scrollTop=history.scrollHeight;}
+  chatMessage(role,text=''){
+    const history=this.chatHistory();
+    const item=document.createElement('div');item.className=`rv-chat-message is-${role}`;
+    const name=document.createElement('b');name.textContent=role==='user'?'Вы':'Кодяш';
+    const body=document.createElement('div');body.className='rv-chat-body';this.renderChatBody(body,text);
+    item.append(name,body);history.append(item);this.scrollChat();
+    if(role==='assistant'&&text)this.attachProgramActions(item,text);
+    return {item,body};
+  }
+  renderChatBody(body,text){
+    body.replaceChildren();let cursor=0;
+    for(const match of text.matchAll(/```(?:rover|text)?\s*\n([\s\S]*?)```/gi)){
+      if(match.index>cursor){const paragraph=document.createElement('p');paragraph.textContent=text.slice(cursor,match.index).trim();if(paragraph.textContent)body.append(paragraph);}
+      const pre=document.createElement('pre'),code=document.createElement('code');code.textContent=match[1].trim();pre.append(code);body.append(pre);cursor=match.index+match[0].length;
+    }
+    if(cursor<text.length||!body.childNodes.length){const paragraph=document.createElement('p');paragraph.textContent=text.slice(cursor).trim()||text;body.append(paragraph);}
+  }
+  programFromAnswer(text){
+    return /```(?:rover|text)?\s*\n([\s\S]*?)```/i.exec(text)?.[1]?.trim()||null;
+  }
+  attachProgramActions(item,text){
+    if(item.querySelector('.rv-chat-actions'))return;
+    const program=this.programFromAnswer(text);if(!program)return;
+    const max=this.state?.config?.rover?.program_max_bytes||512;
+    if(new TextEncoder().encode(program).length>max)return;
+    const actions=document.createElement('div');actions.className='rv-chat-actions';
+    const write=document.createElement('button');write.type='button';write.textContent='Записать в текущий файл';
+    const run=document.createElement('button');run.type='button';run.textContent='Записать и запустить';
+    write.addEventListener('click',()=>{if(this.applyKodyashProgram(program,false))write.disabled=true;},{signal:this.abort.signal});
+    run.addEventListener('click',()=>{if(this.applyKodyashProgram(program,true)){write.disabled=true;run.disabled=true;}},{signal:this.abort.signal});
+    actions.append(write,run);item.append(actions);
+  }
+  applyKodyashProgram(program,run){
+    const file=this.localFiles.files.find(entry=>entry.id===this.localSelected);
+    if(!file||file.readOnly){this.feedback('Откройте редактируемый файл, чтобы записать программу Кодяша.');return false;}
+    const code=program.trim()+'\n';
+    file.code=code;this.q('[data-program]').value=code;this.persistLocal();this.paint();this.renderControls();
+    this.feedback(`Кодяш записал программу в ${file.name}.`);
+    if(run){
+      if(!this.selected){this.feedback('Программа записана. Выберите ровер для запуска.');return true;}
+      this.sendProgram(true);
+    }
+    return true;
+  }
+  async loadKodyash(){
+    if(this.chatLoaded||this.chatLoading)return;
+    this.chatLoading=true;this.q('.rv-chat .rv-section-title span').textContent='КОДЯШ';
+    this.q('.rv-chat-empty b').textContent='Кодяш';this.q('[data-chat-status]').textContent='Кодяш подключается…';this.chatActivity('thinking','Подключается…');
+    try{
+      const response=await fetch('/api/rover-agent/messages',{credentials:'same-origin',cache:'no-store',signal:this.abort.signal});
+      const data=await response.json();if(!response.ok)throw Error(data.detail||'Не удалось подключить Кодяша.');
+      this.q('[data-chat-log]').replaceChildren();
+      for(const message of data.messages)this.chatMessage(message.role,message.text);
+      this.chatLoaded=true;this.q('[data-chat-input]').disabled=false;this.q('[data-chat-send]').disabled=false;
+      this.q('[data-chat-input]').placeholder='Спросить Кодяша о ровере…';this.q('[data-chat-status]').textContent='Кодяш готов помочь';this.chatActivity('idle','Готов к вопросу');
+      if(!data.messages.length)await this.askKodyash({event:'notebook_open',text:'Начать обучение'});
+    }catch(error){if(!this.abort.signal.aborted){this.q('[data-chat-status]').textContent=error.message;this.chatActivity('idle','Нет связи');}}
+    finally{this.chatLoading=false;}
+  }
+  async askKodyash({event=null,text=null,errorCode=null,errorLine=null}={}){
+    if(this.chatBusy||!this.chatLoaded&&!event)return;
+    const input=this.q('[data-chat-input]');const question=(text??input.value).trim();if(!question)return;
+    this.chatBusy=true;input.disabled=true;this.q('[data-chat-send]').disabled=true;
+    this.q('[data-chat-status]').textContent='Кодяш думает…';this.chatActivity('thinking','Думает…');
+    if(!event){this.chatMessage('user',question);input.value='';}
+    const reply=this.chatMessage('assistant','…'),body=reply.body;
+    try{
+      const response=await fetch('/api/rover-agent/ask/stream',{method:'POST',credentials:'same-origin',cache:'no-store',signal:this.abort.signal,
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({text:question,rover_id:this.selected||null,
+          program:this.q('[data-program]').value.slice(0,2000),event,error_code:errorCode,error_line:errorLine})});
+      if(!response.ok){const data=await response.json().catch(()=>({}));throw Error(data.detail||'Кодяш не смог ответить.');}
+      const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',answer='',scheduled=false;
+      const draw=()=>{scheduled=false;body.textContent=answer||'…';this.scrollChat();};
+      while(true){
+        const {value,done}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});
+        const lines=buffer.split('\n');buffer=done?'':lines.pop();
+        for(const line of lines){if(!line.trim())continue;const packet=JSON.parse(line);if(packet.error)throw Error(packet.error);if(packet.text){if(!answer)this.chatActivity('writing','Пишет…');answer+=packet.text;}}
+        if(!scheduled){scheduled=true;requestAnimationFrame(draw);}if(done)break;
+      }
+      if(buffer.trim()){const packet=JSON.parse(buffer);if(packet.error)throw Error(packet.error);if(packet.text)answer+=packet.text;}
+      draw();this.renderChatBody(body,answer);this.attachProgramActions(reply.item,answer);this.q('[data-chat-status]').textContent='Кодяш готов помочь';this.chatActivity('idle','Готов к вопросу');
+    }catch(error){reply.item.remove();if(!this.abort.signal.aborted){this.q('[data-chat-status]').textContent=error.message;this.chatActivity('idle','Ошибка ответа');if(!event)input.value=question;}}
+    finally{this.chatBusy=false;input.disabled=false;this.q('[data-chat-send]').disabled=false;}
+  }
+  coachProgramError(result){
+    const code=result?.code;if(!code||!this.chatLoaded||this.chatBusy)return;
+    const key=`mars.kodyash.error.${code}`;if(localStorage.getItem(key))return;
+    localStorage.setItem(key,'shown');
+    this.askKodyash({event:'program_error',text:'Помоги исправить программу',errorCode:code,errorLine:result.line});
+  }
   persistLocal(){const f=this.localFiles.files.find(f=>f.id===this.localSelected);if(f&&!f.readOnly){f.code=this.q('[data-program]').value;f.name=this.q('[data-filename]').value.trim()||'mission.txt';}this.localFiles.selected=this.localSelected;try{localStorage.setItem(storageKey,JSON.stringify(this.localFiles));this.q('[data-local-status]').textContent='Сохранено в браузере';}catch{this.q('[data-local-status]').textContent='Не удалось сохранить — хранилище недоступно';}}
   openLocal(id){if(this.loaded)this.persistLocal();const f=this.localFiles.files.find(f=>f.id===id);if(!f)return;this.localSelected=id;this.localFolder=f.folder;this.q('[data-program]').value=f.code;this.q('[data-filename]').value=f.name;this.q('[data-filename]').readOnly=!!f.readOnly;this.q('[data-program]').readOnly=!!f.readOnly;this.panel.classList.toggle('rv-reading',!!f.readOnly);this.loaded=true;this.persistLocal();this.renderFiles();this.paint();this.renderControls();}
   renderFiles(){this.q('[data-tree]').innerHTML=this.localFiles.folders.map(folder=>`<div class="rv-folder"><button class="${folder===this.localFolder?'chosen':''}" data-folder-name="${esc(folder)}">▾ <span>▱ ${esc(folder)}</span></button>${this.localFiles.files.filter(f=>f.folder===folder).map(f=>`<button data-file-id="${esc(f.id)}" class="rv-file ${f.id===this.localSelected?'active':''}" aria-current="${f.id===this.localSelected}">⌁ ${esc(f.name)}</button>`).join('')}</div>`).join('');this.q('[data-tabs]').innerHTML=this.localFiles.files.map(f=>`<button data-file-id="${esc(f.id)}" class="${f.id===this.localSelected?'active':''}" aria-current="${f.id===this.localSelected}">⌁ ${esc(f.name)}</button>`).join('');const f=this.localFiles.files.find(f=>f.id===this.localSelected);this.q('[data-path]').textContent=`Экспедиция / ${f.folder} / ${f.name}`;}
@@ -116,10 +224,10 @@ export class RoverUI {
   setView(view){this.view=view;this.panel.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));this.q('[data-view-help]').textContent=view==='map'?'Клик — точка · колесо — масштаб · правая кнопка — вращение':'Живой вид с камеры выбранного ровера.';this.updatePreview();}
   updatePreview(){if(!this.panel.open)return;this.scene.setRoverPreview?.({canvas:this.q('[data-preview]'),roverId:this.selected,mode:this.view,points:[...this.q('[data-program]').value.matchAll(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)/gm)].map(p=>({name:p[1],latitude:Number(p[2]),longitude:Number(p[3])}))});this.q('[data-preview-label]').textContent=this.view==='map'?'КАРТА ЭКСПЕДИЦИИ':'КАМЕРА / LIVE';const p=this.state?.rover_fleet?.find(r=>r.rover_id===this.selected)?.position;this.q('[data-camera-coords]').textContent=p?`${fmt(Math.asin(p[1]/Math.hypot(...p))*180/Math.PI)}° / ${fmt(Math.atan2(p[2],p[0])*180/Math.PI)}°`:'';}
   sendProgram(run){if(this.busy||this.q('[data-program]').readOnly)return;const r=this.state?.rover_fleet?.find(r=>r.rover_id===this.selected);if(!r)return;this.persistLocal();this.busy=true;this.sending={roverId:r.rover_id,run};this.command('rover.program',{rover_id:r.rover_id,program:this.q('[data-program]').value,expected_revision:r.program_revision});this.sending=null;this.feedback('Передача программы…');this.renderControls();}
-  result(m){const pending=this.pendingCommands.get(m.request_id);if(!pending)return;this.pendingCommands.delete(m.request_id);const r=m.payload||{};if(pending.type==='rover.program'&&r.ok&&pending.operation?.run){this.command('rover.start',{rover_id:pending.operation.roverId,expected_revision:r.program_revision});return;}this.busy=false;const failures={INVALID_PROGRAM:'Проверьте команды и структуру программы.',PROGRAM_TOO_LONG:'Программа превышает допустимый размер.',UNKNOWN_POINT:'Сначала объявите координаты точки.',REVISION_CONFLICT:'Программа ровера изменилась. Повторите передачу после обновления состояния.',OFFICE_REQUIRED:'Для этой операции подойдите к офису.',INSUFFICIENT_RESOURCES:'Недостаточно ресурсов для покупки ровера.'};this.feedback(r.ok?({'rover.program':'Программа передана роверу.','rover.start':'Программа запущена.','rover.stop':'Ровер остановлен.','rover.purchase':'Ровер добавлен.'}[pending.type]||'Готово.'):`${failures[r.code]||`Ошибка: ${r.code||'нет ответа'}`}${r.line?` Строка ${r.line}.`:''}`);this.renderControls();}
+  result(m){const pending=this.pendingCommands.get(m.request_id);if(!pending)return;this.pendingCommands.delete(m.request_id);const r=m.payload||{};if(pending.type==='rover.program'&&r.ok&&pending.operation?.run){this.command('rover.start',{rover_id:pending.operation.roverId,expected_revision:r.program_revision});return;}this.busy=false;const failures={INVALID_PROGRAM:'Проверьте команды и структуру программы.',PROGRAM_TOO_LONG:'Программа превышает допустимый размер.',UNKNOWN_POINT:'Сначала объявите координаты точки.',REVISION_CONFLICT:'Программа ровера изменилась. Повторите передачу после обновления состояния.',OFFICE_REQUIRED:'Для этой операции подойдите к офису.',INSUFFICIENT_RESOURCES:'Недостаточно ресурсов для покупки ровера.'};this.feedback(r.ok?({'rover.program':'Программа передана роверу.','rover.start':'Программа запущена.','rover.stop':'Ровер остановлен.','rover.purchase':'Ровер добавлен.'}[pending.type]||'Готово.'):`${failures[r.code]||`Ошибка: ${r.code||'нет ответа'}`}${r.line?` Строка ${r.line}.`:''}`);if(!r.ok&&['rover.program','rover.start'].includes(pending.type))this.coachProgramError(r);this.renderControls();}
   renderControls(){const s=this.state,r=s?.rover_fleet?.find(r=>r.rover_id===this.selected),bytes=new TextEncoder().encode(this.q('[data-program]').value).length,max=s?.config?.rover?.program_max_bytes||512,active=r&&['running','waiting'].includes(r.status);this.q('[data-bytes]').textContent=`${bytes} / ${max} байт`;for(const key of ['save','run'])this.q(`[data-${key}]`).disabled=this.busy||this.q('[data-program]').readOnly||!r||active||bytes>max||!this.q('[data-program]').value.trim();this.q('[data-stop]').disabled=!r||!active||this.busy;this.q('[data-purchase]').disabled=!s?.office_access||this.busy;this.q('[data-line]').textContent=r?.error?`Ровер: ${r.error}`:r?.line?`Выполняется строка ${r.line} переданной программы.`:'';}
   render(){const s=this.state;this.button.hidden=!s||s.stage!=='running';if(!s||!this.panel.open)return;const fleet=s.rover_fleet||[];if(!fleet.some(r=>r.rover_id===this.selected))this.selected=fleet[0]?.rover_id||null;const select=this.q('[data-select]');select.replaceChildren(...fleet.map((r,i)=>new Option(`Ровер ${String(i+1).padStart(2,'0')} · ${statuses[r.status]||r.status}`,r.rover_id)));if(!fleet.length)select.add(new Option('Нет доступных роверов',''));select.value=this.selected||'';const r=fleet.find(r=>r.rover_id===this.selected);this.q('[data-status]').innerHTML=r?`<div><small>СОСТОЯНИЕ</small><b>${esc(statuses[r.status]||r.status)}</b></div><div><small>ГРУЗ</small><b>${r.cargo_mass??0} / ${r.capacity??50} кг</b></div><div><small>СКОРОСТЬ</small><b>${fmt(r.speed??0)} м/с</b></div>`:'<p>Добавьте ровер для запуска программ.</p>';this.q('[data-access]').textContent='Удалённое управление · передача и запуск доступны везде';this.renderControls();this.setView(this.view);}
-  open(){if(!this.state||this.state.stage!=='running'||this.panel.open)return;this.scene.controls.suspended=true;this.scene.controls.clear();if(document.pointerLockElement)document.exitPointerLock();this.events.emit('ui.overlay',true);this.panel.showModal();this.render();}
+  open(){if(!this.state||this.state.stage!=='running'||this.panel.open)return;this.scene.controls.suspended=true;this.scene.controls.clear();if(document.pointerLockElement)document.exitPointerLock();this.events.emit('ui.overlay',true);this.panel.showModal();this.render();this.loadKodyash();}
   resume(){if(this.panel.open)return;this.persistLocal();this.scene.clearRoverPreview?.();const suspended=!!document.querySelector('dialog[open]');this.scene.controls.suspended=suspended;this.scene.controls.clear();this.events.emit('ui.overlay',suspended);}
   dispose(){if(this.panel.open){this.panel.close();this.resume();}this.unsubs.forEach(f=>f());this.abort.abort();this.button.remove();this.panel.remove();}
 }

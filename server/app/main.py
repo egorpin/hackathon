@@ -4,6 +4,7 @@ import asyncio
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import uuid
@@ -150,6 +151,15 @@ class AgentQuestion(BaseModel):
     building_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
 
 
+class RoverAgentQuestion(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+    rover_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
+    program: str = Field(default='', max_length=2000)
+    event: str | None = Field(default=None, pattern=r'^(notebook_open|program_error)$')
+    error_code: str | None = Field(default=None, max_length=64, pattern=r'^[A-Z0-9_]+$')
+    error_line: int | None = Field(default=None, ge=1, le=10000)
+
+
 def agent_identity(request):
     identity = db.identity(request.cookies.get(COOKIE))
     if not identity:
@@ -188,6 +198,125 @@ def building_tutorial(identity, building_id):
               'Кратко поздравь игрока, объясни назначение объекта и следующие действия. '
               'Не выдумывай механики и упомяни, что запомнил эту постройку.')
     return {'event': event, 'prompt': prompt, 'type': building_type, 'name': name}
+
+
+def rover_agent_context(identity, question):
+    runtime = app.state.game.runtime(identity)
+    state = app.state.game.dto(identity)
+    rover = next((item for item in state.get('rover_fleet', [])
+                  if item.get('rover_id') == question.rover_id), None)
+    if question.rover_id and rover is None:
+        raise HTTPException(status_code=404, detail='Выбранный ровер недоступен.')
+    from .game.rover import coordinates
+    exact_buildings = []
+    for building in runtime.state.buildings.values():
+        if building.team_id != identity['team_id']:
+            continue
+        exact_buildings.append({
+            'type': building.building_type,
+            'coordinates': coordinates(app.state.game.planet.cells[building.cell_id].center),
+            'construction_status': building.construction_status,
+        })
+    return {
+        'stage': app.state.lobby.stage(identity['world_id']),
+        'selected_rover': rover,
+        'editor_program': question.program,
+        'program_bytes': len(question.program.encode('utf-8')),
+        'rover_config': state.get('config', {}).get('rover', {}),
+        'office_access': state.get('office_access', False),
+        'registered_points': state.get('rover_points', []),
+        'team_buildings': exact_buildings,
+        'selected_rover_coordinates': coordinates(rover['position']) if rover else None,
+        'available_rovers': len(state.get('rover_fleet', [])),
+        'world_tick': getattr(runtime.state, 'tick', None),
+    }
+
+
+ROUTE_ALIASES = (
+    ('dome_base', 'BASE', re.compile(r'\b(?:баз\w*|купол\w*|base)\b', re.I)),
+    ('drill', 'DRILL', re.compile(r'\b(?:бур\w*|дрилл\w*|drill)\b', re.I)),
+    ('warehouse', 'STORAGE', re.compile(r'\b(?:склад\w*|хранилищ\w*|warehouse|storage)\b', re.I)),
+)
+
+
+def rover_route_answer(identity, question, history_rows):
+    """Build common building-to-building routes from authoritative world geometry.
+
+    A small local model must never invent coordinates or Rover Script syntax for
+    an action the server can calculate and validate deterministically.
+    """
+    current = question.text.lower()
+    explicit = re.search(r'маршрут|пролож|поех|до\s|от\s|route', current)
+    follow_up = re.search(r'\b(?:сделай|напиши|создай|давай|выполни)\b.*\b(?:это|так|сам|меня)\b', current)
+    if not explicit and not follow_up:
+        return None
+    recent = [row['text'] for row in history_rows[-6:] if row['role'] == 'user'] if follow_up else []
+    request = '\n'.join((*recent, question.text)).lower()
+    mentions = []
+    for building_type, name, pattern in ROUTE_ALIASES:
+        match = pattern.search(request)
+        if match:
+            mentions.append((match.start(), building_type, name))
+    mentions.sort()
+    ordered = []
+    for _, building_type, name in mentions:
+        if building_type not in [item[0] for item in ordered]:
+            ordered.append((building_type, name))
+    if len(ordered) < 2:
+        return None
+
+    runtime = app.state.game.runtime(identity)
+    planet, state = app.state.game.planet, runtime.state
+    candidates = {}
+    for building in state.buildings.values():
+        if building.team_id == identity['team_id'] and building.construction_status == 'completed':
+            candidates.setdefault(building.building_type, []).append(building)
+    source_type, source_name = ordered[0]
+    target_type, target_name = ordered[1]
+    if not candidates.get(source_type) or not candidates.get(target_type):
+        return None
+
+    from .game.rover import coordinates, parse
+    from .world.geometry import add, dot, move_on_surface, scale, surface_distance, unit
+    source = sorted(candidates[source_type], key=lambda item: item.building_id)[0]
+    source_center = planet.cells[source.cell_id].center
+    target = min(candidates[target_type], key=lambda item: surface_distance(
+        source_center, planet.cells[item.cell_id].center, planet.radius))
+    target_center = planet.cells[target.cell_id].center
+
+    def approach(center, toward):
+        normal, destination = unit(center), unit(toward)
+        direction = add(destination, scale(normal, -dot(destination, normal)))
+        if sum(value * value for value in direction) < 1e-12:
+            return center
+        # 1.2 m is outside the rover/building collision radius (1.1 m), but
+        # remains inside the interaction radius used by load/unload.
+        return move_on_surface(center, unit(direction), 1.2, planet.radius)
+
+    source_point = coordinates(approach(source_center, target_center))
+    target_point = coordinates(approach(target_center, source_center))
+    program = (f'{source_name} = ({source_point["latitude"]:.4f}, {source_point["longitude"]:.4f})\n'
+               f'{target_name} = ({target_point["latitude"]:.4f}, {target_point["longitude"]:.4f})\n\n'
+               f'move_to({source_name})\nmove_to({target_name})')
+    try:
+        parse(program)
+    except ValueError:
+        return None
+    return ('Я рассчитал точки по реальным координатам построек и проверил программу серверным '
+            f'парсером. Маршрут идёт от {source_name} к {target_name}:\n```rover\n{program}\n```')
+
+
+def rover_agent_prompt(question):
+    if question.event == 'notebook_open':
+        return ('Игрок впервые открыл бортовой блокнот. Представься как Кодяш и проведи первый шаг: '
+                'попроси выбрать ровер, открыть или создать программу, проверить связь командой wait(1) '
+                'и нажать «Запустить». Уложись в 4 коротких предложения.')
+    if question.event == 'program_error':
+        line = f' на строке {question.error_line}' if question.error_line else ''
+        return (f'Сервер отклонил программу с ошибкой {question.error_code or "UNKNOWN"}{line}. '
+                'Объясни причину простыми словами и предложи минимальное исправление текущего кода. '
+                'Не переписывай всю программу.')
+    return question.text.strip()
 
 
 @app.get('/api/agents')
@@ -285,6 +414,61 @@ def agent_ask_stream(question: AgentQuestion, request: Request):
                             connection.execute('INSERT INTO agent_messages VALUES (?,?,?,?,?,?,?)',
                                                (str(uuid.uuid4()), identity['world_id'], identity['user_id'], character['id'],
                                                 role, message, int(time.time())))
+            agent_busy.discard(busy_key)
+
+    return StreamingResponse(stream(), media_type='application/x-ndjson', headers={
+        'Cache-Control': 'no-store, no-transform', 'X-Accel-Buffering': 'no',
+    })
+
+
+@app.get('/api/rover-agent/messages')
+def rover_agent_messages(request: Request, response: Response):
+    identity = agent_identity(request)
+    response.headers['Cache-Control'] = 'no-store'
+    messages = [item for item in agent.history(db, identity, 'kodyash') if item['role'] != 'system']
+    return {'agent': {'id': 'kodyash', 'name': 'Кодяш'}, 'messages': messages}
+
+
+@app.post('/api/rover-agent/ask/stream')
+def rover_agent_ask_stream(question: RoverAgentQuestion, request: Request):
+    require_origin(request)
+    identity = agent_identity(request)
+    if agent_busy:
+        raise HTTPException(status_code=429, detail='Другой ИИ-агент уже отвечает. Попробуйте чуть позже.')
+    text = rover_agent_prompt(question)
+    rows = agent.history(db, identity, 'kodyash')
+    exact_route = rover_route_answer(identity, question, rows) if not question.event else None
+    current_profile = agent.profile('kodyash')
+    character = {'id': 'kodyash', 'name': 'Кодяш', 'prompt': current_profile['system'], 'temperature': .2}
+    context = rover_agent_context(identity, question)
+    context.update({'_character': character, '_agent_db': db,
+                    '_agent_identity': identity, '_agent_id': 'kodyash'})
+    busy_key = identity['user_id']
+    agent_busy.add(busy_key)
+
+    def stream():
+        chunks = []
+        completed = False
+        try:
+            source = [exact_route] if exact_route else agent.stream_complete(rows, text, context)
+            for chunk in source:
+                chunks.append(chunk)
+                yield json.dumps({'text': chunk}, ensure_ascii=False) + '\n'
+            completed = True
+            yield json.dumps({'done': True}, ensure_ascii=False) + '\n'
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            yield json.dumps({'error': 'Кодяш сейчас недоступен. Попробуйте позже.'}, ensure_ascii=False) + '\n'
+        finally:
+            if completed:
+                answer = ''.join(chunks).strip()
+                if answer:
+                    source_role = 'system' if question.event else 'user'
+                    source_text = f'[rover:{question.event}] {text}' if question.event else question.text.strip()
+                    with db.connect() as connection:
+                        for role, message in [(source_role, source_text), ('assistant', answer)]:
+                            connection.execute('INSERT INTO agent_messages VALUES (?,?,?,?,?,?,?)',
+                                               (str(uuid.uuid4()), identity['world_id'], identity['user_id'],
+                                                'kodyash', role, message, int(time.time())))
             agent_busy.discard(busy_key)
 
     return StreamingResponse(stream(), media_type='application/x-ndjson', headers={

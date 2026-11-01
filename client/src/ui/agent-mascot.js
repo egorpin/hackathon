@@ -19,3 +19,18 @@ export const agentMascot = `<svg class="agent-mascot" viewBox="0 0 48 48" fill="
   <path class="mascot-keyboard" d="M13 41h3v2h-3zM19 41h3v2h-3zM25 41h3v2h-3zM31 41h3v2h-3z" fill="#30413e"/>
   <path class="mascot-voice" d="M42 17h2v3h-2zM45 14h2v9h-2z" fill="#95ead1"/>
 </svg>`;
+
+// Kodyash uses the same robot and state animations as Marsik, but has his own
+// cold-blue expedition palette.
+export const kodyashMascot = agentMascot
+  .replace('class="agent-mascot"', 'class="agent-mascot agent-mascot-kodyash"')
+  .replaceAll('#e5aa78', '#76a8ef')
+  .replaceAll('#95ead1', '#9eeeff')
+  .replaceAll('#d78250', '#3f78c9')
+  .replaceAll('#f4b47d', '#78b0ff')
+  .replaceAll('#a94e37', '#28508f')
+  .replaceAll('#241d29', '#111c33')
+  .replaceAll('#b5f4de', '#c7f2ff')
+  .replaceAll('#ffbd8b', '#9bc8ff')
+  .replaceAll('#94c8c0', '#70a9d8')
+  .replaceAll('#30413e', '#1d3557');
