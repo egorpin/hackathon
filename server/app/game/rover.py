@@ -81,12 +81,24 @@ class ProgramError(ValueError):
         super().__init__(code)
         self.line = line
 
-def parse(program, points):
+def parse(program, points=None):
     if not isinstance(program,str) or len(program.encode('utf-8'))>512: raise ProgramError('PROGRAM_TOO_LONG')
+    points = dict(points or {})
+    declared = set()
     lines=program.splitlines(); instructions=[]; loop=None
     for number, raw in enumerate(lines,1):
         line=raw.strip()
-        if not line or line.startswith('--'): continue
+        if not line or line.startswith(('--', '#')): continue
+        declaration=re.fullmatch(r'([A-Za-z_][A-Za-z0-9_]{0,23})\s*=\s*\(\s*([^,()]+)\s*,\s*([^,()]+)\s*\)',line)
+        if declaration:
+            name, latitude, longitude = declaration.groups()
+            if name in declared or instructions: raise ProgramError('INVALID_PROGRAM', number)
+            try: lat, lon = float(latitude), float(longitude)
+            except ValueError: raise ProgramError('INVALID_PROGRAM', number) from None
+            if not math.isfinite(lat) or not math.isfinite(lon) or not -90 <= lat <= 90 or not -180 <= lon < 180 or (abs(lat)==90 and lon!=0):
+                raise ProgramError('INVALID_PROGRAM', number)
+            points[name] = {'latitude':lat,'longitude':lon}; declared.add(name)
+            continue
         if line=='while true do':
             if loop is not None: raise ProgramError('INVALID_PROGRAM', number)
             loop=len(instructions); instructions.append({'op':'loop','line':number}); continue
@@ -107,7 +119,9 @@ def parse(program, points):
             try: value=float(arg)
             except ValueError: raise ProgramError('INVALID_PROGRAM', number) from None
             if not math.isfinite(value) or value<=0 or value>3600: raise ProgramError('INVALID_PROGRAM', number)
-        instructions.append({'op':op,'value':value,'line':number})
+        instruction={'op':op,'value':value,'line':number}
+        if op=='move_to': instruction['point']=dict(points[value])
+        instructions.append(instruction)
         if len(instructions)>128: raise ProgramError('INVALID_PROGRAM', number)
     if not instructions or (loop is not None and not any(i['op']=='end' for i in instructions)): raise ProgramError('INVALID_PROGRAM', len(lines) or 1)
     return instructions

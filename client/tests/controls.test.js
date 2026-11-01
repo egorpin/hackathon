@@ -36,6 +36,7 @@ test('building shortcuts require active gameplay and ignore repeat and modifier 
     key('Digit5');key('Digit1',{repeat:true});key('Digit2',{ctrlKey:true});
     assert.equal(emitted.length,0);
     controls.suspended=true;key('Digit3');key('KeyB');key('Escape');assert.equal(emitted.length,0);
-    controls.suspended=false;key('Escape');assert.deepEqual(emitted.pop(),['build.cancel']);
+    controls.suspended=false;key('KeyB');assert.equal(emitted.length,0);
+    key('Escape');assert.deepEqual(emitted.pop(),['build.cancel']);
   } finally {controls.dispose();globalThis.window=saved.window;globalThis.document=saved.document;}
 });

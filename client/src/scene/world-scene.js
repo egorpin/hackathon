@@ -78,8 +78,13 @@ export class WorldScene {
         this.orbitRotation.premultiply(turn).normalize();
       }),
       events.on('scene.click', e => {
-        if (this.mode === 'top') this.pick(e);
-        else if (document.pointerLockElement===this.renderer.domElement)this.events.emit('pickup.request');
+        if (this.mode === 'top') {
+          this.pick(e);
+          if (this.buildType) this.events.emit('build.request');
+        } else if (document.pointerLockElement===this.renderer.domElement) {
+          if (this.buildType) this.events.emit('build.request');
+          else this.events.emit('pickup.request');
+        }
       }),
       events.on('scene.pointer',e=>{if(this.mode==='top')this.pick(e);}),
       events.on('graphics.quality', level => this.setQuality(level)),
@@ -89,6 +94,72 @@ export class WorldScene {
     this.resizeObserver = new ResizeObserver(() => this.resize()); this.resizeObserver.observe(host);
     this.previous = performance.now(); this.fpsStart = this.previous; this.frames = 0; this.inputTime = 0;
     this.renderer.setAnimationLoop(now => this.frame(now));
+  }
+  setRoverPreview({canvas, roverId, mode = 'camera'}) {
+    if (!canvas) return;
+    if (this.roverPreview?.canvas !== canvas) {
+      this.clearRoverPreview();
+      const renderer = new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'low-power'});
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 1));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      this.roverPreview = {canvas, renderer, camera:new THREE.PerspectiveCamera(70,1,.05,Math.max(1200,this.radius*8)), available:null};
+    }
+    this.roverPreview.roverId = roverId;
+    this.roverPreview.mode = mode;
+  }
+  clearRoverPreview() {
+    if (!this.roverPreview) return;
+    this.roverPreview.renderer.dispose();
+    this.roverPreview = null;
+  }
+  renderRoverPreview() {
+    const preview = this.roverPreview;
+    if (!preview) return;
+    const {canvas, renderer, camera, mode} = preview;
+    const entry = this.rovers.get(preview.roverId);
+    const available = !!this.enabled && (mode === 'map' || !!entry?.mesh.visible);
+    if (preview.available !== available) {
+      preview.available = available;
+      this.events.emit('rover.preview.available', available);
+    }
+    const width = canvas.clientWidth, height = canvas.clientHeight;
+    if (!width || !height) return;
+    renderer.setSize(width,height,false);
+    camera.aspect = width / height;
+    camera.far = Math.max(1200,this.radius*8);
+    camera.updateProjectionMatrix();
+    if (!available) { renderer.clear(); return; }
+    const oldMode = this.mode, cameraVisible = this.camera.visible, roverVisible = entry?.mesh.visible;
+    const skyVisible = this.atmosphere.sky.visible, dustVisible = this.atmosphere.dust.visible;
+    const mapVisibility = [];
+    this.camera.visible = false;
+    if (mode === 'map') {
+      const {up, forward} = tangent(this.position,this.heading);
+      const direction = up.clone().applyQuaternion(this.orbitRotation);
+      const distance = this.radius + Math.max(this.radius*.28,this.viewRadius*.65)*this.orbitZoom;
+      camera.position.copy(direction).multiplyScalar(distance);
+      camera.up.copy(forward).applyQuaternion(this.orbitRotation); camera.lookAt(0,0,0);
+      this.mode = 'top'; this.syncSurface();
+      for (const chunk of this.chunks.values()) for (const tile of chunk.cells) {
+        for (const object of [tile.userData.outline,tile.userData.decoration].filter(Boolean)) {
+          mapVisibility.push([object,object.visible]); object.visible = tile.visible;
+        }
+      }
+      this.atmosphere.sky.visible = false; this.atmosphere.dust.visible = false;
+    } else {
+      const position = entry.mesh.position;
+      const basis = tangent(position,vector(entry.data.heading || [0,0,-1]));
+      camera.position.copy(position).addScaledVector(basis.up,.55).addScaledVector(basis.forward,.3);
+      camera.up.copy(basis.up); camera.lookAt(camera.position.clone().add(basis.forward));
+      entry.mesh.visible = false;
+      this.atmosphere.dust.visible = false;
+    }
+    renderer.render(this.scene,camera);
+    if (entry) entry.mesh.visible = roverVisible;
+    for (const [object, visible] of mapVisibility) object.visible = visible;
+    this.camera.visible = cameraVisible;
+    this.atmosphere.sky.visible = skyVisible; this.atmosphere.dust.visible = dustVisible;
+    if (this.mode !== oldMode) { this.mode = oldMode; this.syncSurface(); }
   }
   setQuality(level) {
     this.atmosphere.setQuality(level);
@@ -476,6 +547,7 @@ export class WorldScene {
       }
     }
     this.renderer.render(this.scene,this.camera);
+    this.renderRoverPreview();
     this.frames++;
     if (now-this.fpsStart>=1000) {
       const sorted=this.frameTimes.slice().sort((a,b)=>a-b);
@@ -486,7 +558,7 @@ export class WorldScene {
     }
   }
   dispose() {
-    this.renderer.setAnimationLoop(null); this.resizeObserver.disconnect(); this.controls.dispose();
+    this.renderer.setAnimationLoop(null); this.clearRoverPreview(); this.resizeObserver.disconnect(); this.controls.dispose();
     this.unsubs.forEach(fn=>fn()); this.reset(); this.resourceLabelTextures.dispose(); this.hands.dispose();this.atmosphere.dispose();this.models.dispose();disposeObject(this.preview); this.renderer.dispose(); this.renderer.domElement.remove();
   }
 }

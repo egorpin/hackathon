@@ -156,7 +156,7 @@ def dispatch(context, kind, payload, state, planet):
                 return {'program_revision':rover['program_revision']}
             require(rover['status'] not in ('running','waiting'), "ROVER_RUNNING")
             rover.update(status='running',error=None,line=None,pc=0,wait_ticks=0,instructions=instructions,
-                         targets={i['value']:dict(points[i['value']]) for i in instructions if i['op']=='move_to'})
+                         targets={i['value']:i['point'] for i in instructions if i['op']=='move_to'})
             rover['program_revision']+=1
             return {'program_revision':rover['program_revision']}
         raise Rejected("NOT_IMPLEMENTED")
