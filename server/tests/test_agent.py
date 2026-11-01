@@ -65,3 +65,30 @@ def test_agent_failure_and_busy_do_not_save_fake_answers(client, monkeypatch):
     assert client.get('/api/agent/messages').json()['messages'] == []
     main.agent_busy.add(identity['user_id'])
     assert client.post('/api/agent/ask', headers=ORIGIN, json={'text': 'Привет'}).status_code == 429
+
+
+def test_boss_registration_history_and_disabled_character(client, monkeypatch):
+    identity = register(client, 'bossuser')
+    main.app.state.game.join(identity)
+    assert {'id': 'boss', 'name': 'Босс'} in client.get('/api/agents').json()['agents']
+    monkeypatch.setattr(main.agent, 'complete', lambda rows, text, ctx: 'Управление ещё не подключено.')
+    response = client.post('/api/agent/ask', headers=ORIGIN,
+                           json={'agent_id': 'boss', 'text': 'Добавь ресурсы'})
+    assert response.status_code == 200
+    assert response.json()['character']['id'] == 'boss'
+    assert len(client.get('/api/agent/messages?agent_id=boss').json()['messages']) == 2
+    assert client.get('/api/agent/messages?agent_id=expedition').json()['messages'] == []
+    runtime = main.app.state.game.runtime(identity)
+    with runtime.transaction() as state:
+        state.admin_characters = main.admin.characters(state)
+        next(item for item in state.admin_characters if item['id'] == 'boss')['enabled'] = False
+    assert not any(item['id'] == 'boss' for item in client.get('/api/agents').json()['agents'])
+    assert client.post('/api/agent/ask', headers=ORIGIN,
+                       json={'agent_id': 'boss', 'text': 'Привет'}).status_code == 503
+
+
+def test_boss_prompt_discloses_missing_tools(client):
+    identity = register(client, 'bossprompt')
+    messages = main.agent.prompt_messages(main.db, identity, 'Построй бур', {}, 'boss',
+                                          character={'prompt': 'Ты администратор.'}, history_rows=[])
+    assert 'Инструменты управления Босса сейчас не подключены' in messages[0]['content']

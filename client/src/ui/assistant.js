@@ -233,7 +233,12 @@ export class Assistant {
     this.agentId=this.agentSelect.value;
     this.agentName=data.agents.find(item=>item.id===this.agentId)?.name||'Марсик';
     this.dialog.querySelector('.assistant-agent-name').textContent=this.agentName;
+    this.updateAgentRole();
     this.agentsLoaded=true;
+  }
+  updateAgentRole() {
+    this.dialog.querySelector('.assistant-agent-role').textContent=this.agentId==='boss'
+      ?'Управление экспедицией · скоро':'Помощник по экспедиции';
   }
   async loadHistory() {
     this.send.disabled=true;this.agentSelect.disabled=true;this.status.textContent='Загружаем диалог…';
@@ -249,6 +254,7 @@ export class Assistant {
     this.agentName=this.agentSelect.selectedOptions[0]?.textContent||'ИИ-помощник';
     localStorage.setItem('mars-assistant-agent',this.agentId);
     this.dialog.querySelector('.assistant-agent-name').textContent=this.agentName;
+    this.updateAgentRole();
     try{await this.loadHistory();}catch(error){this.status.textContent=error.message;this.send.disabled=false;this.agentSelect.disabled=false;}
   }
   async open() {

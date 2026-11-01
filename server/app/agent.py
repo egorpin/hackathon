@@ -164,6 +164,13 @@ def prompt_messages(db, identity, text, context, agent_id='expedition', characte
     current_profile = profile(agent_id)
     system = character.get('prompt', current_profile['system']) if character else current_profile['system']
     system = system.rstrip() + '\n\n' + RESPONSE_POLICY
+    if agent_id == 'boss':
+        # Capability boundary until the team's MCP execution adapter is merged.
+        # Keep this independent of editable character prompts and old history.
+        system += ('\nИнструменты управления Босса сейчас не подключены. '
+                   'В этом запросе ты не можешь выполнить административные действия. '
+                   'Не утверждай, что изменил мир; объясни эту доступность пользователю, '
+                   'если он просит выполнить действие.')
     rows = history_rows if history_rows is not None else history(db, identity, agent_id, limit=32)
     memory = compress_memory(db, identity, agent_id, rows)
     references = retrieve(text, current_profile['knowledge'])

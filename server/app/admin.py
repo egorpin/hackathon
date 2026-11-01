@@ -52,8 +52,12 @@ class Telemetry(Model):
 
 
 def characters(state):
-    return state.admin_characters or [dict(id='expedition', name='Марсик', enabled=True,
-                                         prompt=agent.SYSTEM, temperature=.4)]
+    result = list(state.admin_characters or [dict(id='expedition', name='Марсик', enabled=True,
+                                                prompt=agent.SYSTEM, temperature=.4)])
+    if not any(item['id'] == 'boss' for item in result):
+        result.append(dict(id='boss', name='Босс', enabled=True,
+                           prompt=agent.profile('boss')['system'], temperature=.2))
+    return result
 
 
 def active_character(state):
