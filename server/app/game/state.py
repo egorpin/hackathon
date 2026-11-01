@@ -39,10 +39,10 @@ RECIPES = {"drill": {"iron": 5}, "warehouse": {"iron": 10, "sulfur": 5},
            "solar_panel": {"iron": 8, "copper": 4}, "wind_turbine": {"iron": 10, "copper": 6}}
 INPUT_TIMEOUT_TICKS = 5
 PRODUCTION_TICKS = 20
-# New construction uses an authoritative fixed schedule: 8 seconds for the
-# three cosmetic builders to travel, followed by 12 seconds of construction.
+# New construction uses an authoritative fixed schedule: the three cosmetic
+# builders travel for 8 seconds, then the 3-second construction timer starts.
 CONSTRUCTION_TRAVEL_TICKS = 160
-CONSTRUCTION_BUILD_TICKS = 240
+CONSTRUCTION_BUILD_TICKS = 60
 OXYGEN_GOAL = 100
 
 # Public palette shared with the color picker. Accept only these exact values.
@@ -86,8 +86,9 @@ class Building:
     stock: dict = field(default_factory=lambda: dict.fromkeys(RESOURCES, 0))
     production_ticks: int = 0
     paid_cost: dict = field(default_factory=dict)
+    construction_travel_progress: int = 0
     construction_progress: int = 0
-    construction_required: int = CONSTRUCTION_TRAVEL_TICKS + CONSTRUCTION_BUILD_TICKS
+    construction_required: int = CONSTRUCTION_BUILD_TICKS
     construction_status: str = "completed"
 
 
@@ -148,6 +149,14 @@ class WorldState:
             if player.position is not None:
                 player.position = tuple(player.position)
             player.move = tuple(player.move)
+        for value in values["buildings"].values():
+            # Migrate the former combined travel + build counter without making
+            # an in-progress site wait for the robots a second time.
+            if value.get("construction_status") in ("planned", "building") and "construction_travel_progress" not in value:
+                old_progress = value.get("construction_progress", 0)
+                value["construction_travel_progress"] = min(CONSTRUCTION_TRAVEL_TICKS, old_progress)
+                value["construction_progress"] = max(0, old_progress - CONSTRUCTION_TRAVEL_TICKS)
+                value["construction_required"] = CONSTRUCTION_BUILD_TICKS
         values["buildings"] = {key: Building(**value) for key, value in values["buildings"].items()}
         # Older saves contain only ore; retain balances and add empty resources.
         for stock in [*(p.inventory for p in values["players"].values()),

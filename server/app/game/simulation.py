@@ -51,13 +51,14 @@ def step(world, dt_seconds, planet):
     ready = []
     for building in producers:
         if building.construction_status != "completed":
-            building.construction_progress = min(building.construction_required, building.construction_progress + 1)
-            if building.construction_progress < CONSTRUCTION_TRAVEL_TICKS:
-                building.construction_status = "planned"
-            elif building.construction_progress < building.construction_required:
-                building.construction_status = "building"
+            if building.construction_travel_progress < CONSTRUCTION_TRAVEL_TICKS:
+                building.construction_travel_progress += 1
+                building.construction_status = ("planned" if building.construction_travel_progress < CONSTRUCTION_TRAVEL_TICKS
+                                                else "building")
             else:
-                building.construction_status = "completed"
+                building.construction_progress = min(building.construction_required, building.construction_progress + 1)
+                building.construction_status = ("building" if building.construction_progress < building.construction_required
+                                                else "completed")
             events.append({"type": "building.updated", "building_id": building.building_id})
             if building.construction_status != "completed":
                 continue
@@ -127,6 +128,7 @@ def snapshot(context, unit_of_work, view_radius=12.0):
                 "color": state.players[building.creator_id].color,
                 "interaction_distance": building_interaction_distance(planet, planet.cells[building.cell_id]),
                 "construction_status": building.construction_status,
+                "construction_travel_progress": building.construction_travel_progress,
                 "construction_progress": building.construction_progress,
                 "construction_required": building.construction_required}
         if building.team_id == player.team_id:

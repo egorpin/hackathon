@@ -44,7 +44,7 @@ class EconomyTests(unittest.TestCase):
         state = self.world.state
         panel = state.buildings[panel_id]
         self.assertEqual((panel.construction_status, panel.construction_progress, panel.construction_required),
-                         ('planned', 0, 400))
+                         ('planned', 0, 60))
         view = snapshot(self.context, self.world)['payload']
         panel_view = next(building for building in view['buildings'] if building['building_id'] == panel_id)
         self.assertEqual(panel_view['construction_status'], 'planned')
@@ -56,10 +56,10 @@ class EconomyTests(unittest.TestCase):
         self.assertEqual(self.world.state.buildings[panel_id].construction_status, 'planned')
         self.advance(1)
         self.assertEqual(self.world.state.buildings[panel_id].construction_status, 'building')
-        self.assertEqual(self.world.state.buildings[panel_id].construction_progress, 160)
-        self.advance(240)
+        self.assertEqual(self.world.state.buildings[panel_id].construction_progress, 0)
+        self.advance(60)
         self.assertEqual(self.world.state.buildings[panel_id].construction_status, 'completed')
-        self.assertEqual(self.world.state.buildings[panel_id].construction_progress, 400)
+        self.assertEqual(self.world.state.buildings[panel_id].construction_progress, 60)
 
         turbine_id = self.build('wind_turbine', self.planet.cells[self.planet.landing_sites[0]].neighbors[2], complete=False)
         self.assertEqual(self.world.state.buildings[turbine_id].construction_status, 'planned')
@@ -98,7 +98,7 @@ class EconomyTests(unittest.TestCase):
         restored = UnitOfWork(self.planet, WorldState.from_dict(saved['data']))
         restored_building = restored.state.buildings[building_id]
         self.assertEqual((restored_building.construction_status, restored_building.construction_progress),
-                         ('building', 200))
+                         ('building', 40))
 
         # Records from before construction fields existed deserialize as built.
         legacy = Building('legacy', cell, 'warehouse', 'team-a', 'alice')
