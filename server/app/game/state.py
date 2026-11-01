@@ -35,7 +35,10 @@ STARTING_ORE = 0
 STARTING_RESOURCES = {"iron": 40, "sulfur": 15, "water": 5}
 OXYGEN_PER_CYCLE = 0.1
 RECIPES = {"drill": {"iron": 5}, "warehouse": {"iron": 10, "sulfur": 5},
-           "oxygen_generator": {"iron": 15, "sulfur": 5}, "dome_base": {"iron": 10}}
+           "oxygen_generator": {"iron": 15, "sulfur": 5}, "dome_base": {"iron": 10},
+           "solar_panel": {"iron": 5, "sulfur": 2}}
+SOLAR_ENERGY_OUTPUT = 10
+ENERGY_CONSUMPTION = {"drill": 2, "oxygen_generator": 3, "warehouse": 0, "dome_base": 0, "solar_panel": 0}
 INPUT_TIMEOUT_TICKS = 5
 PRODUCTION_TICKS = 20
 OXYGEN_GOAL = 100
@@ -79,7 +82,7 @@ class Building:
     team_id: str
     creator_id: str
     stock: dict = field(default_factory=lambda: dict.fromkeys(RESOURCES, 0))
-    production_ticks: int = 0
+    production_ticks: float = 0.0
     paid_cost: dict = field(default_factory=dict)
 
 

@@ -17,6 +17,7 @@ class EconomyTests(unittest.TestCase):
     act = helpers.GameTests.act
     ok = helpers.GameTests.ok
     start = helpers.GameTests.start
+    supply_energy = helpers.GameTests.supply_energy
     advance = helpers.GameTests.advance
     build = helpers.GameTests.build
     move_near = helpers.GameTests.move_near
@@ -51,6 +52,7 @@ class EconomyTests(unittest.TestCase):
 
     def test_warehouse_capacity_and_overflow_refund(self):
         self.start()
+        self.supply_energy()
         drill = self.build()
         cell = self.planet.cells[self.planet.landing_sites[0]].neighbors[1]
         warehouse = self.build('warehouse', cell)
@@ -72,6 +74,7 @@ class EconomyTests(unittest.TestCase):
 
     def test_manual_water_delivery_to_generator_and_cap_stops_consumption(self):
         self.start()
+        self.supply_energy()
         neighbors = self.planet.cells[self.planet.landing_sites[0]].neighbors
         drill = self.build('drill', neighbors[1])
         generator = self.build('oxygen_generator', neighbors[0])
@@ -107,6 +110,7 @@ class EconomyTests(unittest.TestCase):
 
     def test_warehouse_supplies_only_adjacent_allied_generator_missing_water(self):
         self.start()
+        self.supply_energy()
         neighbors = self.planet.cells[self.planet.landing_sites[0]].neighbors
         drill_cell = next(cell for cell in neighbors if self.planet.cells[cell].resource == 'water')
         drill = self.build('drill', drill_cell)
@@ -189,6 +193,7 @@ class EconomyTests(unittest.TestCase):
 
     def test_new_economy_roundtrip_and_legacy_refund(self):
         self.start()
+        self.supply_energy()
         building = self.build('oxygen_generator')
         with self.world.transaction() as state:
             state.buildings[building].stock['water'] = 1
@@ -199,6 +204,7 @@ class EconomyTests(unittest.TestCase):
         self.assertEqual(restored.buildings[building].production_ticks, 5)
         legacy = self.world.state.to_dict()
         legacy.pop('economy_version')
+        legacy['buildings'].pop('test-solar', None)
         legacy['buildings'][building].pop('paid_cost')
         legacy['players']['alice']['inventory'] = {'ore': 7}
         restored = WorldState.from_dict(legacy)
@@ -212,6 +218,7 @@ class EconomyTests(unittest.TestCase):
         building = self.build('drill')
         legacy = self.world.state.to_dict()
         legacy.pop('economy_version')
+        legacy['buildings'].pop('test-solar', None)
         legacy['buildings'][building].pop('paid_cost')
         legacy['buildings'][building]['stock'] = {'ore': 8, 'iron': 2}
         restored = WorldState.from_dict(legacy)

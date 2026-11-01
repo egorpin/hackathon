@@ -174,7 +174,7 @@ async def agent_ask(question: AgentQuestion, request: Request, response: Respons
         runtime = app.state.game.worlds.get(identity['world_id'])
         if runtime and identity['user_id'] in runtime.state.players:
             state = app.state.game.dto(identity)
-            context.update({key: state[key] for key in ('inventory', 'team_storage', 'oxygen_percent', 'oxygen_goal', 'config', 'stage') if key in state})
+            context.update({key: state[key] for key in ('inventory', 'team_storage', 'energy', 'oxygen_percent', 'oxygen_goal', 'config', 'stage') if key in state})
             context['team_buildings'] = [item['building_type'] for item in state.get('buildings', [])]
         answer = await asyncio.to_thread(agent.complete, agent.history(db, identity, character['id']), text, context)
         with db.connect() as connection:

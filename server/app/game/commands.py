@@ -259,6 +259,7 @@ def dispatch(context, kind, payload, state, planet):
             building = state.buildings.get(target_id)
             require(building is not None)
             require(building.team_id == player.team_id, "FORBIDDEN")
+            require(building.building_type != "solar_panel")
             in_building_reach(planet, player, building)
             stock = state.team_storage[player.team_id] if building.building_type == "warehouse" else building.stock
             if kind == "resource.pickup":

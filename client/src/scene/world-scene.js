@@ -302,6 +302,13 @@ export class WorldScene {
       for (const x of [-.8,.8]) {
         const leg = mesh(new THREE.BoxGeometry(.2,2.2,.2),0xd4cbb8); leg.position.set(x,1.1,0); group.add(leg);
       }
+    } else if (type === 'solar_panel') {
+      const support = mesh(new THREE.CylinderGeometry(.12,.18,1,8),0xb8bec5); support.position.y=.8; group.add(support);
+      const panel = mesh(new THREE.BoxGeometry(1.8,.08,1.3),0x173c70); panel.position.y=1.35; panel.rotation.x=-.35;
+      group.add(panel);
+      for (const x of [-.6,0,.6]) {
+        const line=mesh(new THREE.BoxGeometry(.025,.01,1.25),0x88b8df); line.position.set(x,.05,0); panel.add(line);
+      }
     } else if (type === 'oxygen_generator') {
       for (const x of [-.42,.42]) {
         const tank = mesh(new THREE.CylinderGeometry(.36,.36,1.7,8),0x85c8c0); tank.position.set(x,1.05,0); group.add(tank);
@@ -309,7 +316,7 @@ export class WorldScene {
     } else {
       const box = mesh(new THREE.BoxGeometry(1.6,1.3,1.3),0xcdb697); box.position.y = .9; group.add(box);
     }
-    group.traverse(node=>{if(node.material && node.position.y>.35)node.material.name='Accent';}); recolor(group,color);
+    group.traverse(node=>{if(type!=='solar_panel' && node.material && node.position.y>.35)node.material.name='Accent';}); recolor(group,color);
     return type==='drill'?group:withFoundation(group);
   }
   place(object, position) {
@@ -538,7 +545,7 @@ export class WorldScene {
       const loadedCells = new Set([...this.chunks.values()].flatMap(c => c.cells.map(t => t.userData.cell.cell_id)));
       for (const entry of this.buildings.values()) {
         entry.mesh.visible = loadedCells.has(entry.data.cell_id) && surfaceDistance(origin,entry.mesh.position,this.radius) <= this.viewRadius;
-        if(entry.mesh.visible && this.visualOptions.animations)entry.mesh.userData.mechanical?.update(dt,{active:true});
+        if(entry.mesh.visible && this.visualOptions.animations)entry.mesh.userData.mechanical?.update(dt * (entry.data.efficiency ?? 1),{active:(entry.data.efficiency ?? 1)>0});
       }
       if (this.mode === 'first') this.pick();
       if (this.selected) {
