@@ -1,7 +1,7 @@
 const CACHE_NAME = 'mars-colony-models-v1';
 const MAX_BYTES = 32 * 1024 * 1024;
 const MAX_ENTRIES = 12;
-const ALLOWED_NAMES = new Set(['astronaut','drill','oxygen_generator','storage','dome_base','rover']);
+const ALLOWED_NAMES = new Set(['astronaut','drill','oxygen_generator','storage','dome_base','rover','solar_panel','wind_turbine','robot_minion']);
 
 // Only versioned, approved model paths are accepted; API and unversioned requests
 // always stay outside this cache. GLBs contain their textures in the same file.

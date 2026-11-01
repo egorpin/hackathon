@@ -59,7 +59,7 @@ function updateBuildInfo(){
   }
   const type=selectedBuilding, cost=costFor(type);
   document.getElementById('build-context').hidden=!type;
-  if(!type){show('build-info','Выберите постройку: 1–4');return;}
+  if(!type){show('build-info','Выберите постройку: 1–5');return;}
   if(!cost||!gameState?.team_storage){show('build-info',`Стоимость ${buildingNames[type]||'постройки'}: ожидание состояния`);return;}
   let detail=`${buildingNames[type]||'Постройка'}: ${formatResources(cost)} из общего запаса`;
   const missing=missingResources(gameState,type);

@@ -33,7 +33,7 @@ export class Runtime {
       events.on('player.input', input => { if (this.state?.stage !== 'lobby' && (!transport.session || this.lobbyStage === 'running')) transport.input(input); }),
       events.on('command', ({type,payload}) => { const requestId=this.command(type,payload); if(type.startsWith('rover.') && requestId) events.emit('rover.command.sent',{requestId,type}); }),
       events.on('build.request', () => {
-        if (!this.buildType) { events.emit('notice','Выберите постройку: 1–3 или кнопка внизу экрана.'); return; }
+        if (!this.buildType) { events.emit('notice','Выберите постройку: 1–5 или кнопка внизу экрана.'); return; }
         if (scene.selected && this.buildType === 'drill' && !MINABLE_RESOURCES.includes(scene.selected.resource)) {
           events.emit('notice','Бур можно построить только на месторождении воды, железа, меди или серы.'); return;
         }

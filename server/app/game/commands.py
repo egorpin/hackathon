@@ -195,6 +195,10 @@ def dispatch(context, kind, payload, state, planet):
         require(all(pool.get(resource, 0) >= amount for resource, amount in cost.items()), "INSUFFICIENT_RESOURCES")
         building_id = str(uuid.uuid4())
         building = Building(building_id, cell_id, building_type, player.team_id, player.user_id)
+        # Every player-placed building enters the same authoritative build
+        # schedule.  The landing dome is created by world setup and therefore
+        # keeps the dataclass default of "completed".
+        building.construction_status = "planned"
         building.paid_cost = dict(cost)
         for resource, amount in cost.items():
             pool[resource] -= amount
@@ -259,7 +263,7 @@ def dispatch(context, kind, payload, state, planet):
             building = state.buildings.get(target_id)
             require(building is not None)
             require(building.team_id == player.team_id, "FORBIDDEN")
-            require(building.building_type != "solar_panel")
+            require(building.building_type not in ("solar_panel", "wind_turbine"))
             in_building_reach(planet, player, building)
             stock = state.team_storage[player.team_id] if building.building_type == "warehouse" else building.stock
             if kind == "resource.pickup":
